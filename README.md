@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Maat — Depto Pessoal
 
-## Getting Started
+Sistema interno de rotinas de departamento pessoal: recebe arquivos do ERP, processa, gera análises e devolve arquivos processados. Primeira etapa: usuários, permissões (`admin` | `usuario`) e autenticação.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) + TypeScript + Tailwind + shadcn/ui
+- Prisma + SQLite (`better-sqlite3`, arquivo local — sem servidor de banco)
+- Better-Auth (e-mail/senha)
+
+## Desenvolvimento
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+pnpm db:migrate   # aplica as migrations no prisma/dev.db
+pnpm db:seed      # cria o usuário admin inicial (ver credenciais no terminal)
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Por padrão o admin criado é `admin@maat.local` / `TrocarSenha123`. Para customizar, defina antes do seed:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+SEED_ADMIN_EMAIL=voce@empresa.com SEED_ADMIN_PASSWORD=senha-forte pnpm db:seed
+```
 
-## Learn More
+## Banco de dados
 
-To learn more about Next.js, take a look at the following resources:
+O banco fica em `prisma/dev.db`, um único arquivo — para backup, basta copiar esse arquivo (com o servidor parado, ou usando `pnpm db:studio` fechado). Ele nunca é versionado no git (ver `.gitignore`).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Rodando na máquina do usuário (Windows, uso local)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Instalar Node.js LTS na máquina.
+2. Copiar a pasta do projeto (com `node_modules` já instalado) ou rodar `pnpm install` nela.
+3. Rodar uma vez: `pnpm build`, `pnpm db:migrate`, `pnpm db:seed`.
+4. Criar um atalho na área de trabalho para `iniciar.bat` — ele sobe o servidor (se não estiver rodando) e abre o sistema em uma janela de navegador sem barra de endereço.
 
-## Deploy on Vercel
+## Estrutura de permissões
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `usuario`: acessa `/dashboard` e as rotinas do dia a dia.
+- `admin`: acessa também `/admin/usuarios` para criar/editar/remover usuários e trocar permissões.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Todas as ações administrativas (criar/editar/remover usuário, trocar permissão) ficam registradas em `AuditLog`.
