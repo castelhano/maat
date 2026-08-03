@@ -89,3 +89,83 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_log")
 }
+
+// Empresa cliente (o ERP é multi-empresa — código "005" etc. no cabeçalho dos relatórios).
+model Empresa {
+  id        String   @id @default(cuid())
+  codigo    String
+  nome      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  funcionarios Funcionario[]
+  importacoes  Importacao[]
+
+  @@unique([codigo])
+  @@map("empresa")
+}
+
+// Cargo = "Função" do relatório de salários. Compartilhado entre empresas (mesma ideia do ERP:
+// "MOTORISTA" é um cargo só, não um por empresa — o salário de fato vive em Funcionario).
+model Cargo {
+  id        String   @id @default(cuid())
+  nome      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Elegibilidade padrão do cargo; Funcionario pode sobrescrever individualmente.
+  recebeCestaBasica  Boolean @default(true)
+  recebeValeRefeicao Boolean @default(true)
+
+  funcionarios Funcionario[]
+
+  @@unique([nome])
+  @@map("cargo")
+}
+
+model Funcionario {
+  id           String   @id @default(cuid())
+  empresaId    String
+  empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  matricula    String
+  nome         String
+  dataAdmissao DateTime
+  cargoId      String
+  cargo        Cargo    @relation(fields: [cargoId], references: [id])
+  salario      Decimal
+
+  // "ativo" | "afastado" | "desligado"
+  status           String    @default("ativo")
+  dataAfastamento  DateTime?
+  dataDesligamento DateTime?
+
+  // null = usa o padrão do cargo; true/false = sobrescreve para este funcionário.
+  recebeCestaBasica  Boolean?
+  recebeValeRefeicao Boolean?
+  // null = calculado como percentual do salário; valor definido aqui força um total diferente.
+  valorValeRefeicao  Decimal?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([empresaId, matricula])
+  @@index([cargoId])
+  @@map("funcionario")
+}
+
+// Log de cada importação de arquivo de folha (rastreabilidade + auditoria dos dados de RH).
+model Importacao {
+  id             String   @id @default(cuid())
+  empresaId      String
+  empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  importadoPorId String
+  nomeArquivo    String
+  competencia    String
+  criados        Int
+  atualizados    Int
+  naoEncontrados String?
+  createdAt      DateTime @default(now())
+
+  @@index([empresaId])
+  @@map("importacao")
+}

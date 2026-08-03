@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
+import { logAction } from "@/lib/audit";
 
 const roleSchema = z.enum(["admin", "usuario"]);
 
@@ -14,22 +15,6 @@ const createUserSchema = z.object({
   password: z.string().min(4, "Mínimo de 4 caracteres"),
   role: roleSchema,
 });
-
-async function logAction(
-  actorId: string,
-  action: string,
-  targetId?: string,
-  metadata?: Record<string, unknown>,
-) {
-  await prisma.auditLog.create({
-    data: {
-      actorId,
-      action,
-      targetId,
-      metadata: metadata ? JSON.stringify(metadata) : undefined,
-    },
-  });
-}
 
 export async function createUser(input: z.infer<typeof createUserSchema>) {
   const admin = await requireAdmin();

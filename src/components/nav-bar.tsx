@@ -41,12 +41,20 @@ export function NavBar({
             Dashboard
           </Link>
           {role === "admin" && (
-            <Link
-              href="/admin/usuarios"
-              className="font-mono text-[11px] font-medium uppercase tracking-[.06em] text-text-2 hover:text-foreground"
-            >
-              Usuários
-            </Link>
+            <>
+              <Link
+                href="/admin/usuarios"
+                className="font-mono text-[11px] font-medium uppercase tracking-[.06em] text-text-2 hover:text-foreground"
+              >
+                Usuários
+              </Link>
+              <Link
+                href="/admin/importar-folha"
+                className="font-mono text-[11px] font-medium uppercase tracking-[.06em] text-text-2 hover:text-foreground"
+              >
+                Importar Folha
+              </Link>
+            </>
           )}
         </nav>
       </div>

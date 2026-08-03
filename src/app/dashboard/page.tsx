@@ -1,6 +1,22 @@
+import { Building2, Briefcase, Users } from "lucide-react";
+import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/session";
+import { ProjectCard } from "@/components/project-card";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const user = await requireUser();
+  const isAdmin = user.role === "admin";
+
+  const counts = isAdmin
+    ? await Promise.all([
+        prisma.funcionario.count(),
+        prisma.cargo.count(),
+        prisma.empresa.count(),
+      ])
+    : null;
+  const [funcionarios, cargos, empresas] = counts ?? [0, 0, 0];
+
   return (
     <>
       <div className="flex flex-col gap-1.5 py-1">
@@ -11,15 +27,44 @@ export default function DashboardPage() {
           rotinas de departamento pessoal
         </p>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Nenhuma rotina cadastrada ainda</CardTitle>
-          <CardDescription>
-            As próximas etapas vão adicionar aqui o processamento de arquivos
-            do ERP.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+
+      {isAdmin ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ProjectCard
+            href="/admin/funcionarios"
+            icon={Users}
+            cor="blue"
+            tag="cadastro"
+            nome="Funcionários"
+            descricao={`${funcionarios} funcionário(s) cadastrado(s). Ficha completa e sincronização com o ERP.`}
+          />
+          <ProjectCard
+            href="/admin/cargos"
+            icon={Briefcase}
+            cor="violet"
+            tag="cadastro"
+            nome="Cargos"
+            descricao={`${cargos} cargo(s) cadastrado(s), organizados por empresa.`}
+          />
+          <ProjectCard
+            href="/admin/empresas"
+            icon={Building2}
+            cor="teal"
+            tag="cadastro"
+            nome="Empresas"
+            descricao={`${empresas} empresa(s) atendida(s) pelo departamento pessoal.`}
+          />
+        </div>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Nenhuma rotina disponível ainda</CardTitle>
+            <CardDescription>
+              Fale com um administrador se precisar de acesso a alguma rotina.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
     </>
   );
 }
