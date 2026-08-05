@@ -54,6 +54,9 @@ export function NavBar({
         <span className="font-mono text-[11px] tracking-[.04em] text-text-3">
           {name} · {role === "admin" ? "ADMIN" : "USUÁRIO"}
         </span>
+        <Button variant="secondary" size="sm" nativeButton={false} render={<Link href="/dashboard/conta" />}>
+          Minha conta
+        </Button>
         <Button variant="secondary" size="sm" onClick={handleLogout}>
           Sair
         </Button>

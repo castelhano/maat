@@ -5,7 +5,7 @@ import { UsersTable } from "./users-table";
 export default async function UsuariosPage() {
   const currentUser = await requireAdmin();
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { id: true, name: true, username: true, role: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
 

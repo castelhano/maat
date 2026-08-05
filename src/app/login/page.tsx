@@ -20,7 +20,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 
 const loginSchema = z.object({
-  email: z.string().email("Informe um e-mail válido"),
+  username: z.string().min(1, "Informe o usuário"),
   password: z.string().min(1, "Informe a senha"),
 });
 
@@ -40,14 +40,14 @@ export default function LoginPage() {
 
   async function onSubmit(values: LoginValues) {
     setLoading(true);
-    const { error } = await authClient.signIn.email({
-      email: values.email,
+    const { error } = await authClient.signIn.username({
+      username: values.username,
       password: values.password,
     });
     setLoading(false);
 
     if (error) {
-      toast.error("E-mail ou senha inválidos");
+      toast.error("Usuário ou senha inválidos");
       return;
     }
 
@@ -67,7 +67,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Acessar sistema</CardTitle>
-          <CardDescription>Informe seu e-mail e senha</CardDescription>
+          <CardDescription>Informe seu usuário e senha</CardDescription>
         </CardHeader>
         <CardContent>
           <form
@@ -75,16 +75,16 @@ export default function LoginPage() {
             className="flex flex-col gap-4"
           >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label htmlFor="username">Usuário</Label>
               <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                {...register("email")}
+                id="username"
+                type="text"
+                autoComplete="username"
+                {...register("username")}
               />
-              {errors.email && (
+              {errors.username && (
                 <p className="font-mono text-[10px] text-destructive">
-                  {errors.email.message}
+                  {errors.username.message}
                 </p>
               )}
             </div>

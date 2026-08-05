@@ -195,7 +195,7 @@ export function Importador() {
           )}
 
           {preview.novos.length > 0 && (
-            <Table>
+            <Table containerClassName="max-h-[60vh] overflow-y-auto">
               <TableHeader>
                 <TableRow>
                   <TableHead>Matrícula</TableHead>
@@ -218,7 +218,7 @@ export function Importador() {
           )}
 
           {preview.atualizados.length > 0 && (
-            <Table>
+            <Table containerClassName="max-h-[60vh] overflow-y-auto">
               <TableHeader>
                 <TableRow>
                   <TableHead>Matrícula</TableHead>
@@ -243,7 +243,7 @@ export function Importador() {
               <p className="font-mono text-[10px] tracking-[.06em] text-warning uppercase">
                 Cadastrados que não apareceram neste arquivo (revisar antes de desligar manualmente)
               </p>
-              <Table>
+              <Table containerClassName="max-h-[60vh] overflow-y-auto">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Matrícula</TableHead>
