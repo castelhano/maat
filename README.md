@@ -19,7 +19,7 @@ pnpm dev
 
 Acesse http://localhost:3000.
 
-Por padrão o admin criado é `admin@maat.local` / `TrocarSenha123`. Para customizar, defina antes do seed:
+Por padrão o admin criado é `admin@maat.local` / `1234`. Para customizar, defina antes do seed:
 
 ```bash
 SEED_ADMIN_EMAIL=voce@empresa.com SEED_ADMIN_PASSWORD=senha-forte pnpm db:seed

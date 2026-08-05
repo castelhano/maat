@@ -10,7 +10,7 @@ async function main() {
   }
 
   const username = process.env.SEED_ADMIN_USERNAME ?? "admin";
-  const password = process.env.SEED_ADMIN_PASSWORD ?? "TrocarSenha123";
+  const password = process.env.SEED_ADMIN_PASSWORD ?? "1234";
   const name = process.env.SEED_ADMIN_NAME ?? "Administrador";
 
   const result = await auth.api.signUpEmail({
