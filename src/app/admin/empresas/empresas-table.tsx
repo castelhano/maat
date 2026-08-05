@@ -132,7 +132,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
         </Dialog>
       </div>
 
-      <Table>
+      <Table containerClassName="max-h-[60vh] overflow-y-auto">
         <TableHeader>
           <TableRow>
             <TableHead>Código</TableHead>

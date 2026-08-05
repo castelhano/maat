@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 import { z } from "zod";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -254,9 +256,14 @@ export function FuncionariosTable({
           />
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button onClick={abrirCriar}>Novo funcionário</Button>} />
-          <DialogContent className="sm:max-w-md">
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" nativeButton={false} render={<Link href="/admin/importar-folha" />}>
+            <RefreshCw />
+            Sync
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger render={<Button onClick={abrirCriar}>Novo funcionário</Button>} />
+            <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editando ? "Editar funcionário" : "Novo funcionário"}</DialogTitle>
               <DialogDescription>
@@ -437,10 +444,11 @@ export function FuncionariosTable({
               </DialogFooter>
             </form>
           </DialogContent>
-        </Dialog>
+          </Dialog>
+        </div>
       </div>
 
-      <Table>
+      <Table containerClassName="max-h-[60vh] overflow-y-auto">
         <TableHeader>
           <TableRow>
             <TableHead>Matrícula</TableHead>

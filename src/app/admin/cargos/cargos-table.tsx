@@ -200,7 +200,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
         </Dialog>
       </div>
 
-      <Table>
+      <Table containerClassName="max-h-[60vh] overflow-y-auto">
         <TableHeader>
           <TableRow>
             <TableHead>Nome</TableHead>

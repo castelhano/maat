@@ -1,8 +1,5 @@
-import Link from "next/link";
-import { RefreshCw } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { Button } from "@/components/ui/button";
 import { FuncionariosTable } from "./funcionarios-table";
 
 export default async function FuncionariosPage() {
@@ -47,12 +44,6 @@ export default async function FuncionariosPage() {
         <p className="font-mono text-[11px] tracking-[.06em] text-text-3">
           cadastro de funcionários por empresa
         </p>
-      </div>
-      <div className="flex justify-end">
-        <Button variant="secondary" nativeButton={false} render={<Link href="/admin/importar-folha" />}>
-          <RefreshCw />
-          Sync
-        </Button>
       </div>
       <FuncionariosTable
         funcionarios={funcionariosSerializados}
