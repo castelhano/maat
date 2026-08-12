@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Users } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { ProjectCard } from "@/components/project-card";
@@ -13,9 +13,10 @@ export default async function DashboardPage() {
         prisma.funcionario.count(),
         prisma.cargo.count(),
         prisma.empresa.count(),
+        prisma.importacao.count(),
       ])
     : null;
-  const [funcionarios, cargos, empresas] = counts ?? [0, 0, 0];
+  const [funcionarios, cargos, empresas, importacoes] = counts ?? [0, 0, 0, 0];
 
   return (
     <>
@@ -31,12 +32,20 @@ export default async function DashboardPage() {
       {isAdmin ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <ProjectCard
+            href="/admin/importar"
+            icon={UploadCloud}
+            cor="amber"
+            tag="rotina"
+            nome="Central de Importações"
+            descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-refeição e faltas por competência.`}
+          />
+          <ProjectCard
             href="/admin/funcionarios"
             icon={Users}
             cor="blue"
             tag="cadastro"
             nome="Funcionários"
-            descricao={`${funcionarios} funcionário(s) cadastrado(s). Ficha completa e sincronização com o ERP.`}
+            descricao={`${funcionarios} funcionário(s) cadastrado(s). Ficha completa por empresa.`}
           />
           <ProjectCard
             href="/admin/cargos"

@@ -101,8 +101,14 @@ model Empresa {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Valor unitário da cesta básica; usado para converter em crédito de VR quando o colaborador
+  // opta por "receber a cesta no VR" em vez da cesta física.
+  valorCestaBasica Decimal?
+
   funcionarios Funcionario[]
+  terceiros    Terceiro[]
   importacoes  Importacao[]
+  apuracoes    Apuracao[]
 
   @@unique([codigo])
   @@map("empresa")
@@ -148,19 +154,118 @@ model Funcionario {
   // null = calculado como percentual do salário; valor definido aqui força um total diferente.
   valorValeRefeicao  Decimal?
 
+  // Relatório 2 (afastamentos): motivo do afastamento, ex. "Licença sem Remuneração" — usado
+  // na regra de perda de cesta básica quando não completa 28 dias trabalhados no mês.
+  motivoAfastamento String?
+  // Opção manual: para cálculo do VR, soma 40% ao salário base antes de aplicar o percentual
+  // (colaboradores com gratificação).
+  temGratificacao   Boolean @default(false)
+  // Opção do colaborador: converter o valor da cesta básica em crédito no VR em vez de receber a cesta física.
+  recebeCestaComoVR Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  faltas Falta[]
 
   @@unique([empresaId, matricula])
   @@index([cargoId])
   @@map("funcionario")
 }
 
-// Log de cada importação de arquivo de folha (rastreabilidade + auditoria dos dados de RH).
+// Relatório 3 (faltas): uma linha por data de falta, não um contador do mês — a data exata é
+// necessária pra apurar qualquer competência retroativa e, futuramente, o período aquisitivo de
+// férias (12 meses corridos desde a admissão, não o mês corrente).
+model Falta {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  data          DateTime
+  createdAt     DateTime    @default(now())
+
+  @@unique([funcionarioId, data])
+  @@index([funcionarioId])
+  @@map("falta")
+}
+
+// Cadastro de terceiros (não vêm da folha do ERP): opção de lançar manualmente e manter
+// recebendo benefício, fora da régua de elegibilidade por cargo/salário dos funcionários.
+model Terceiro {
+  id        String  @id @default(cuid())
+  empresaId String
+  empresa   Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  nome      String
+  documento String?
+  ativo     Boolean @default(true)
+
+  recebeCestaBasica  Boolean  @default(true)
+  recebeValeRefeicao Boolean  @default(false)
+  valorValeRefeicao  Decimal?
+  recebeCestaComoVR  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([empresaId])
+  @@map("terceiro")
+}
+
+// Apuração mensal de benefícios (cesta básica + VR) por empresa/competência. Persistida (em vez
+// de recalculada em tempo real) para permitir reabrir o relatório de um mês fechado mesmo depois
+// que a folha seguinte sobrescrever salário/faltas/afastamento dos cadastros de origem.
+model Apuracao {
+  id          String   @id @default(cuid())
+  empresaId   String
+  empresa     Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  competencia String
+  geradoPorId String
+  createdAt   DateTime @default(now())
+
+  itens ApuracaoItem[]
+
+  @@unique([empresaId, competencia])
+  @@index([empresaId])
+  @@map("apuracao")
+}
+
+model ApuracaoItem {
+  id         String   @id @default(cuid())
+  apuracaoId String
+  apuracao   Apuracao @relation(fields: [apuracaoId], references: [id], onDelete: Cascade)
+
+  // "funcionario" | "terceiro" — dados abaixo são um snapshot no momento do cálculo, para o
+  // relatório continuar íntegro mesmo se o cadastro de origem mudar ou for removido depois.
+  tipo      String
+  matricula String?
+  nome      String
+  cargo     String?
+  salario   Decimal?
+
+  elegivelCestaBasica  Boolean
+  motivoPerdaCesta     String?
+  recebeCestaComoVR    Boolean  @default(false)
+  valorCestaConvertida Decimal?
+
+  elegivelVR    Boolean
+  motivoPerdaVR String?
+  baseCalculoVR Decimal?
+  valorVR       Decimal
+
+  createdAt DateTime @default(now())
+
+  @@index([apuracaoId])
+  @@map("apuracao_item")
+}
+
+// Log de cada importação de arquivo (rastreabilidade + auditoria dos dados de RH). Também é a
+// fonte da checklist "o que já foi importado nesta competência" — um arquivo que cobre várias
+// empresas de uma vez (ex.: situação/vale-refeição) gera uma linha por empresa afetada.
 model Importacao {
   id             String   @id @default(cuid())
   empresaId      String
   empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  // "folha_salarios" | "situacao_vale_refeicao" | "faltas" | "afastamentos"
+  tipo           String   @default("folha_salarios")
   importadoPorId String
   nomeArquivo    String
   competencia    String
@@ -170,5 +275,6 @@ model Importacao {
   createdAt      DateTime @default(now())
 
   @@index([empresaId])
+  @@index([empresaId, tipo, competencia])
   @@map("importacao")
 }
