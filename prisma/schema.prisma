@@ -129,6 +129,11 @@ model Cargo {
   recebeCestaBasica  Boolean @default(true)
   recebeValeRefeicao Boolean @default(true)
 
+  // Sincronizados manualmente via botão na tela de cargos (relatório "Relação Funcionários" do
+  // ERP); nunca sobrescritos automaticamente — divergência do arquivo só é reportada.
+  departamento String?
+  setor        String?
+
   funcionarios Funcionario[]
 
   @@unique([nome])

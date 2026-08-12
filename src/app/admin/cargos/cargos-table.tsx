@@ -35,12 +35,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createCargo, deleteCargo, updateCargo } from "./actions";
+import { SyncDepartamentoDialog } from "./sync-departamento-dialog";
 
 type Cargo = {
   id: string;
   nome: string;
   recebeCestaBasica: boolean;
   recebeValeRefeicao: boolean;
+  departamento: string | null;
+  setor: string | null;
   _count: { funcionarios: number };
 };
 
@@ -139,6 +142,8 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
           />
         </div>
 
+        <div className="flex items-end gap-2">
+          <SyncDepartamentoDialog />
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button onClick={abrirCriar}>Novo cargo</Button>} />
           <DialogContent>
@@ -198,12 +203,15 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Table containerClassName="max-h-[60vh] overflow-y-auto">
         <TableHeader>
           <TableRow>
             <TableHead>Nome</TableHead>
+            <TableHead>Departamento</TableHead>
+            <TableHead>Setor</TableHead>
             <TableHead>Cesta básica</TableHead>
             <TableHead>Vale-refeição</TableHead>
             <TableHead>Funcionários</TableHead>
@@ -214,6 +222,8 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
           {cargosFiltrados.map((cargo) => (
             <TableRow key={cargo.id}>
               <TableCell className="font-medium text-foreground">{cargo.nome}</TableCell>
+              <TableCell>{cargo.departamento ?? "—"}</TableCell>
+              <TableCell>{cargo.setor ?? "—"}</TableCell>
               <TableCell>
                 <Badge variant={cargo.recebeCestaBasica ? "success" : "secondary"}>
                   {cargo.recebeCestaBasica ? "Recebe" : "Não recebe"}
