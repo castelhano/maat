@@ -98,6 +98,9 @@ model Empresa {
   id        String   @id @default(cuid())
   codigo    String
   nome      String
+  // Nome curto pra exibir em gráficos e resumos (ex.: "Pantanal" em vez do nome completo/razão
+  // social). Sugerido automaticamente na importação (primeira palavra do nome), editável.
+  abbr      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -235,11 +238,12 @@ model ApuracaoItem {
 
   // "funcionario" | "terceiro" — dados abaixo são um snapshot no momento do cálculo, para o
   // relatório continuar íntegro mesmo se o cadastro de origem mudar ou for removido depois.
-  tipo      String
-  matricula String?
-  nome      String
-  cargo     String?
-  salario   Decimal?
+  tipo         String
+  matricula    String?
+  nome         String
+  cargo        String?
+  salario      Decimal?
+  dataAdmissao DateTime?
 
   elegivelCestaBasica  Boolean
   motivoPerdaCesta     String?

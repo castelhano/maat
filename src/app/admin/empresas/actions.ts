@@ -5,10 +5,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { logAction } from "@/lib/audit";
+import { primeiraPalavra } from "@/lib/utils";
 
 const empresaSchema = z.object({
   codigo: z.string().min(1, "Informe o código"),
   nome: z.string().min(1, "Informe o nome"),
+  abbr: z.string().nullable().optional(),
 });
 
 export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
@@ -20,7 +22,9 @@ export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
     return { error: "Já existe uma empresa com esse código." };
   }
 
-  const empresa = await prisma.empresa.create({ data });
+  const empresa = await prisma.empresa.create({
+    data: { codigo: data.codigo, nome: data.nome, abbr: data.abbr || primeiraPalavra(data.nome) },
+  });
   await logAction(admin.id, "empresa.create", empresa.id, data);
 
   revalidatePath("/admin/empresas");
@@ -36,7 +40,10 @@ export async function updateEmpresa(id: string, input: z.infer<typeof empresaSch
     return { error: "Já existe outra empresa com esse código." };
   }
 
-  await prisma.empresa.update({ where: { id }, data });
+  await prisma.empresa.update({
+    where: { id },
+    data: { codigo: data.codigo, nome: data.nome, abbr: data.abbr || primeiraPalavra(data.nome) },
+  });
   await logAction(admin.id, "empresa.update", id, data);
 
   revalidatePath("/admin/empresas");

@@ -105,7 +105,7 @@
   --bg-4: #20262c;
   --border-hi: #3d4a57;
   --text-2: #8fa0b0;
-  --text-3: #4e6070;
+  --text-3: #7590a8;
   --success: #10b981;
   --success-dim: rgba(16, 185, 129, 0.12);
   --warning: #f59e0b;
@@ -113,6 +113,45 @@
   --danger: #ef4444;
   --danger-dim: rgba(239, 68, 68, 0.12);
   --accent-glow: rgba(59, 130, 246, 0.15);
+}
+
+/* Reskin pontual pra exportação de PNG em fundo claro (apresentações) — aplicado só dentro de um
+   nó marcado com [data-export-theme="light"] no momento da captura, nunca na tela normal. Cobre
+   os tokens de texto/fundo (classes Tailwind) e os elementos internos do Recharts, que pintam via
+   atributo SVG em vez de classe. */
+[data-export-theme="light"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+[data-export-theme="light"] .text-foreground {
+  color: #0f172a !important;
+}
+[data-export-theme="light"] .text-text-2 {
+  color: #33475a !important;
+}
+[data-export-theme="light"] .text-text-3 {
+  color: #57708a !important;
+}
+[data-export-theme="light"] .text-muted-foreground {
+  color: #33475a !important;
+}
+[data-export-theme="light"] .border-border,
+[data-export-theme="light"] .border-border-hi {
+  border-color: #d8dee5 !important;
+}
+[data-export-theme="light"] .bg-secondary,
+[data-export-theme="light"] .bg-card,
+[data-export-theme="light"] .bg-bg-4 {
+  background-color: #f3f5f7 !important;
+}
+[data-export-theme="light"] .recharts-cartesian-axis-tick text {
+  fill: #33475a !important;
+}
+[data-export-theme="light"] .recharts-cartesian-grid-horizontal line,
+[data-export-theme="light"] .recharts-cartesian-grid-vertical line,
+[data-export-theme="light"] .recharts-cartesian-axis-line,
+[data-export-theme="light"] .recharts-cartesian-axis-tick-line {
+  stroke: #d8dee5 !important;
 }
 
 @layer base {

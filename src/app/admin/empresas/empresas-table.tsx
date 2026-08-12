@@ -32,12 +32,14 @@ type Empresa = {
   id: string;
   codigo: string;
   nome: string;
+  abbr: string | null;
   _count: { funcionarios: number };
 };
 
 const empresaSchema = z.object({
   codigo: z.string().min(1, "Informe o código"),
   nome: z.string().min(1, "Informe o nome"),
+  abbr: z.string(),
 });
 
 type EmpresaValues = z.infer<typeof empresaSchema>;
@@ -57,21 +59,22 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
 
   function abrirCriar() {
     setEditando(null);
-    reset({ codigo: "", nome: "" });
+    reset({ codigo: "", nome: "", abbr: "" });
     setDialogOpen(true);
   }
 
   function abrirEditar(empresa: Empresa) {
     setEditando(empresa);
-    reset({ codigo: empresa.codigo, nome: empresa.nome });
+    reset({ codigo: empresa.codigo, nome: empresa.nome, abbr: empresa.abbr ?? "" });
     setDialogOpen(true);
   }
 
   function onSubmit(values: EmpresaValues) {
+    const payload = { ...values, abbr: values.abbr || null };
     startTransition(async () => {
       const result = editando
-        ? await updateEmpresa(editando.id, values)
-        : await createEmpresa(values);
+        ? await updateEmpresa(editando.id, payload)
+        : await createEmpresa(payload);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -122,6 +125,10 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
                   <p className="font-mono text-[10px] text-destructive">{errors.nome.message}</p>
                 )}
               </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="abbr">Nome curto (opcional)</Label>
+                <Input id="abbr" placeholder="usado em gráficos e resumos" {...register("abbr")} />
+              </div>
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Salvando..." : editando ? "Salvar" : "Criar empresa"}
@@ -137,6 +144,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
           <TableRow>
             <TableHead>Código</TableHead>
             <TableHead>Nome</TableHead>
+            <TableHead>Nome curto</TableHead>
             <TableHead>Funcionários</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
@@ -146,6 +154,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
             <TableRow key={empresa.id}>
               <TableCell>{empresa.codigo}</TableCell>
               <TableCell className="font-medium text-foreground">{empresa.nome}</TableCell>
+              <TableCell>{empresa.abbr ?? "—"}</TableCell>
               <TableCell>{empresa._count.funcionarios}</TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">

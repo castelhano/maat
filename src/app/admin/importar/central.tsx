@@ -2,14 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { CompetenciaSelect } from "@/components/competencia-select";
+import { competenciaPadrao } from "@/lib/competencia";
 import { Importador as FolhaImportador } from "../importar-folha/importador";
 import { SituacaoImportador } from "./situacao-importador";
 import { FaltasImportador } from "./faltas-importador";
@@ -52,32 +46,8 @@ const TIPOS: TipoDef[] = [
   },
 ];
 
-const MESES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-];
-
-const ANO_ATUAL = new Date().getFullYear();
-const ANOS = Array.from({ length: 6 }, (_, i) => String(ANO_ATUAL + 1 - i));
-
 function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
-}
-
-// Até dia 10, o usuário provavelmente ainda está fechando o mês anterior — só depois disso
-// assume que a competência corrente é a que interessa.
-function competenciaPadrao(): { mes: string; ano: string } {
-  const hoje = new Date();
-  let mes = hoje.getMonth() + 1;
-  let ano = hoje.getFullYear();
-  if (hoje.getDate() <= 10) {
-    mes -= 1;
-    if (mes === 0) {
-      mes = 12;
-      ano -= 1;
-    }
-  }
-  return { mes: String(mes).padStart(2, "0"), ano: String(ano) };
 }
 
 export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
@@ -119,36 +89,8 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <Label>Competência</Label>
-        <div className="flex gap-2.5">
-          <Select value={mes} onValueChange={(value) => handleMesChange(value as string)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Mês" />
-            </SelectTrigger>
-            <SelectContent>
-              {MESES.map((nome, i) => (
-                <SelectItem key={nome} value={String(i + 1).padStart(2, "0")}>
-                  {nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={ano} onValueChange={(value) => handleAnoChange(value as string)}>
-            <SelectTrigger className="w-28">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              {ANOS.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <p className="font-mono text-[10px] text-text-3">
-          define pra qual mês esta importação conta
-        </p>
+        <CompetenciaSelect mes={mes} ano={ano} onMesChange={handleMesChange} onAnoChange={handleAnoChange} />
+        <p className="font-mono text-[10px] text-text-3">define pra qual mês esta importação conta</p>
       </div>
 
       <div className="flex flex-col gap-3">

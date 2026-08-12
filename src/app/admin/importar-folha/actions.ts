@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
+import { primeiraPalavra } from "@/lib/utils";
 import { parseFolhaSalarios, type FolhaSalariosLinha } from "@/lib/parsers/folha-salarios";
 
 export type PreviewNovo = {
@@ -140,7 +141,7 @@ export async function confirmarImportacao(
   const resumo = await prisma.$transaction(async (tx) => {
     const empresa = await tx.empresa.upsert({
       where: { codigo: parsed.empresa.codigo },
-      create: { codigo: parsed.empresa.codigo, nome: parsed.empresa.nome },
+      create: { codigo: parsed.empresa.codigo, nome: parsed.empresa.nome, abbr: primeiraPalavra(parsed.empresa.nome) },
       update: { nome: parsed.empresa.nome },
     });
 
