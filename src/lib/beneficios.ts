@@ -101,27 +101,74 @@ export function calcularElegibilidadeCesta(funcionario: {
   return { elegivel: true, motivo: null };
 }
 
-export function calcularVR(funcionario: {
-  status: string;
-  salario: number;
-  temGratificacao: boolean;
-  valorValeRefeicao: number | null;
-  recebeValeRefeicaoResolvido: boolean;
-}): ResultadoVR {
+// Dias efetivos no mês para fins de VR: desconsidera dias antes da admissão (quando ela cai
+// dentro do mês de competência) e dias de afastamento (parcial, quando o afastamento começou
+// dentro do mês; ou o mês inteiro, quando o afastamento já vinha de meses anteriores). Faltas
+// não entram nessa conta — só afastamento e admissão afetam o VR.
+function diasEfetivosNoMes(
+  funcionario: { dataAdmissao: Date; status: string; dataAfastamento: Date | null },
+  competencia: { ano: number; mes: number }
+): number {
+  const totalDias = diasNoMes(competencia.ano, competencia.mes);
+  let inicio = 1;
+  let fim = totalDias;
+
+  const admissao = funcionario.dataAdmissao;
+  if (admissao.getUTCFullYear() === competencia.ano && admissao.getUTCMonth() + 1 === competencia.mes) {
+    inicio = admissao.getUTCDate();
+  }
+
+  if (funcionario.status === "afastado" && funcionario.dataAfastamento) {
+    const afastamento = funcionario.dataAfastamento;
+    const afastamentoAnoMes = afastamento.getUTCFullYear() * 12 + afastamento.getUTCMonth();
+    const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
+
+    if (afastamentoAnoMes < competenciaAnoMes) {
+      fim = 0;
+    } else if (afastamentoAnoMes === competenciaAnoMes) {
+      fim = Math.min(fim, afastamento.getUTCDate() - 1);
+    }
+  }
+
+  return Math.max(0, fim - inicio + 1);
+}
+
+export function calcularVR(
+  funcionario: {
+    status: string;
+    salario: number;
+    temGratificacao: boolean;
+    valorValeRefeicao: number | null;
+    recebeValeRefeicaoResolvido: boolean;
+    dataAdmissao: Date;
+    dataAfastamento: Date | null;
+  },
+  competencia: { ano: number; mes: number }
+): ResultadoVR {
   if (!funcionario.recebeValeRefeicaoResolvido) {
     return { elegivel: false, motivo: "Função sem direito a vale-refeição", baseCalculo: null, valor: 0 };
   }
   if (funcionario.status === "desligado") {
     return { elegivel: false, motivo: "Desligado", baseCalculo: null, valor: 0 };
   }
+
+  const totalDias = diasNoMes(competencia.ano, competencia.mes);
+  const diasEfetivos = diasEfetivosNoMes(funcionario, competencia);
+  const proporcao = diasEfetivos / totalDias;
+  const motivoProporcional =
+    diasEfetivos < totalDias
+      ? `Proporcional a ${diasEfetivos}/${totalDias} dias (desconsiderado afastamento/admissão no mês)`
+      : null;
+
   if (funcionario.valorValeRefeicao !== null) {
-    return { elegivel: true, motivo: null, baseCalculo: null, valor: funcionario.valorValeRefeicao };
+    return { elegivel: true, motivo: motivoProporcional, baseCalculo: null, valor: funcionario.valorValeRefeicao * proporcao };
   }
 
   const base = funcionario.temGratificacao ? funcionario.salario * (1 + GRATIFICACAO_PERCENTUAL) : funcionario.salario;
   const bruto = base * VR_PERCENTUAL;
-  const valor = Math.min(Math.max(bruto, VR_MINIMO), VR_MAXIMO);
-  return { elegivel: true, motivo: null, baseCalculo: base, valor };
+  const valorIntegral = Math.min(Math.max(bruto, VR_MINIMO), VR_MAXIMO);
+  const valor = valorIntegral * proporcao;
+  return { elegivel: true, motivo: motivoProporcional, baseCalculo: base, valor };
 }
 
 export function calcularValorCestaConvertida(params: {

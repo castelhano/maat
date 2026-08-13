@@ -20,6 +20,8 @@ const funcionarioSchema = z
     recebeCestaBasica: z.boolean().nullable(),
     recebeValeRefeicao: z.boolean().nullable(),
     valorValeRefeicao: z.coerce.number().nonnegative().nullable().optional(),
+    temGratificacao: z.boolean(),
+    recebeCestaComoVR: z.boolean(),
   })
   .superRefine((data, ctx) => {
     if (data.status === "afastado" && !data.dataAfastamento) {
@@ -54,6 +56,8 @@ function montarDados(data: FuncionarioInput) {
     recebeCestaBasica: data.recebeCestaBasica,
     recebeValeRefeicao: data.recebeValeRefeicao,
     valorValeRefeicao: data.valorValeRefeicao ?? null,
+    temGratificacao: data.temGratificacao,
+    recebeCestaComoVR: data.recebeCestaComoVR,
   };
 }
 

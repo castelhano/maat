@@ -46,7 +46,9 @@ export function parseRelacaoFuncionarios(conteudo: string): RelacaoFuncionariosP
     if (!apiMatch) {
       throw new Error(`Matrícula ${matricula}: não encontrei área/departamento/salário na linha.`);
     }
-    const [, , departamento, setor] = apiMatch;
+    // Colunas do relatório: DESCAREA (área/setor amplo, ex. "MANUTENCAO") vem antes de
+    // DESCDEPTO (departamento específico, ex. "BORRACHARIA") — nessa ordem no arquivo.
+    const [, , setor, departamento] = apiMatch;
 
     linhas.push({ funcao, departamento: departamento.trim(), setor: setor.trim() });
   }

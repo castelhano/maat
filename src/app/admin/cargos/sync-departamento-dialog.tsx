@@ -97,7 +97,7 @@ export function SyncDepartamentoDialog() {
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Sincronizar departamento/setor dos cargos</DialogTitle>
           <DialogDescription>
@@ -107,7 +107,7 @@ export function SyncDepartamentoDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pr-1">
           <label
             className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors ${
               file
@@ -147,7 +147,7 @@ export function SyncDepartamentoDialog() {
                   <p className="font-mono text-[10px] tracking-[.06em] text-primary uppercase">
                     Cargos que serão criados
                   </p>
-                  <Table containerClassName="max-h-[40vh] overflow-y-auto">
+                  <Table containerClassName="max-h-[30vh] overflow-y-auto">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Cargo</TableHead>

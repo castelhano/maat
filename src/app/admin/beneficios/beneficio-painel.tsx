@@ -82,8 +82,12 @@ export function BeneficioPainel({
   competencia: string;
 }) {
   const dados = useMemo(() => {
-    const elegivel = (i: ApuracaoItemDTO) => (dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR);
-    const motivo = (i: ApuracaoItemDTO) => (dimensao === "cesta" ? i.motivoPerdaCesta : i.motivoPerdaVR);
+    const elegivel = (i: ApuracaoItemDTO) =>
+      dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
+    const motivo = (i: ApuracaoItemDTO) =>
+      dimensao === "cesta"
+        ? i.motivoPerdaCesta
+        : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
 
     const elegiveis = itens.filter(elegivel);
     const naoElegiveis = itens.filter((i) => !elegivel(i));
@@ -288,8 +292,11 @@ export function BeneficioPainel({
           </TableHeader>
           <TableBody>
             {itens.map((i, idx) => {
-              const eleg = dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR;
-              const mot = dimensao === "cesta" ? i.motivoPerdaCesta : i.motivoPerdaVR;
+              const eleg = dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
+              const mot =
+                dimensao === "cesta"
+                  ? i.motivoPerdaCesta
+                  : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
               return (
                 <TableRow key={`${i.matricula ?? "terceiro"}-${idx}`}>
                   <TableCell>{i.matricula ?? "—"}</TableCell>

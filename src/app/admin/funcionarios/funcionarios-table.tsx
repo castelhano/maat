@@ -54,11 +54,14 @@ type Funcionario = {
   recebeCestaBasica: boolean | null;
   recebeValeRefeicao: boolean | null;
   valorValeRefeicao: number | null;
+  temGratificacao: boolean;
+  recebeCestaComoVR: boolean;
   empresa: { nome: string };
   cargo: { nome: string; recebeCestaBasica: boolean; recebeValeRefeicao: boolean };
 };
 
 const HERANCA = ["herda", "sim", "nao"] as const;
+const BOOL = ["false", "true"] as const;
 
 // Aceita "1234", "1234.56" ou "1234,56" (não confiamos no <input type="number">
 // nativo para validar — o Firefox deixa digitar qualquer caractere nele).
@@ -83,6 +86,8 @@ const funcionarioFormSchema = z
     valorValeRefeicao: z
       .string()
       .refine((v) => v === "" || NUMERO_DECIMAL.test(v), "Informe um valor numérico válido"),
+    temGratificacao: z.enum(BOOL),
+    recebeCestaComoVR: z.enum(BOOL),
   })
   .superRefine((data, ctx) => {
     if (data.status === "afastado" && !data.dataAfastamento) {
@@ -148,6 +153,8 @@ export function FuncionariosTable({
   const status = useWatch({ control, name: "status" });
   const recebeCestaBasica = useWatch({ control, name: "recebeCestaBasica" });
   const recebeValeRefeicao = useWatch({ control, name: "recebeValeRefeicao" });
+  const temGratificacao = useWatch({ control, name: "temGratificacao" });
+  const recebeCestaComoVR = useWatch({ control, name: "recebeCestaComoVR" });
 
   const funcionariosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -175,6 +182,8 @@ export function FuncionariosTable({
       recebeCestaBasica: "herda",
       recebeValeRefeicao: "herda",
       valorValeRefeicao: "",
+      temGratificacao: "false",
+      recebeCestaComoVR: "false",
     });
     setDialogOpen(true);
   }
@@ -194,6 +203,8 @@ export function FuncionariosTable({
       recebeCestaBasica: heredaToForm(funcionario.recebeCestaBasica),
       recebeValeRefeicao: heredaToForm(funcionario.recebeValeRefeicao),
       valorValeRefeicao: funcionario.valorValeRefeicao !== null ? String(funcionario.valorValeRefeicao) : "",
+      temGratificacao: funcionario.temGratificacao ? "true" : "false",
+      recebeCestaComoVR: funcionario.recebeCestaComoVR ? "true" : "false",
     });
     setDialogOpen(true);
   }
@@ -212,6 +223,8 @@ export function FuncionariosTable({
       recebeCestaBasica: formToHeranca(values.recebeCestaBasica),
       recebeValeRefeicao: formToHeranca(values.recebeValeRefeicao),
       valorValeRefeicao: values.valorValeRefeicao ? paraNumero(values.valorValeRefeicao) : null,
+      temGratificacao: values.temGratificacao === "true",
+      recebeCestaComoVR: values.recebeCestaComoVR === "true",
     };
     startTransition(async () => {
       const result = editando
@@ -429,6 +442,38 @@ export function FuncionariosTable({
                 {errors.valorValeRefeicao && (
                   <p className="font-mono text-[10px] text-destructive">{errors.valorValeRefeicao.message}</p>
                 )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label>Gratificação</Label>
+                <Select
+                  value={temGratificacao}
+                  onValueChange={(value) => setValue("temGratificacao", value as (typeof BOOL)[number])}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="false">Sem gratificação</SelectItem>
+                    <SelectItem value="true">Com gratificação (+40% na base do VR)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label>Cesta como VR</Label>
+                <Select
+                  value={recebeCestaComoVR}
+                  onValueChange={(value) => setValue("recebeCestaComoVR", value as (typeof BOOL)[number])}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="false">Recebe a cesta física</SelectItem>
+                    <SelectItem value="true">Converter valor da cesta em VR</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <DialogFooter>

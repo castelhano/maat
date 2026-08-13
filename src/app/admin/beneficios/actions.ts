@@ -122,13 +122,18 @@ export async function processarApuracao(
         { ano, mes }
       );
 
-      const vr = calcularVR({
-        status: f.status,
-        salario: f.salario.toNumber(),
-        temGratificacao: f.temGratificacao,
-        valorValeRefeicao: f.valorValeRefeicao?.toNumber() ?? null,
-        recebeValeRefeicaoResolvido: recebeVRResolvido,
-      });
+      const vr = calcularVR(
+        {
+          status: f.status,
+          salario: f.salario.toNumber(),
+          temGratificacao: f.temGratificacao,
+          valorValeRefeicao: f.valorValeRefeicao?.toNumber() ?? null,
+          recebeValeRefeicaoResolvido: recebeVRResolvido,
+          dataAdmissao: f.dataAdmissao,
+          dataAfastamento: f.dataAfastamento,
+        },
+        { ano, mes }
+      );
 
       const valorCestaConvertida = calcularValorCestaConvertida({
         elegivelCesta: cesta.elegivel,
