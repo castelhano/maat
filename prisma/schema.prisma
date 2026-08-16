@@ -108,10 +108,11 @@ model Empresa {
   // opta por "receber a cesta no VR" em vez da cesta física.
   valorCestaBasica Decimal?
 
-  funcionarios Funcionario[]
-  terceiros    Terceiro[]
-  importacoes  Importacao[]
-  apuracoes    Apuracao[]
+  funcionarios         Funcionario[]
+  terceiros            Terceiro[]
+  importacoes          Importacao[]
+  apuracoes            Apuracao[]
+  bancoHorasImportacoes BancoHorasImportacao[]
 
   @@unique([codigo])
   @@map("empresa")
@@ -175,6 +176,10 @@ model Funcionario {
   updatedAt DateTime @updatedAt
 
   faltas Falta[]
+
+  bancoHorasSaldoInicial BancoHorasSaldoInicial?
+  bancoHorasApuracoes    BancoHorasApuracao[]
+  bancoHorasLotes        BancoHorasLoteCredito[]
 
   @@unique([empresaId, matricula])
   @@index([cargoId])
@@ -286,4 +291,80 @@ model Importacao {
   @@index([empresaId])
   @@index([empresaId, tipo, competencia])
   @@map("importacao")
+}
+
+// Saldo de abertura do Banco de Horas por funcionário, marco zero = dezembro/2025.
+// Hardcoded manualmente (seed), serve de ponto de partida do motor de cálculo em jan/2026.
+model BancoHorasSaldoInicial {
+  id            String      @id @default(cuid())
+  funcionarioId String      @unique
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  competencia   String      // sempre "12/2025"
+  saldoDecimal  Decimal     // pode ser negativo, em horas decimais (não HH:MM)
+  createdAt     DateTime    @default(now())
+
+  @@map("banco_horas_saldo_inicial")
+}
+
+// Um registro por funcionário/competência processada — resultado do motor de cálculo.
+// Substituído (não versionado) quando a competência é reimportada, conforme regra (e) do plano.
+model BancoHorasApuracao {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  competencia   String      // "MM/AAAA"
+
+  creditoBruto   Decimal   // vindo do TXT, em horas decimais
+  debitoBruto    Decimal   // vindo do TXT, em horas decimais
+  creditoLiquido Decimal   // 50% do bruto, arredondado pra cima ao minuto — o que entra no banco
+  pagoNoMes      Decimal   // 50% do bruto (regra a) + expirações de lotes antigos (regra d)
+  saldoPositivo  Decimal   // soma dos lotes de crédito ainda não vencidos/consumidos, ao fechar
+  saldoNegativo  Decimal   // sempre <= 0; valor agregado, sem FIFO
+  saldoFinal     Decimal   // saldoPositivo + saldoNegativo — o que aparece no resumo do mês
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([funcionarioId, competencia])
+  @@index([funcionarioId])
+  @@map("banco_horas_apuracao")
+}
+
+// Lotes de crédito individuais (FIFO), para rastrear consumo e vencimento (regra d).
+// Um lote nasce na competência de origem e vence no fechamento da competência seguinte.
+// O saldo de abertura (dez/2025) também entra como um lote, com origem "12/2025".
+model BancoHorasLoteCredito {
+  id                String      @id @default(cuid())
+  funcionarioId     String
+  funcionario       Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  competenciaOrigem String      // "MM/AAAA" — mês em que o crédito foi gerado (ou "12/2025" pro saldo inicial)
+  valorOriginal     Decimal
+  valorConsumido    Decimal     @default(0)
+  // "aberto" | "consumido" | "expirado_pago"
+  status            String      @default("aberto")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([funcionarioId, status])
+  @@map("banco_horas_lote_credito")
+}
+
+// Log de importação do extrato de banco de horas, mesmo padrão de `Importacao` — mas tipado à
+// parte porque o extrato não tem empresaId no cabeçalho de cada bloco (casa só por matrícula).
+model BancoHorasImportacao {
+  id             String   @id @default(cuid())
+  empresaId      String
+  empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  importadoPorId String
+  nomeArquivo    String
+  periodoInicio  String   // "MM/AAAA"
+  periodoFim     String   // "MM/AAAA"
+  criados        Int
+  atualizados    Int
+  naoEncontrados String?
+  createdAt      DateTime @default(now())
+
+  @@index([empresaId])
+  @@map("banco_horas_importacao")
 }

@@ -22,7 +22,7 @@ export function NavBar({
   }
 
   return (
-    <header className="sticky top-0 z-50 flex h-[52px] items-center justify-between border-b border-border bg-card px-6 backdrop-blur-sm">
+    <header className="sticky top-0 z-50 flex h-[52px] items-center justify-between border-b border-border bg-card px-6 backdrop-blur-sm print:hidden">
       <div className="flex items-center gap-6">
         <Link
           href="/dashboard"

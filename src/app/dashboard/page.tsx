@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { ProjectCard } from "@/components/project-card";
@@ -39,6 +39,14 @@ export default async function DashboardPage() {
             tag="rotina"
             nome="Benefícios"
             descricao="apuração mensal de cesta básica e vale-refeição, com resumos e gráficos exportáveis."
+          />
+          <ProjectCard
+            href="/admin/banco-horas"
+            icon={Clock}
+            cor="violet"
+            tag="rotina"
+            nome="Banco de Horas"
+            descricao="extrato mensal por colaborador — crédito, débito, saldo anterior, a pagar e saldo atual."
           />
           <ProjectCard
             href="/admin/importar"

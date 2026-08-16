@@ -187,6 +187,10 @@ estado (lotes + saldo negativo) da competência anterior.
 ## 7) Pontos em aberto
 
 - Layout exato do CSV de exportação para o ERP (regra 2) — a definir quando houver exemplo.
+r. arquivo txt com matricula com 6 caracteres, seguido de espaço e seguido com valor com 3 casas de milhar e duas casas decimais. exemplo.
+000052 025,00 
+
 - Confirmar se "pago no mês" (regra a + expiração de lotes) precisa aparecer em algum lugar da
   folha de pagamento (`folha-salarios.ts`) ou fica só como registro informativo do Banco de
   Horas.
+  r. valor pago no mês deve ser persistido, assim como valor referente a expiração de lotes
