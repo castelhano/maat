@@ -10,12 +10,14 @@ export type BancoHorasLinha = {
 };
 
 export type BancoHorasParseResult = {
+  empresa: { codigo: string; nome: string };
   periodoInicio: string; // "MM/AAAA"
   periodoFim: string; // "MM/AAAA"
   linhas: BancoHorasLinha[];
 };
 
 const PERIODO = /Periodo:\s*(\d{2}\/\d{4})\s*a\s*(\d{2}\/\d{4})/i;
+const EMPRESA = /^Empresa\s*:\s*(\d{3})\s+(.+?)\s+\d{2}:\d{2}\s*$/m;
 const FUNCIONARIO = /^Funcionario:\s*(\d{6})\/\d{6}\s+.+$/;
 const COMPETENCIA_LINHA = /^\s*(\d{2}\/\d{4})\s+(-?\d+):(\d{2})\s+(-?\d+):(\d{2})/;
 
@@ -33,6 +35,12 @@ export function parseBancoHoras(conteudo: string): BancoHorasParseResult {
   }
   const periodoInicio = periodoMatch[1];
   const periodoFim = periodoMatch[2];
+
+  const empresaMatch = EMPRESA.exec(conteudo);
+  if (!empresaMatch) {
+    throw new Error("Não encontrei o cabeçalho da empresa (\"Empresa : ...\") no arquivo.");
+  }
+  const empresa = { codigo: empresaMatch[1], nome: empresaMatch[2].trim() };
 
   const linhas: BancoHorasLinha[] = [];
   let matriculaAtual: string | null = null;
@@ -62,7 +70,7 @@ export function parseBancoHoras(conteudo: string): BancoHorasParseResult {
     throw new Error("Nenhuma linha de competência foi reconhecida no extrato.");
   }
 
-  return { periodoInicio, periodoFim, linhas };
+  return { empresa, periodoInicio, periodoFim, linhas };
 }
 
 // Saldo de abertura (marco zero, dez/2025): "MATRICULA\tVALOR" por linha, valor em horas

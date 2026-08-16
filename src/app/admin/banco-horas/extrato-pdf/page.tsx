@@ -145,7 +145,8 @@ export default async function ExtratoPdfPage({
           etc.). <strong>Saldo Atual</strong> é o total disponível ao final do mês.
         </p>
         <p>
-          Crédito não utilizado em até um mês após ser gerado é pago automaticamente e sai do banco.
+          Quando o saldo que já estava no banco é suficiente pra cobrir o débito do mês sozinho, o
+          que sobra dele é pago e só a metade do crédito novo permanece no banco.
         </p>
       </div>
     </div>

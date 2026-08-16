@@ -16,6 +16,7 @@ import {
   type FuncionarioOpcao,
   type ExtratoResult,
 } from "./actions";
+import { Importador } from "./importador";
 
 function fmtHoras(decimal: number): string {
   const neg = decimal < 0;
@@ -50,6 +51,13 @@ export function ExtratoCentral() {
   useEffect(() => {
     listarFuncionariosComBancoHoras().then(setFuncionarios);
   }, []);
+
+  function handleImportado() {
+    listarFuncionariosComBancoHoras().then(setFuncionarios);
+    if (funcionarioSelecionado) {
+      carregar(funcionarioSelecionado.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`);
+    }
+  }
 
   const opcoesFiltradas = useMemo(() => {
     if (!busca.trim()) return funcionarios.slice(0, 8);
@@ -126,6 +134,8 @@ export function ExtratoCentral() {
 
   return (
     <div className="flex flex-col gap-6">
+      <Importador onImportado={handleImportado} />
+
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex min-w-[280px] flex-col gap-2">
           <Label>Funcionário</Label>

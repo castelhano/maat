@@ -188,7 +188,7 @@ async function main() {
         if (!func) continue;
 
         const saldoInicial = saldoPorMatricula.get(matricula) ?? 0;
-        const { apuracoes, todosOsLotes } = processarHistorico(saldoInicial, competencias);
+        const { apuracoes } = processarHistorico(saldoInicial, competencias);
 
         await tx.bancoHorasSaldoInicial.upsert({
           where: { funcionarioId: func.id },
@@ -221,21 +221,6 @@ async function main() {
             },
           });
           apuracoesGravadas++;
-        }
-
-        // Reimportação (regra e): limpa os lotes desse funcionário e recria a partir do histórico
-        // recém-calculado, já que o motor é determinístico e reprocessa tudo a cada backfill.
-        await tx.bancoHorasLoteCredito.deleteMany({ where: { funcionarioId: func.id } });
-        if (todosOsLotes.length > 0) {
-          await tx.bancoHorasLoteCredito.createMany({
-            data: todosOsLotes.map((l) => ({
-              funcionarioId: func.id,
-              competenciaOrigem: l.competenciaOrigem,
-              valorOriginal: l.valorOriginalDecimal,
-              valorConsumido: l.valorConsumidoDecimal,
-              status: l.status,
-            })),
-          });
         }
 
         funcionariosProcessados++;
