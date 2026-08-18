@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/session";
 import { Tabs, TabsList, TabsTab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 import { ExtratoCentral } from "./extrato-central";
 import { ResumoMensal } from "./resumo-mensal";
+import { Evolucao } from "./evolucao";
 
 export default async function BancoHorasPage() {
   await requireAdmin();
@@ -20,12 +21,16 @@ export default async function BancoHorasPage() {
           <TabsIndicator />
           <TabsTab value="colaborador">Extrato por colaborador</TabsTab>
           <TabsTab value="mensal">Resumo do mês</TabsTab>
+          <TabsTab value="evolucao">Evolução</TabsTab>
         </TabsList>
         <TabsPanel value="colaborador" className="pt-5">
           <ExtratoCentral />
         </TabsPanel>
         <TabsPanel value="mensal" className="pt-5">
           <ResumoMensal />
+        </TabsPanel>
+        <TabsPanel value="evolucao" className="pt-5">
+          <Evolucao />
         </TabsPanel>
       </Tabs>
     </>

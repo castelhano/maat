@@ -76,10 +76,14 @@ export function BeneficioPainel({
   itens,
   dimensao,
   competencia,
+  filtroEmpresa,
+  filtroArea,
 }: {
   itens: ApuracaoItemDTO[];
   dimensao: "cesta" | "vr";
   competencia: string;
+  filtroEmpresa?: string;
+  filtroArea?: string;
 }) {
   const dados = useMemo(() => {
     const elegivel = (i: ApuracaoItemDTO) =>
@@ -163,6 +167,11 @@ export function BeneficioPainel({
 
   const rotuloBeneficio = dimensao === "cesta" ? "cesta básica" : "vale-refeição";
   const arquivoBase = `${dimensao === "cesta" ? "cesta-basica" : "vale-refeicao"}-${competencia.replace("/", "-")}`;
+
+  const pdfParams = new URLSearchParams({ competencia, dimensao });
+  if (filtroEmpresa) pdfParams.set("empresa", filtroEmpresa);
+  if (filtroArea) pdfParams.set("area", filtroArea);
+  const pdfHref = `/admin/beneficios/detalhamento-pdf?${pdfParams.toString()}`;
 
   return (
     <div className="flex flex-col gap-4">
@@ -276,6 +285,7 @@ export function BeneficioPainel({
         titulo={`Detalhamento — ${rotuloBeneficio}`}
         arquivo={`${arquivoBase}-detalhamento`}
         csv={{ headers: dados.csvHeaders, linhas: dados.csvLinhas }}
+        pdfHref={pdfHref}
       >
         <Table containerClassName="max-h-[70vh] overflow-y-auto">
           <TableHeader>

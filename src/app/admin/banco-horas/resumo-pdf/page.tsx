@@ -87,6 +87,26 @@ export default async function ResumoPdfPage({
         </div>
       </div>
 
+      <div className="mb-8 rounded-md border border-neutral-200 p-5 text-sm">
+        <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
+          Composição do valor pago ({fmtHoras(data.totais.pagoNoMes)})
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-baseline justify-between rounded-md bg-neutral-50 px-4 py-3">
+            <span className="text-neutral-600">Referente a 50% do crédito do mês</span>
+            <span className="font-semibold text-neutral-900 tabular-nums">
+              {fmtHoras(data.totais.pagoReferenteCreditoMes)}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between rounded-md bg-neutral-50 px-4 py-3">
+            <span className="text-neutral-600">Referente ao saldo do mês anterior</span>
+            <span className="font-semibold text-neutral-900 tabular-nums">
+              {fmtHoras(data.totais.pagoReferenteSaldoAnterior)}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <table className="mb-2 w-full border-collapse text-sm">
         <thead>
           <tr className="border-b-2 border-neutral-800 text-left text-[11px] tracking-wide text-neutral-500 uppercase">

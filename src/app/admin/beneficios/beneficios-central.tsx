@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CompetenciaSelect } from "@/components/competencia-select";
 import { competenciaPadrao } from "@/lib/competencia";
 import { carregarApuracao, processarApuracao, type ApuracaoResumo } from "./actions";
 import { BeneficioPainel } from "./beneficio-painel";
+
+const TODAS = "__todas__";
 
 function formatarDataHora(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR");
@@ -21,10 +30,31 @@ export function BeneficiosCentral() {
   const [apuracao, setApuracao] = useState<ApuracaoResumo | null>(null);
   const [carregando, startCarregando] = useTransition();
   const [processando, startProcessando] = useTransition();
+  const [filtroEmpresa, setFiltroEmpresa] = useState(TODAS);
+  const [filtroArea, setFiltroArea] = useState(TODAS);
 
   const competencia = mes && ano ? `${mes}/${ano}` : "";
 
+  const empresas = useMemo(
+    () => [...new Set((apuracao?.itens ?? []).map((i) => i.empresaNome))].sort(),
+    [apuracao]
+  );
+  const areas = useMemo(
+    () => [...new Set((apuracao?.itens ?? []).map((i) => i.area ?? "Sem área"))].sort(),
+    [apuracao]
+  );
+  const itensFiltrados = useMemo(() => {
+    const itens = apuracao?.itens ?? [];
+    return itens.filter((i) => {
+      if (filtroEmpresa !== TODAS && i.empresaNome !== filtroEmpresa) return false;
+      if (filtroArea !== TODAS && (i.area ?? "Sem área") !== filtroArea) return false;
+      return true;
+    });
+  }, [apuracao, filtroEmpresa, filtroArea]);
+
   function carregar(comp: string) {
+    setFiltroEmpresa(TODAS);
+    setFiltroArea(TODAS);
     startCarregando(async () => {
       const result = await carregarApuracao(comp);
       setApuracao(result);
@@ -105,19 +135,68 @@ export function BeneficiosCentral() {
       )}
 
       {apuracao && apuracao.itens.length > 0 && (
-        <Tabs defaultValue="cesta">
-          <TabsList>
-            <TabsIndicator />
-            <TabsTab value="cesta">Cesta básica</TabsTab>
-            <TabsTab value="vr">Vale-refeição</TabsTab>
-          </TabsList>
-          <TabsPanel value="cesta" className="pt-5">
-            <BeneficioPainel itens={apuracao.itens} dimensao="cesta" competencia={competencia} />
-          </TabsPanel>
-          <TabsPanel value="vr" className="pt-5">
-            <BeneficioPainel itens={apuracao.itens} dimensao="vr" competencia={competencia} />
-          </TabsPanel>
-        </Tabs>
+        <>
+          <div className="flex flex-wrap gap-2.5">
+            <Select value={filtroEmpresa} onValueChange={(v) => setFiltroEmpresa(v ?? TODAS)}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Empresa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todas as empresas</SelectItem>
+                {empresas.map((e) => (
+                  <SelectItem key={e} value={e}>
+                    {e}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={filtroArea} onValueChange={(v) => setFiltroArea(v ?? TODAS)}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Área" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={TODAS}>Todas as áreas</SelectItem>
+                {areas.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {itensFiltrados.length === 0 ? (
+            <p className="py-6 text-center font-mono text-[11px] text-text-3">
+              Nenhum item para os filtros selecionados.
+            </p>
+          ) : (
+            <Tabs defaultValue="cesta">
+              <TabsList>
+                <TabsIndicator />
+                <TabsTab value="cesta">Cesta básica</TabsTab>
+                <TabsTab value="vr">Vale-refeição</TabsTab>
+              </TabsList>
+              <TabsPanel value="cesta" className="pt-5">
+                <BeneficioPainel
+                  itens={itensFiltrados}
+                  dimensao="cesta"
+                  competencia={competencia}
+                  filtroEmpresa={filtroEmpresa === TODAS ? undefined : filtroEmpresa}
+                  filtroArea={filtroArea === TODAS ? undefined : filtroArea}
+                />
+              </TabsPanel>
+              <TabsPanel value="vr" className="pt-5">
+                <BeneficioPainel
+                  itens={itensFiltrados}
+                  dimensao="vr"
+                  competencia={competencia}
+                  filtroEmpresa={filtroEmpresa === TODAS ? undefined : filtroEmpresa}
+                  filtroArea={filtroArea === TODAS ? undefined : filtroArea}
+                />
+              </TabsPanel>
+            </Tabs>
+          )}
+        </>
       )}
     </div>
   );

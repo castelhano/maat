@@ -11,6 +11,7 @@ export type ApuracaoItemDTO = {
   matricula: string | null;
   nome: string;
   cargo: string | null;
+  area: string | null;
   salario: number | null;
   dataAdmissao: string | null;
   empresaNome: string;
@@ -50,12 +51,18 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
 
   const geradoEm = apuracoes.reduce<Date | null>((acc, a) => (!acc || a.createdAt > acc ? a.createdAt : acc), null);
 
+  // Área/setor não fica salva no snapshot da apuração (ApuracaoItem guarda só o nome do cargo);
+  // busca no cadastro atual de Cargo pra não precisar de migração nem reprocessar apurações antigas.
+  const cargos = await prisma.cargo.findMany({ select: { nome: true, setor: true } });
+  const setorPorCargo = new Map(cargos.map((c) => [c.nome, c.setor]));
+
   const itens: ApuracaoItemDTO[] = apuracoes.flatMap((a) =>
     a.itens.map((i) => ({
       tipo: i.tipo,
       matricula: i.matricula,
       nome: i.nome,
       cargo: i.cargo,
+      area: i.cargo ? (setorPorCargo.get(i.cargo) ?? null) : null,
       salario: i.salario?.toNumber() ?? null,
       dataAdmissao: i.dataAdmissao ? i.dataAdmissao.toISOString() : null,
       empresaNome: a.empresa.nome,

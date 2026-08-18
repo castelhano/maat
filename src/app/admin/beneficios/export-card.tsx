@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { toPng } from "html-to-image";
-import { Download, ChevronDown } from "lucide-react";
+import { Download, ChevronDown, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import {
@@ -21,12 +21,14 @@ export function ExportCard({
   descricao,
   arquivo,
   csv,
+  pdfHref,
   children,
 }: {
   titulo: string;
   descricao?: string;
   arquivo: string;
   csv?: { headers: string[]; linhas: (string | number)[][] };
+  pdfHref?: string;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -81,6 +83,12 @@ export function ExportCard({
                 <DropdownMenuItem onClick={() => exportarPng(false)}>PNG (escuro)</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => exportarPng(true)}>PNG (claro)</DropdownMenuItem>
                 {csv && <DropdownMenuItem onClick={exportarCsv}>CSV</DropdownMenuItem>}
+                {pdfHref && (
+                  <DropdownMenuItem onClick={() => window.open(pdfHref, "_blank")}>
+                    <FileText />
+                    PDF
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
