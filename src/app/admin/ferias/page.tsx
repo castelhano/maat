@@ -5,14 +5,25 @@ import { FeriasTable } from "./ferias-table";
 export default async function FeriasPage() {
   await requireAdmin();
 
-  const periodos = await prisma.ferias.findMany({
-    orderBy: { dataLimite: "asc" },
-    include: {
-      funcionario: {
-        include: { empresa: true, cargo: true },
+  const [periodos, quinzenas] = await Promise.all([
+    prisma.ferias.findMany({
+      orderBy: { dataLimite: "asc" },
+      include: {
+        funcionario: {
+          include: { empresa: true, cargo: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.quinzenaPeriodo.findMany(),
+  ]);
+
+  const quinzenasSerializadas = quinzenas.map((q) => ({
+    ano: q.ano,
+    mes: q.mes,
+    quinzena: q.quinzena,
+    dataInicio: q.dataInicio.toISOString(),
+    dataFim: q.dataFim.toISOString(),
+  }));
 
   const periodosSerializados = periodos.map((p) => ({
     id: p.id,
@@ -50,7 +61,7 @@ export default async function FeriasPage() {
           importação do relatório do ERP, programação por colaborador e emissão para mural/gestores
         </p>
       </div>
-      <FeriasTable periodos={periodosSerializados} />
+      <FeriasTable periodos={periodosSerializados} quinzenasIniciais={quinzenasSerializadas} />
     </>
   );
 }

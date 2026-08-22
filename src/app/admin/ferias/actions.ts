@@ -210,12 +210,19 @@ export type ProgramacaoInput = {
   abonoTipo: "inicio" | "final" | null;
 };
 
-function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
+async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
   if (!input.mes || !input.ano || !input.quinzena) {
     return { gozoInicio: null, gozoFim: null, dataPagamento: null };
   }
+
+  // Data de início real da quinzena: usa a data definida manualmente no Calendário de Quinzenas,
+  // se existir; senão cai no padrão dia 1 (1ª) / dia 16 (2ª) do mês.
+  const custom = await prisma.quinzenaPeriodo.findUnique({
+    where: { ano_mes_quinzena: { ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
+  });
   const diaBase = input.quinzena === 2 ? 16 : 1;
-  let gozoInicio = new Date(Date.UTC(input.ano, input.mes - 1, diaBase));
+  let gozoInicio = custom ? custom.dataInicio : new Date(Date.UTC(input.ano, input.mes - 1, diaBase));
+
   if (input.abonoTipo === "inicio" && input.diasAbono > 0) {
     gozoInicio = new Date(gozoInicio.getTime() + input.diasAbono * 86_400_000);
   }
@@ -240,7 +247,7 @@ export async function salvarProgramacao(
   }
 
   const diasGozo = ferias.diasDireito - input.diasAbono;
-  const { gozoInicio, gozoFim, dataPagamento } = calcularDatas(input, diasGozo);
+  const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo);
 
   await prisma.ferias.update({
     where: { id: input.feriasId },
@@ -255,6 +262,39 @@ export async function salvarProgramacao(
       dataPagamento,
       status: gozoInicio ? "programado" : "pendente",
     },
+  });
+
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Calendário de quinzenas — datas de início/fim definidas manualmente por mês/ano/quinzena.
+// ---------------------------------------------------------------------------
+
+export type QuinzenaInput = {
+  ano: number;
+  mes: number;
+  quinzena: number;
+  dataInicio: string; // ISO
+  dataFim: string; // ISO
+};
+
+export async function salvarQuinzena(input: QuinzenaInput): Promise<{ error: string | null }> {
+  await requireAdmin();
+
+  const dataInicio = new Date(input.dataInicio);
+  const dataFim = new Date(input.dataFim);
+  if (Number.isNaN(dataInicio.getTime()) || Number.isNaN(dataFim.getTime())) {
+    return { error: "Datas inválidas." };
+  }
+  if (dataFim.getTime() < dataInicio.getTime()) {
+    return { error: "A data final não pode ser antes da data inicial." };
+  }
+
+  await prisma.quinzenaPeriodo.upsert({
+    where: { ano_mes_quinzena: { ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
+    create: { ano: input.ano, mes: input.mes, quinzena: input.quinzena, dataInicio, dataFim },
+    update: { dataInicio, dataFim },
   });
 
   return { error: null };
