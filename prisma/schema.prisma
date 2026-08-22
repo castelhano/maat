@@ -156,6 +156,11 @@ model Funcionario {
   status           String    @default("ativo")
   dataAfastamento  DateTime?
   dataDesligamento DateTime?
+  // Data do último retorno de afastamento — mantida mesmo depois do status voltar pra "ativo",
+  // pra apuração de benefícios ainda conseguir proporcionalizar o mês em que ele voltou (dias
+  // antes do retorno não contam como trabalhados). Só é relevante enquanto cai dentro do mês da
+  // competência sendo apurada; competências seguintes ignoram esse campo.
+  dataRetorno      DateTime?
 
   // null = usa o padrão do cargo; true/false = sobrescreve para este funcionário.
   recebeCestaBasica  Boolean?

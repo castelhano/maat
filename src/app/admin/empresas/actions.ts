@@ -11,6 +11,7 @@ const empresaSchema = z.object({
   codigo: z.string().min(1, "Informe o código"),
   nome: z.string().min(1, "Informe o nome"),
   abbr: z.string().nullable().optional(),
+  valorCestaBasica: z.number().nullable().optional(),
 });
 
 export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
@@ -23,7 +24,12 @@ export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
   }
 
   const empresa = await prisma.empresa.create({
-    data: { codigo: data.codigo, nome: data.nome, abbr: data.abbr || primeiraPalavra(data.nome) },
+    data: {
+      codigo: data.codigo,
+      nome: data.nome,
+      abbr: data.abbr || primeiraPalavra(data.nome),
+      valorCestaBasica: data.valorCestaBasica ?? null,
+    },
   });
   await logAction(admin.id, "empresa.create", empresa.id, data);
 
@@ -42,7 +48,12 @@ export async function updateEmpresa(id: string, input: z.infer<typeof empresaSch
 
   await prisma.empresa.update({
     where: { id },
-    data: { codigo: data.codigo, nome: data.nome, abbr: data.abbr || primeiraPalavra(data.nome) },
+    data: {
+      codigo: data.codigo,
+      nome: data.nome,
+      abbr: data.abbr || primeiraPalavra(data.nome),
+      valorCestaBasica: data.valorCestaBasica ?? null,
+    },
   });
   await logAction(admin.id, "empresa.update", id, data);
 

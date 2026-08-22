@@ -107,7 +107,7 @@ export function AfastamentosImportador({
           <input
             ref={inputRef}
             type="file"
-            accept=".txt"
+            accept=".txt,.csv"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -116,7 +116,7 @@ export function AfastamentosImportador({
           />
           {file ? <CheckCircle2 className="size-[22px] text-success" /> : <Upload className="size-[22px] text-text-3" />}
           <strong className="text-xs font-medium text-foreground">
-            {file ? "Arquivo carregado" : "Clique para selecionar o relatório de afastados (.TXT)"}
+            {file ? "Arquivo carregado" : "Clique para selecionar o relatório de afastados (.TXT ou .CSV)"}
           </strong>
           {file && <span className="font-mono text-[10px] text-success">{file.name}</span>}
         </label>

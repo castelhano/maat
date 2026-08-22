@@ -33,13 +33,27 @@ type Empresa = {
   codigo: string;
   nome: string;
   abbr: string | null;
+  valorCestaBasica: number | null;
   _count: { funcionarios: number };
 };
+
+const NUMERO_DECIMAL = /^\d+([.,]\d{1,2})?$/;
+
+function paraNumero(valor: string): number {
+  return Number(valor.replace(",", "."));
+}
+
+function formatarMoeda(valor: number) {
+  return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 const empresaSchema = z.object({
   codigo: z.string().min(1, "Informe o código"),
   nome: z.string().min(1, "Informe o nome"),
   abbr: z.string(),
+  valorCestaBasica: z
+    .string()
+    .refine((v) => v === "" || NUMERO_DECIMAL.test(v), "Informe um valor numérico válido"),
 });
 
 type EmpresaValues = z.infer<typeof empresaSchema>;
@@ -59,18 +73,27 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
 
   function abrirCriar() {
     setEditando(null);
-    reset({ codigo: "", nome: "", abbr: "" });
+    reset({ codigo: "", nome: "", abbr: "", valorCestaBasica: "" });
     setDialogOpen(true);
   }
 
   function abrirEditar(empresa: Empresa) {
     setEditando(empresa);
-    reset({ codigo: empresa.codigo, nome: empresa.nome, abbr: empresa.abbr ?? "" });
+    reset({
+      codigo: empresa.codigo,
+      nome: empresa.nome,
+      abbr: empresa.abbr ?? "",
+      valorCestaBasica: empresa.valorCestaBasica !== null ? String(empresa.valorCestaBasica) : "",
+    });
     setDialogOpen(true);
   }
 
   function onSubmit(values: EmpresaValues) {
-    const payload = { ...values, abbr: values.abbr || null };
+    const payload = {
+      ...values,
+      abbr: values.abbr || null,
+      valorCestaBasica: values.valorCestaBasica ? paraNumero(values.valorCestaBasica) : null,
+    };
     startTransition(async () => {
       const result = editando
         ? await updateEmpresa(editando.id, payload)
@@ -129,6 +152,18 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
                 <Label htmlFor="abbr">Nome curto (opcional)</Label>
                 <Input id="abbr" placeholder="usado em gráficos e resumos" {...register("abbr")} />
               </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="valorCestaBasica">Valor da cesta básica (opcional)</Label>
+                <Input
+                  id="valorCestaBasica"
+                  placeholder="usado quando o colaborador opta por receber a cesta como VR"
+                  inputMode="decimal"
+                  {...register("valorCestaBasica")}
+                />
+                {errors.valorCestaBasica && (
+                  <p className="font-mono text-[10px] text-destructive">{errors.valorCestaBasica.message}</p>
+                )}
+              </div>
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Salvando..." : editando ? "Salvar" : "Criar empresa"}
@@ -145,6 +180,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
             <TableHead>Código</TableHead>
             <TableHead>Nome</TableHead>
             <TableHead>Nome curto</TableHead>
+            <TableHead>Cesta básica</TableHead>
             <TableHead>Funcionários</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
@@ -155,6 +191,9 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
               <TableCell>{empresa.codigo}</TableCell>
               <TableCell className="font-medium text-foreground">{empresa.nome}</TableCell>
               <TableCell>{empresa.abbr ?? "—"}</TableCell>
+              <TableCell>
+                {empresa.valorCestaBasica !== null ? formatarMoeda(empresa.valorCestaBasica) : "—"}
+              </TableCell>
               <TableCell>{empresa._count.funcionarios}</TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2">

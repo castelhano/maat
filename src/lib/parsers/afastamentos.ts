@@ -1,16 +1,15 @@
-// Relatório 2 (afastamentos). Cada matrícula pode aparecer várias vezes — uma linha por
-// afastamento já ocorrido. As que têm DTRETAFAST preenchida já foram encerradas (o colaborador
-// voltou); a que não tem é o afastamento em curso, e é essa que nos interessa pra sincronizar
-// o cadastro. Não traz cabeçalho de empresa — casa por matrícula, igual ao arquivo de situação/VR.
+// Relatório 2 (afastamentos). O ERP exporta esse relatório em formatos bem diferentes conforme a
+// tela usada — por isso este arquivo detecta o formato pelo conteúdo em vez de assumir um só:
 //
-// O ERP exporta esse relatório em pelo menos duas variantes de colunas, então detectamos pelo
-// cabeçalho em vez de assumir uma só:
-// - com DTADMFUNC: ...DTAFAST [DTRETAFAST] DTADMFUNC [DTNASCTOFUNC] [LICENCAMATERN] — a
-//   admissão é sempre a última data restante, o nascimento (quando presente) vem depois dela.
-// - sem DTADMFUNC (ex. relatório de afastados por unidade): ...DTAFAST [DTRETAFAST] — não há
-//   coluna de admissão nenhuma; a única data que pode sobrar é o retorno.
-// dataAdmissao não é usado por quem consome o parser (só serve de contexto/depuração), então
-// fica opcional — ausente quando o arquivo não traz essa coluna.
+// 1) TXT de largura fixa ("relatório de situação atual"): cada matrícula pode aparecer várias
+//    vezes — uma linha por afastamento já ocorrido. A linha sem DTRETAFAST é o afastamento em
+//    curso; é sempre isso que o arquivo representa (não lista quem já voltou). Detecta variantes
+//    de colunas pelo cabeçalho (DTADMFUNC, DTNASCTOFUNC) — ver parseAfastamentosTxt.
+//
+// 2) CSV mensal ("LstAfastados.RPT" / "que se afastaram ou retornaram"): uma linha por evento
+//    dentro do período do relatório, já trazendo a empresa e, quando preenchida, a data de
+//    retorno — ou seja, ao contrário do TXT, ESSE formato pode legitimamente listar gente que já
+//    voltou ao trabalho (retornou = true), e é isso que aciona a volta pra "ativo" na importação.
 
 export type AfastamentoLinha = {
   matricula: string;
@@ -18,25 +17,32 @@ export type AfastamentoLinha = {
   motivo: string;
   dataAfastamento: Date;
   dataAdmissao: Date | null;
+  // Só o formato CSV mensal traz esses dois campos; no TXT ficam sempre null/undefined.
+  empresaCodigo: string | null;
+  // Preenchida quando esse afastamento já terminou (o colaborador voltou) — usado para reverter
+  // o cadastro pra "ativo" em vez de marcar como afastado.
+  dataRetorno: Date | null;
 };
 
 export type AfastamentosParseResult = {
   linhas: AfastamentoLinha[];
 };
 
-const LINHA_DADOS =
-  /^\s*(\d{6})\s+(.+?)\s{2,}(.+?)\s+([A-Z])\s+(?:\d{6,}\s+)?(\d{2}\/\d{2}\/\d{4})\s*(.*)$/;
-const DATA = /(\d{2})\/(\d{2})\/(\d{4})/g;
-
 function parseData(dia: string, mes: string, ano: string): Date {
   return new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia)));
 }
+
+// --- Formato 1: TXT de largura fixa ---------------------------------------------------------
+
+const LINHA_DADOS_TXT =
+  /^\s*(\d{6})\s+(.+?)\s{2,}(.+?)\s+([A-Z])\s+(?:\d{6,}\s+)?(\d{2}\/\d{2}\/\d{4})\s*(.*)$/;
+const DATA = /(\d{2})\/(\d{2})\/(\d{4})/g;
 
 function extrairDatas(texto: string): Date[] {
   return [...texto.matchAll(DATA)].map((m) => parseData(m[1], m[2], m[3]));
 }
 
-export function parseAfastamentos(conteudo: string): AfastamentosParseResult {
+function parseAfastamentosTxt(conteudo: string): AfastamentoLinha[] {
   const linhasArquivo = conteudo.split(/\r?\n/);
   const temAdmissao = /DTADMFUNC/.test(conteudo);
   // Coluna opcional do layout completo do ERP — quando presente, a última data de cada linha
@@ -54,7 +60,7 @@ export function parseAfastamentos(conteudo: string): AfastamentosParseResult {
   const brutas: LinhaBruta[] = [];
 
   for (const linha of linhasArquivo) {
-    const m = LINHA_DADOS.exec(linha);
+    const m = LINHA_DADOS_TXT.exec(linha);
     if (!m) continue;
 
     const [, matricula, motivo, nome, , dtAfastStr, resto] = m;
@@ -121,8 +127,115 @@ export function parseAfastamentos(conteudo: string): AfastamentosParseResult {
       motivo: atual.motivo,
       dataAfastamento: atual.dataAfastamento,
       dataAdmissao: atual.dataAdmissao,
+      empresaCodigo: null,
+      dataRetorno: null,
     });
   }
+
+  return linhas;
+}
+
+// --- Formato 2: CSV mensal (LstAfastados.RPT) -------------------------------------------------
+//
+// Exportação do Crystal Reports que repete os rótulos de cabeçalho e o rodapé de totais em TODA
+// linha (peculiaridade desse relatório específico) — em vez de depender de posição fixa de
+// coluna, localizamos os rótulos "Empresa:" e "Motivo" em cada linha e lemos os campos a partir
+// deles, o que também tolera o rodapé de totais variar de tamanho.
+
+const CSV_ASSINATURA = /se afastaram ou retornaram|LstAfastados/i;
+const COLUNAS_DADOS = ["Registro", "Divisões", "Nome", "Função", "Admis.", "Afast.", "Ult Dia", "Cid", "Retor.", "Dias", "Motivo"];
+
+function parseLinhaCsv(linha: string): string[] {
+  const campos: string[] = [];
+  let atual = "";
+  let dentroDeAspas = false;
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i];
+    if (dentroDeAspas) {
+      if (c === '"') {
+        if (linha[i + 1] === '"') {
+          atual += '"';
+          i++;
+        } else {
+          dentroDeAspas = false;
+        }
+      } else {
+        atual += c;
+      }
+    } else if (c === '"') {
+      dentroDeAspas = true;
+    } else if (c === ",") {
+      campos.push(atual);
+      atual = "";
+    } else {
+      atual += c;
+    }
+  }
+  campos.push(atual);
+  return campos;
+}
+
+function parseDataOuNull(str: string): Date | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(str.trim());
+  if (!m) return null;
+  return parseData(m[1], m[2], m[3]);
+}
+
+function parseAfastamentosCsvMensal(conteudo: string): AfastamentoLinha[] {
+  const linhasArquivo = conteudo.split(/\r?\n/).filter((l) => l.trim().length > 0);
+
+  const brutas: AfastamentoLinha[] = [];
+
+  for (const linha of linhasArquivo) {
+    const campos = parseLinhaCsv(linha);
+
+    const idxEmpresaLabel = campos.findIndex((c) => c.trim() === "Empresa:");
+    const idxMotivoLabel = campos.findIndex((c) => c.trim() === "Motivo");
+    if (idxEmpresaLabel === -1 || idxMotivoLabel === -1) continue;
+
+    const empresaCampo = (campos[idxEmpresaLabel + 1] ?? "").trim();
+    const espaco = empresaCampo.indexOf(" ");
+    const empresaCodigo = (espaco === -1 ? empresaCampo : empresaCampo.slice(0, espaco)).trim() || null;
+
+    const dados = campos.slice(idxMotivoLabel + 1, idxMotivoLabel + 1 + COLUNAS_DADOS.length);
+    if (dados.length < COLUNAS_DADOS.length) continue;
+    const [matricula, , nome, , admisStr, afastStr, , , retorStr, , motivo] = dados;
+
+    const dataAfastamento = parseDataOuNull(afastStr);
+    if (!matricula.trim() || !dataAfastamento) continue;
+
+    brutas.push({
+      matricula: matricula.trim(),
+      nome: nome.trim().replace(/\s+/g, " "),
+      motivo: motivo.trim().replace(/\s+/g, " "),
+      dataAfastamento,
+      dataAdmissao: parseDataOuNull(admisStr),
+      empresaCodigo,
+      dataRetorno: parseDataOuNull(retorStr),
+    });
+  }
+
+  if (brutas.length === 0) {
+    throw new Error("Nenhuma linha de afastamento/retorno foi reconhecida no arquivo.");
+  }
+
+  // Se a mesma matrícula aparecer mais de uma vez no período (afastou e voltou mais de uma vez
+  // no mesmo mês, por exemplo), fica só o evento mais recente.
+  const porMatricula = new Map<string, AfastamentoLinha>();
+  for (const b of brutas) {
+    const atual = porMatricula.get(b.matricula);
+    if (!atual || b.dataAfastamento.getTime() > atual.dataAfastamento.getTime()) {
+      porMatricula.set(b.matricula, b);
+    }
+  }
+
+  return [...porMatricula.values()];
+}
+
+export function parseAfastamentos(conteudo: string): AfastamentosParseResult {
+  const linhas = CSV_ASSINATURA.test(conteudo)
+    ? parseAfastamentosCsvMensal(conteudo)
+    : parseAfastamentosTxt(conteudo);
 
   return { linhas };
 }

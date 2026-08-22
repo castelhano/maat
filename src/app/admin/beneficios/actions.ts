@@ -138,6 +138,7 @@ export async function processarApuracao(
           recebeValeRefeicaoResolvido: recebeVRResolvido,
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,
+          dataRetorno: f.dataRetorno,
         },
         { ano, mes }
       );

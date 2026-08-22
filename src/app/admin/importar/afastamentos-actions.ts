@@ -52,8 +52,18 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
   const naoEncontrados: { matricula: string; nome: string }[] = [];
   let semMudanca = 0;
 
+  // O relatório mensal (CSV) já traz o código da empresa — usamos isso pra desambiguar
+  // automaticamente quando a mesma matrícula existe em mais de uma empresa, em vez de sempre
+  // exigir escolha manual (só o formato TXT antigo, sem empresa, precisa disso).
+  const formatoMensal = linhas.some((l) => l.empresaCodigo !== null);
+
   for (const linha of linhas) {
-    const candidatos = porMatricula.get(linha.matricula) ?? [];
+    let candidatos = porMatricula.get(linha.matricula) ?? [];
+    if (linha.empresaCodigo && candidatos.length > 1) {
+      const filtrados = candidatos.filter((c) => c.empresa.codigo === linha.empresaCodigo);
+      if (filtrados.length === 1) candidatos = filtrados;
+    }
+
     if (candidatos.length === 0) {
       naoEncontrados.push({ matricula: linha.matricula, nome: linha.nome });
       continue;
@@ -68,18 +78,36 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
     }
 
     const funcionario = candidatos[0];
+    const retornou = linha.dataRetorno !== null;
     const mudancas: string[] = [];
-    if (funcionario.status !== "afastado") {
-      mudancas.push(`situação: ${funcionario.status} → afastado`);
-    }
-    const dataAtual = funcionario.dataAfastamento?.getTime() ?? null;
-    if (dataAtual !== linha.dataAfastamento.getTime()) {
-      mudancas.push(
-        `data do afastamento: ${funcionario.dataAfastamento ? funcionario.dataAfastamento.toLocaleDateString("pt-BR") : "—"} → ${linha.dataAfastamento.toLocaleDateString("pt-BR")}`
-      );
-    }
-    if ((funcionario.motivoAfastamento ?? "") !== linha.motivo) {
-      mudancas.push(`motivo: ${funcionario.motivoAfastamento ?? "—"} → ${linha.motivo}`);
+
+    if (retornou) {
+      if (funcionario.status !== "ativo") {
+        mudancas.push(
+          `situação: ${funcionario.status} → ativo (retornou em ${linha.dataRetorno!.toLocaleDateString("pt-BR")})`
+        );
+      }
+      if (funcionario.dataAfastamento !== null) {
+        mudancas.push(
+          `data do afastamento: ${funcionario.dataAfastamento.toLocaleDateString("pt-BR")} → —`
+        );
+      }
+      if (funcionario.motivoAfastamento) {
+        mudancas.push(`motivo: ${funcionario.motivoAfastamento} → —`);
+      }
+    } else {
+      if (funcionario.status !== "afastado") {
+        mudancas.push(`situação: ${funcionario.status} → afastado`);
+      }
+      const dataAtual = funcionario.dataAfastamento?.getTime() ?? null;
+      if (dataAtual !== linha.dataAfastamento.getTime()) {
+        mudancas.push(
+          `data do afastamento: ${funcionario.dataAfastamento ? funcionario.dataAfastamento.toLocaleDateString("pt-BR") : "—"} → ${linha.dataAfastamento.toLocaleDateString("pt-BR")}`
+        );
+      }
+      if ((funcionario.motivoAfastamento ?? "") !== linha.motivo) {
+        mudancas.push(`motivo: ${funcionario.motivoAfastamento ?? "—"} → ${linha.motivo}`);
+      }
     }
 
     if (mudancas.length > 0) {
@@ -96,19 +124,23 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
   }
 
   // Quem está "afastado" no cadastro mas não apareceu neste arquivo pode ter retornado ao
-  // trabalho — o arquivo lista só quem está afastado hoje, então a ausência é um sinal, não uma
-  // certeza (o arquivo pode ter vindo de uma empresa só, por exemplo).
-  const matriculasNoArquivo = new Set(matriculas);
-  const afastadosNoCadastro = await prisma.funcionario.findMany({
-    where: { status: "afastado", matricula: { notIn: [...matriculasNoArquivo] } },
-    include: { empresa: true },
-  });
-  const possiveisRetornos: PreviewPossivelRetorno[] = afastadosNoCadastro.map((f) => ({
-    matricula: f.matricula,
-    nome: f.nome,
-    empresaNome: f.empresa.nome,
-    dataAfastamentoAtual: f.dataAfastamento ? f.dataAfastamento.toISOString() : null,
-  }));
+  // trabalho. Só faz sentido como sinal no formato TXT antigo (uma "foto" de quem está afastado
+  // hoje) — no relatório mensal, ausência é normal pra quem não teve nenhum evento no período,
+  // então o sinal aqui seria só ruído.
+  let possiveisRetornos: PreviewPossivelRetorno[] = [];
+  if (!formatoMensal) {
+    const matriculasNoArquivo = new Set(matriculas);
+    const afastadosNoCadastro = await prisma.funcionario.findMany({
+      where: { status: "afastado", matricula: { notIn: [...matriculasNoArquivo] } },
+      include: { empresa: true },
+    });
+    possiveisRetornos = afastadosNoCadastro.map((f) => ({
+      matricula: f.matricula,
+      nome: f.nome,
+      empresaNome: f.empresa.nome,
+      dataAfastamentoAtual: f.dataAfastamento ? f.dataAfastamento.toISOString() : null,
+    }));
+  }
 
   return { atualizados, ambiguos, naoEncontrados, semMudanca, possiveisRetornos };
 }
@@ -174,9 +206,12 @@ export async function confirmarAfastamentos(
 
     async function aplicar(empresaId: string, matricula: string) {
       const linha = parsed.linhas.find((l) => l.matricula === matricula)!;
+      const retornou = linha.dataRetorno !== null;
       await tx.funcionario.updateMany({
         where: { empresaId, matricula },
-        data: { status: "afastado", dataAfastamento: linha.dataAfastamento, motivoAfastamento: linha.motivo },
+        data: retornou
+          ? { status: "ativo", dataAfastamento: null, motivoAfastamento: null, dataRetorno: linha.dataRetorno }
+          : { status: "afastado", dataAfastamento: linha.dataAfastamento, motivoAfastamento: linha.motivo, dataRetorno: null },
       });
       atualizadosCount++;
       porEmpresa.set(empresaId, (porEmpresa.get(empresaId) ?? 0) + 1);

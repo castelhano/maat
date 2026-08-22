@@ -102,11 +102,13 @@ export function calcularElegibilidadeCesta(funcionario: {
 }
 
 // Dias efetivos no mês para fins de VR: desconsidera dias antes da admissão (quando ela cai
-// dentro do mês de competência) e dias de afastamento (parcial, quando o afastamento começou
-// dentro do mês; ou o mês inteiro, quando o afastamento já vinha de meses anteriores). Faltas
-// não entram nessa conta — só afastamento e admissão afetam o VR.
+// dentro do mês de competência), dias de afastamento (parcial, quando o afastamento começou
+// dentro do mês; ou o mês inteiro, quando o afastamento já vinha de meses anteriores) e dias
+// antes do retorno (quando o colaborador voltou de um afastamento dentro do próprio mês da
+// competência — dataRetorno continua marcada mesmo já com status "ativo", só pra isso). Faltas
+// não entram nessa conta — só afastamento, retorno e admissão afetam o VR.
 function diasEfetivosNoMes(
-  funcionario: { dataAdmissao: Date; status: string; dataAfastamento: Date | null },
+  funcionario: { dataAdmissao: Date; status: string; dataAfastamento: Date | null; dataRetorno: Date | null },
   competencia: { ano: number; mes: number }
 ): number {
   const totalDias = diasNoMes(competencia.ano, competencia.mes);
@@ -128,6 +130,11 @@ function diasEfetivosNoMes(
     } else if (afastamentoAnoMes === competenciaAnoMes) {
       fim = Math.min(fim, afastamento.getUTCDate() - 1);
     }
+  } else if (funcionario.dataRetorno) {
+    const retorno = funcionario.dataRetorno;
+    if (retorno.getUTCFullYear() === competencia.ano && retorno.getUTCMonth() + 1 === competencia.mes) {
+      inicio = Math.max(inicio, retorno.getUTCDate());
+    }
   }
 
   return Math.max(0, fim - inicio + 1);
@@ -142,6 +149,7 @@ export function calcularVR(
     recebeValeRefeicaoResolvido: boolean;
     dataAdmissao: Date;
     dataAfastamento: Date | null;
+    dataRetorno: Date | null;
   },
   competencia: { ano: number; mes: number }
 ): ResultadoVR {
@@ -157,7 +165,7 @@ export function calcularVR(
   const proporcao = diasEfetivos / totalDias;
   const motivoProporcional =
     diasEfetivos < totalDias
-      ? `Proporcional a ${diasEfetivos}/${totalDias} dias (desconsiderado afastamento/admissão no mês)`
+      ? `Proporcional a ${diasEfetivos}/${totalDias} dias (desconsiderado afastamento/retorno/admissão no mês)`
       : null;
 
   if (funcionario.valorValeRefeicao !== null) {

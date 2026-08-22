@@ -4,10 +4,14 @@ import { EmpresasTable } from "./empresas-table";
 
 export default async function EmpresasPage() {
   await requireAdmin();
-  const empresas = await prisma.empresa.findMany({
+  const empresasRaw = await prisma.empresa.findMany({
     orderBy: { nome: "asc" },
     include: { _count: { select: { funcionarios: true } } },
   });
+  const empresas = empresasRaw.map((e) => ({
+    ...e,
+    valorCestaBasica: e.valorCestaBasica?.toNumber() ?? null,
+  }));
 
   return (
     <>
