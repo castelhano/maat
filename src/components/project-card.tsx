@@ -7,6 +7,7 @@ const CORES = {
   teal: "bg-[#0d9488]",
   amber: "bg-[#b45309]",
   rose: "bg-[#be123c]",
+  green: "bg-[#15803d]",
 } as const;
 
 export function ProjectCard({

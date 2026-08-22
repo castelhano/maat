@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { ProjectCard } from "@/components/project-card";
@@ -15,9 +15,10 @@ export default async function DashboardPage() {
         prisma.empresa.count(),
         prisma.importacao.count(),
         prisma.terceiro.count(),
+        prisma.ferias.count({ where: { gozoInicio: null } }),
       ])
     : null;
-  const [funcionarios, cargos, empresas, importacoes, terceiros] = counts ?? [0, 0, 0, 0, 0];
+  const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes] = counts ?? [0, 0, 0, 0, 0, 0];
 
   return (
     <>
@@ -55,6 +56,14 @@ export default async function DashboardPage() {
             tag="rotina"
             nome="Central de Importações"
             descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-refeição, faltas e afastamentos por competência.`}
+          />
+          <ProjectCard
+            href="/admin/ferias"
+            icon={CalendarDays}
+            cor="green"
+            tag="rotina"
+            nome="Programação de Férias"
+            descricao={`${feriasPendentes} período(s) aguardando programação. Importação do ERP, mês/quinzena, abono e emissão para mural/gestores.`}
           />
           <ProjectCard
             href="/admin/funcionarios"

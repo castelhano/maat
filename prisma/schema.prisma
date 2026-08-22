@@ -186,6 +186,8 @@ model Funcionario {
   bancoHorasApuracoes    BancoHorasApuracao[]
   bancoHorasLotes        BancoHorasLoteCredito[]
 
+  feriasPeriodos Ferias[]
+
   @@unique([empresaId, matricula])
   @@index([cargoId])
   @@map("funcionario")
@@ -283,7 +285,7 @@ model Importacao {
   id             String   @id @default(cuid())
   empresaId      String
   empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  // "folha_salarios" | "situacao_vale_refeicao" | "faltas" | "afastamentos"
+  // "folha_salarios" | "situacao_vale_refeicao" | "faltas" | "afastamentos" | "ferias"
   tipo           String   @default("folha_salarios")
   importadoPorId String
   nomeArquivo    String
@@ -353,6 +355,48 @@ model BancoHorasLoteCredito {
 
   @@index([funcionarioId, status])
   @@map("banco_horas_lote_credito")
+}
+
+// Um registro por período aquisitivo de férias de cada funcionário, vindo do relatório
+// "Programação de Férias" do ERP. Reimportar o mesmo período (mesmo funcionário + vencimento)
+// atualiza os dados de origem (faltas, limite etc.) sem apagar a programação já feita manualmente
+// (mês, quinzena, abono) — ver regra de merge em `ferias-actions.ts`.
+model Ferias {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+
+  periodoAquisitivoInicio DateTime // "Aquisição" no relatório
+  periodoAquisitivoFim    DateTime // "Vencimento" — fecha o período aquisitivo
+  dataLimite              DateTime // "Limite" — prazo legal (CLT) pra iniciar o gozo
+  meses                   Int // meses restantes até o limite, no momento da importação (informativo)
+  faltas                  Int      @default(0)
+  // Dias de direito, calculado pela regra de faltas da CLT (0-5=30, 6-14=24, 15-23=18, 24-32=12,
+  // +32=0) — não copiado direto do arquivo, recalculado no import pra sempre bater com a regra.
+  diasDireito             Int
+
+  // Programação (preenchida manualmente na tela, nunca vem do arquivo importado).
+  mes       Int? // 1-12
+  ano       Int?
+  quinzena  Int? // 1 ou 2
+  diasAbono Int     @default(0)
+  // "inicio" | "final"
+  abonoTipo String?
+
+  // Calculados a partir de mes/ano/quinzena/abono ao salvar a programação.
+  gozoInicio    DateTime?
+  gozoFim       DateTime?
+  dataPagamento DateTime?
+
+  // "pendente" | "programado" | "concluido"
+  status String @default("pendente")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([funcionarioId, periodoAquisitivoFim])
+  @@index([funcionarioId])
+  @@map("ferias")
 }
 
 // Log de importação do extrato de banco de horas, mesmo padrão de `Importacao` — mas tipado à
