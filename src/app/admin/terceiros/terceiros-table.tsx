@@ -259,7 +259,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
                   </Select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Vale-refeição</Label>
+                  <Label>Vale-alimentação</Label>
                   <Select
                     value={recebeValeRefeicao}
                     onValueChange={(value) => setValue("recebeValeRefeicao", value as (typeof BOOL)[number])}
@@ -276,7 +276,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor="valorValeRefeicao">Valor vale-refeição (opcional)</Label>
+                <Label htmlFor="valorValeRefeicao">Valor vale-alimentação (opcional)</Label>
                 <Input
                   id="valorValeRefeicao"
                   type="text"
@@ -323,7 +323,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
             <TableHead>Documento</TableHead>
             <TableHead>Situação</TableHead>
             <TableHead>Cesta básica</TableHead>
-            <TableHead>Vale-refeição</TableHead>
+            <TableHead>Vale-alimentação</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
         </TableHeader>

@@ -149,6 +149,11 @@ export async function processarApuracao(
         valorCestaBasicaEmpresa,
       });
 
+      // Quem tem direito à cesta mas optou por receber em VR não recebe a cesta física — na aba
+      // de cesta básica ele deve aparecer como "sem direito", não como se estivesse recebendo as
+      // duas coisas. O valor convertido acima já foi calculado sobre a elegibilidade real.
+      const cestaConvertidaComoVR = cesta.elegivel && f.recebeCestaComoVR;
+
       itens.push({
         tipo: "funcionario",
         matricula: f.matricula,
@@ -156,8 +161,8 @@ export async function processarApuracao(
         cargo: f.cargo.nome,
         salario: f.salario,
         dataAdmissao: f.dataAdmissao,
-        elegivelCestaBasica: cesta.elegivel,
-        motivoPerdaCesta: cesta.motivo,
+        elegivelCestaBasica: cesta.elegivel && !cestaConvertidaComoVR,
+        motivoPerdaCesta: cestaConvertidaComoVR ? "Cesta convertida (VA)" : cesta.motivo,
         recebeCestaComoVR: f.recebeCestaComoVR,
         valorCestaConvertida,
         elegivelVR: vr.elegivel,
@@ -174,6 +179,7 @@ export async function processarApuracao(
         recebeCestaComoVR: t.recebeCestaComoVR,
         valorCestaBasicaEmpresa,
       });
+      const cestaConvertidaComoVR = t.recebeCestaBasica && t.recebeCestaComoVR;
 
       itens.push({
         tipo: "terceiro",
@@ -182,12 +188,16 @@ export async function processarApuracao(
         cargo: null,
         salario: null,
         dataAdmissao: null,
-        elegivelCestaBasica: t.recebeCestaBasica,
-        motivoPerdaCesta: t.recebeCestaBasica ? null : "Terceiro sem direito a cesta básica (configuração manual)",
+        elegivelCestaBasica: t.recebeCestaBasica && !cestaConvertidaComoVR,
+        motivoPerdaCesta: cestaConvertidaComoVR
+          ? "Cesta convertida (VA)"
+          : t.recebeCestaBasica
+            ? null
+            : "Terceiro sem cesta (manual)",
         recebeCestaComoVR: t.recebeCestaComoVR,
         valorCestaConvertida,
         elegivelVR: t.recebeValeRefeicao,
-        motivoPerdaVR: t.recebeValeRefeicao ? null : "Terceiro sem vale-refeição configurado",
+        motivoPerdaVR: t.recebeValeRefeicao ? null : "Terceiro sem alimentação",
         baseCalculoVR: null,
         valorVR: valorVRBase + (valorCestaConvertida ?? 0),
       });

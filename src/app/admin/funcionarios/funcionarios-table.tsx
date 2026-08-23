@@ -413,7 +413,7 @@ export function FuncionariosTable({
                   </Select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Vale-refeição</Label>
+                  <Label>Vale-alimentação</Label>
                   <Select
                     value={recebeValeRefeicao}
                     onValueChange={(value) => setValue("recebeValeRefeicao", value as (typeof HERANCA)[number])}
@@ -431,7 +431,7 @@ export function FuncionariosTable({
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor="valorValeRefeicao">Valor vale-refeição (opcional)</Label>
+                <Label htmlFor="valorValeRefeicao">Valor vale-alimentação (opcional)</Label>
                 <Input
                   id="valorValeRefeicao"
                   type="text"

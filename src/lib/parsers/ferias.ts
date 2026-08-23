@@ -70,8 +70,8 @@ export function parseFerias(conteudo: string): FeriasParseResult {
     const fim = (idx: number, next: number | undefined) => (next !== undefined ? next : idx + 12);
 
     const matricula = linha.slice(cCodigo, fim(cCodigo, colStart[1])).trim();
-    const nome = linha.slice(cNome, fim(cNome, colStart[3])).trim();
-    const funcao = linha.slice(cFuncao, fim(cFuncao, colStart[4])).trim();
+    const nome = linha.slice(cNome, fim(cNome, colStart[3])).trim().replace(/\s+/g, " ");
+    const funcao = linha.slice(cFuncao, fim(cFuncao, colStart[4])).trim().replace(/\s+/g, " ");
     const admissaoTxt = linha.slice(cAdmissao, fim(cAdmissao, colStart[5])).trim();
     const aquisicaoTxt = linha.slice(cAquisicao, fim(cAquisicao, colStart[6])).trim();
     const vencimentoTxt = linha.slice(cVencimento, fim(cVencimento, colStart[7])).trim();

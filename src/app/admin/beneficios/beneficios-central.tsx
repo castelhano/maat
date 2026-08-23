@@ -174,7 +174,7 @@ export function BeneficiosCentral() {
               <TabsList>
                 <TabsIndicator />
                 <TabsTab value="cesta">Cesta básica</TabsTab>
-                <TabsTab value="vr">Vale-refeição</TabsTab>
+                <TabsTab value="vr">Vale-alimentação</TabsTab>
               </TabsList>
               <TabsPanel value="cesta" className="pt-5">
                 <BeneficioPainel

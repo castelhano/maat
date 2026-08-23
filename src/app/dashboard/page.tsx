@@ -39,7 +39,7 @@ export default async function DashboardPage() {
             cor="rose"
             tag="rotina"
             nome="Benefícios"
-            descricao="apuração mensal de cesta básica e vale-refeição, com resumos e gráficos exportáveis."
+            descricao="apuração mensal de cesta básica e vale-alimentação, com resumos e gráficos exportáveis."
           />
           <ProjectCard
             href="/admin/banco-horas"
@@ -55,7 +55,7 @@ export default async function DashboardPage() {
             cor="amber"
             tag="rotina"
             nome="Central de Importações"
-            descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-refeição, faltas e afastamentos por competência.`}
+            descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-alimentação, faltas e afastamentos por competência.`}
           />
           <ProjectCard
             href="/admin/ferias"

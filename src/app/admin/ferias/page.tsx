@@ -53,7 +53,7 @@ export default async function FeriasPage() {
 
   return (
     <>
-      <div className="flex flex-col gap-1.5 py-1">
+      <div className="flex flex-col gap-1.5 py-1 print:hidden">
         <h1 className="font-mono text-[22px] font-bold tracking-[.08em] text-foreground">
           Programação de Férias
         </h1>

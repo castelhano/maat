@@ -51,6 +51,8 @@ const cargoFormSchema = z.object({
   nome: z.string().min(1, "Informe o nome do cargo"),
   recebeCestaBasica: z.enum(["true", "false"]),
   recebeValeRefeicao: z.enum(["true", "false"]),
+  departamento: z.string(),
+  setor: z.string(),
 });
 
 type CargoFormValues = z.infer<typeof cargoFormSchema>;
@@ -81,7 +83,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
 
   function abrirCriar() {
     setEditando(null);
-    reset({ nome: "", recebeCestaBasica: "true", recebeValeRefeicao: "true" });
+    reset({ nome: "", recebeCestaBasica: "true", recebeValeRefeicao: "true", departamento: "", setor: "" });
     setDialogOpen(true);
   }
 
@@ -91,6 +93,8 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
       nome: cargo.nome,
       recebeCestaBasica: cargo.recebeCestaBasica ? "true" : "false",
       recebeValeRefeicao: cargo.recebeValeRefeicao ? "true" : "false",
+      departamento: cargo.departamento ?? "",
+      setor: cargo.setor ?? "",
     });
     setDialogOpen(true);
   }
@@ -100,6 +104,8 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
       nome: values.nome,
       recebeCestaBasica: values.recebeCestaBasica === "true",
       recebeValeRefeicao: values.recebeValeRefeicao === "true",
+      departamento: values.departamento.trim() || null,
+      setor: values.setor.trim() || null,
     };
     startTransition(async () => {
       const result = editando
@@ -164,6 +170,17 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
 
               <div className="grid min-w-0 grid-cols-2 gap-3">
                 <div className="flex flex-col gap-2">
+                  <Label htmlFor="departamento">Departamento</Label>
+                  <Input id="departamento" {...register("departamento")} placeholder="ex: OPERACAO" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="setor">Setor</Label>
+                  <Input id="setor" {...register("setor")} placeholder="ex: OPERACAO" />
+                </div>
+              </div>
+
+              <div className="grid min-w-0 grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2">
                   <Label>Cesta básica</Label>
                   <Select
                     value={recebeCestaBasica}
@@ -179,7 +196,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Vale-refeição</Label>
+                  <Label>Vale-alimentação</Label>
                   <Select
                     value={recebeValeRefeicao}
                     onValueChange={(value) => setValue("recebeValeRefeicao", value as "true" | "false")}
@@ -213,7 +230,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
             <TableHead>Departamento</TableHead>
             <TableHead>Setor</TableHead>
             <TableHead>Cesta básica</TableHead>
-            <TableHead>Vale-refeição</TableHead>
+            <TableHead>Vale-alimentação</TableHead>
             <TableHead>Funcionários</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>

@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { parseFerias, diasDireitoPorFaltas, type FeriasLinha } from "@/lib/parsers/ferias";
+import { dataPagamentoFerias } from "@/lib/feriados";
 
 export type PreviewLinha = {
   matricula: string;
@@ -227,7 +228,9 @@ async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
     gozoInicio = new Date(gozoInicio.getTime() + input.diasAbono * 86_400_000);
   }
   const gozoFim = new Date(gozoInicio.getTime() + (diasGozo - 1) * 86_400_000);
-  const dataPagamento = new Date(gozoInicio.getTime() - 2 * 86_400_000);
+  // Pelo menos 2 dias antes do início do gozo, e sempre em dia útil (nunca sábado, domingo ou
+  // feriado nacional) — se cair em dia não útil, antecipa o pagamento, nunca atrasa.
+  const dataPagamento = dataPagamentoFerias(gozoInicio);
   return { gozoInicio, gozoFim, dataPagamento };
 }
 

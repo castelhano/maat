@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -19,6 +20,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { FileText } from "lucide-react";
 import { ExportCard } from "./export-card";
 import type { ApuracaoItemDTO } from "./actions";
 
@@ -85,14 +89,17 @@ export function BeneficioPainel({
   filtroEmpresa?: string;
   filtroArea?: string;
 }) {
-  const dados = useMemo(() => {
-    const elegivel = (i: ApuracaoItemDTO) =>
-      dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
-    const motivo = (i: ApuracaoItemDTO) =>
-      dimensao === "cesta"
-        ? i.motivoPerdaCesta
-        : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+  const [buscaNome, setBuscaNome] = useState("");
+  const [buscaMatricula, setBuscaMatricula] = useState("");
 
+  const elegivel = (i: ApuracaoItemDTO) =>
+    dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
+  const motivo = (i: ApuracaoItemDTO) =>
+    dimensao === "cesta"
+      ? i.motivoPerdaCesta
+      : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+
+  const dados = useMemo(() => {
     const elegiveis = itens.filter(elegivel);
     const naoElegiveis = itens.filter((i) => !elegivel(i));
     const terceiros = itens.filter((i) => i.tipo === "terceiro");
@@ -120,69 +127,92 @@ export function BeneficioPainel({
       .map(([empresa, v]) => ({ empresa, ...v, total: v.elegiveis + v.naoElegiveis }))
       .sort((a, b) => b.total - a.total);
 
-    const cargoMap = new Map<string, { elegiveis: number; naoElegiveis: number }>();
+    const areaMap = new Map<string, { elegiveis: number; naoElegiveis: number; valor: number }>();
     for (const i of itens) {
-      const cargo = i.cargo ?? "Terceiros";
-      const atual = cargoMap.get(cargo) ?? { elegiveis: 0, naoElegiveis: 0 };
-      if (elegivel(i)) atual.elegiveis++;
-      else atual.naoElegiveis++;
-      cargoMap.set(cargo, atual);
+      const area = i.area ?? (i.tipo === "terceiro" ? "Terceiros" : "Sem área");
+      const atual = areaMap.get(area) ?? { elegiveis: 0, naoElegiveis: 0, valor: 0 };
+      if (elegivel(i)) {
+        atual.elegiveis++;
+        atual.valor += i.valorVR;
+      } else atual.naoElegiveis++;
+      areaMap.set(area, atual);
     }
-    let porCargo = [...cargoMap.entries()]
-      .map(([cargo, v]) => ({ cargo: truncar(cargo, 22), ...v }))
+    let porArea = [...areaMap.entries()]
+      .map(([area, v]) => ({ area: truncar(area, 22), areaCompleta: area, ...v }))
       .sort((a, b) => b.naoElegiveis - a.naoElegiveis || b.elegiveis - a.elegiveis);
-    if (porCargo.length > 10) {
-      const resto = porCargo.slice(10).reduce(
-        (acc, c) => ({ elegiveis: acc.elegiveis + c.elegiveis, naoElegiveis: acc.naoElegiveis + c.naoElegiveis }),
-        { elegiveis: 0, naoElegiveis: 0 }
+    if (porArea.length > 10) {
+      const resto = porArea.slice(10).reduce(
+        (acc, c) => ({
+          elegiveis: acc.elegiveis + c.elegiveis,
+          naoElegiveis: acc.naoElegiveis + c.naoElegiveis,
+          valor: acc.valor + c.valor,
+        }),
+        { elegiveis: 0, naoElegiveis: 0, valor: 0 }
       );
-      porCargo = [...porCargo.slice(0, 10), { cargo: "Outras funções", ...resto }];
+      porArea = [...porArea.slice(0, 10), { area: "Outras áreas", areaCompleta: "Outras áreas", ...resto }];
     }
 
-    const csvHeaders = ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Valor VR"];
-    const csvLinhas = itens.map((i) => [
-      i.matricula ?? "",
-      i.nome,
-      i.empresaNome,
-      i.cargo ?? "",
-      formatarData(i.dataAdmissao),
-      elegivel(i) ? "Com direito" : "Sem direito",
-      motivo(i) ?? "",
-      i.valorVR.toFixed(2),
-    ]);
-
-    return {
-      elegiveis,
-      naoElegiveis,
-      terceiros,
-      valorTotal,
-      valorConvertidoTotal,
-      motivos,
-      porEmpresa,
-      porCargo,
-      csvHeaders,
-      csvLinhas,
-    };
+    return { elegiveis, naoElegiveis, terceiros, valorTotal, valorConvertidoTotal, motivos, porEmpresa, porArea };
   }, [itens, dimensao]);
 
-  const rotuloBeneficio = dimensao === "cesta" ? "cesta básica" : "vale-refeição";
-  const arquivoBase = `${dimensao === "cesta" ? "cesta-basica" : "vale-refeicao"}-${competencia.replace("/", "-")}`;
+  const itensDetalhamento = useMemo(() => {
+    const nome = buscaNome.trim().toLowerCase();
+    const matricula = buscaMatricula.trim().toLowerCase();
+    if (!nome && !matricula) return itens;
+    return itens.filter((i) => {
+      if (nome && !i.nome.toLowerCase().includes(nome)) return false;
+      if (matricula && !(i.matricula ?? "").toLowerCase().includes(matricula)) return false;
+      return true;
+    });
+  }, [itens, buscaNome, buscaMatricula]);
+
+  const csvHeaders = ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Valor VR"];
+  const csvLinhas = itensDetalhamento.map((i) => [
+    i.matricula ?? "",
+    i.nome,
+    i.empresaNome,
+    i.cargo ?? "",
+    formatarData(i.dataAdmissao),
+    elegivel(i) ? "Com direito" : "Sem direito",
+    motivo(i) ?? "",
+    i.valorVR.toFixed(2),
+  ]);
+
+  const rotuloBeneficio = dimensao === "cesta" ? "cesta básica" : "vale-alimentação";
+  const arquivoBase = `${dimensao === "cesta" ? "cesta-basica" : "vale-alimentacao"}-${competencia.replace("/", "-")}`;
 
   const pdfParams = new URLSearchParams({ competencia, dimensao });
   if (filtroEmpresa) pdfParams.set("empresa", filtroEmpresa);
   if (filtroArea) pdfParams.set("area", filtroArea);
   const pdfHref = `/admin/beneficios/detalhamento-pdf?${pdfParams.toString()}`;
+  const relatorioPdfHref = `/admin/beneficios/relatorio-pdf?${pdfParams.toString()}`;
 
   return (
     <div className="flex flex-col gap-4">
+      {dimensao === "cesta" && (
+        <div className="flex justify-end">
+          <Button variant="secondary" size="sm" onClick={() => window.open(relatorioPdfHref, "_blank")}>
+            <FileText />
+            Emitir relatório completo (PDF)
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <StatTile label="Total avaliado" value={String(itens.length)} />
-        <StatTile label="Com direito" value={String(dados.elegiveis.length)} cor={COR_ELEGIVEL} />
-        <StatTile label="Sem direito" value={String(dados.naoElegiveis.length)} cor={COR_NAO_ELEGIVEL} />
         {dimensao === "vr" ? (
-          <StatTile label="Valor total" value={formatarMoeda(dados.valorTotal)} cor={COR_MAGNITUDE} />
+          <>
+            <StatTile label="Total avaliado" value={String(itens.length)} />
+            <StatTile label="Com direito" value={String(dados.elegiveis.length)} cor={COR_ELEGIVEL} />
+            <StatTile label="Sem direito" value={String(dados.naoElegiveis.length)} cor={COR_NAO_ELEGIVEL} />
+            <StatTile label="Valor total" value={formatarMoeda(dados.valorTotal)} cor={COR_MAGNITUDE} />
+          </>
         ) : (
-          <StatTile label="Terceiros incluídos" value={String(dados.terceiros.length)} />
+          <>
+            <StatTile label="Total avaliado" value={String(itens.length)} />
+            <StatTile label="Sem direito" value={String(dados.naoElegiveis.length)} cor={COR_NAO_ELEGIVEL} />
+            <StatTile label="Terceiros incluídos" value={String(dados.terceiros.length)} />
+            <StatTile label="Com direito" value={String(dados.elegiveis.length)} cor={COR_ELEGIVEL} />
+          </>
         )}
       </div>
 
@@ -199,8 +229,8 @@ export function BeneficioPainel({
 
       {dimensao === "cesta" && dados.valorConvertidoTotal > 0 && (
         <p className="font-mono text-[10px] text-text-3">
-          {formatarMoeda(dados.valorConvertidoTotal)} em cesta convertida em crédito de VR (colaboradores que optaram
-          por não receber a cesta física) — já somado ao valor total de VR na aba de vale-refeição.
+          {formatarMoeda(dados.valorConvertidoTotal)} em cesta convertida em crédito de alimentação (colaboradores que
+          optaram por não receber a cesta física) — já somado ao valor total na aba de vale-alimentação.
         </p>
       )}
 
@@ -230,7 +260,9 @@ export function BeneficioPainel({
                 formatter={(value) => [`${value} colaborador(es)`, ""]}
                 labelFormatter={(_, payload) => payload?.[0]?.payload?.labelCompleto ?? ""}
               />
-              <Bar dataKey="quantidade" fill={COR_NAO_ELEGIVEL} radius={[0, 4, 4, 0]} maxBarSize={22} />
+              <Bar dataKey="quantidade" fill={COR_NAO_ELEGIVEL} radius={[0, 4, 4, 0]} maxBarSize={22}>
+                <LabelList dataKey="quantidade" position="right" fill="#8fa0b0" fontSize={10} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -260,14 +292,21 @@ export function BeneficioPainel({
         </ResponsiveContainer>
       </ExportCard>
 
-      <ExportCard titulo={`Resumo por função — ${rotuloBeneficio}`} arquivo={`${arquivoBase}-por-funcao`}>
+      <ExportCard titulo={`Resumo por área — ${rotuloBeneficio}`} arquivo={`${arquivoBase}-por-area`}>
         <Legenda itens={[{ cor: COR_ELEGIVEL, label: "Com direito" }, { cor: COR_NAO_ELEGIVEL, label: "Sem direito" }]} />
-        <ResponsiveContainer width="100%" height={Math.max(160, dados.porCargo.length * 32)}>
-          <BarChart data={dados.porCargo} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <ResponsiveContainer width="100%" height={Math.max(160, dados.porArea.length * 32)}>
+          <BarChart data={dados.porArea} layout="vertical" margin={{ left: 8, right: 24 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" horizontal={false} />
             <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" />
-            <YAxis type="category" dataKey="cargo" width={160} tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <YAxis type="category" dataKey="area" width={160} tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              labelFormatter={(_, payload) => {
+                const p = payload?.[0]?.payload as { areaCompleta: string; valor: number } | undefined;
+                if (!p) return "";
+                return dimensao === "vr" ? `${p.areaCompleta} — ${formatarMoeda(p.valor)}` : p.areaCompleta;
+              }}
+            />
             <Bar dataKey="elegiveis" name="Com direito" stackId="a" fill={COR_ELEGIVEL} maxBarSize={18} />
             <Bar
               dataKey="naoElegiveis"
@@ -284,9 +323,28 @@ export function BeneficioPainel({
       <ExportCard
         titulo={`Detalhamento — ${rotuloBeneficio}`}
         arquivo={`${arquivoBase}-detalhamento`}
-        csv={{ headers: dados.csvHeaders, linhas: dados.csvLinhas }}
+        csv={{ headers: csvHeaders, linhas: csvLinhas }}
         pdfHref={pdfHref}
       >
+        <div data-export-ignore="true" className="mb-3 flex flex-wrap gap-2.5">
+          <Input
+            placeholder="Buscar por nome..."
+            value={buscaNome}
+            onChange={(e) => setBuscaNome(e.target.value)}
+            className="w-[220px]"
+          />
+          <Input
+            placeholder="Buscar por matrícula..."
+            value={buscaMatricula}
+            onChange={(e) => setBuscaMatricula(e.target.value)}
+            className="w-[180px]"
+          />
+        </div>
+        {itensDetalhamento.length === 0 ? (
+          <p className="py-6 text-center font-mono text-[11px] text-text-3">
+            Nenhum colaborador encontrado para essa busca.
+          </p>
+        ) : (
         <Table containerClassName="max-h-[70vh] overflow-y-auto">
           <TableHeader>
             <TableRow>
@@ -301,7 +359,7 @@ export function BeneficioPainel({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {itens.map((i, idx) => {
+            {itensDetalhamento.map((i, idx) => {
               const eleg = dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
               const mot =
                 dimensao === "cesta"
@@ -331,6 +389,7 @@ export function BeneficioPainel({
             })}
           </TableBody>
         </Table>
+        )}
       </ExportCard>
     </div>
   );

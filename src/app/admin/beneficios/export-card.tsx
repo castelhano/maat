@@ -38,6 +38,17 @@ export function ExportCard({
     const node = ref.current;
     if (!node) return;
     setExportando(true);
+
+    // Tabelas com rolagem (containerClassName com max-h/overflow) só mostram o trecho visível na
+    // tela — sem isso, colunas como "Valor" ficam cortadas na foto. Desativa a rolagem só durante
+    // a captura, pra imagem sair com a tabela inteira.
+    const containers = node.querySelectorAll<HTMLElement>('[data-slot="table-container"]');
+    const estiloOriginal = [...containers].map((c) => ({ maxHeight: c.style.maxHeight, overflow: c.style.overflow }));
+    containers.forEach((c) => {
+      c.style.maxHeight = "none";
+      c.style.overflow = "visible";
+    });
+
     try {
       if (claro) node.dataset.exportTheme = "light";
       const dataUrl = await toPng(node, {
@@ -51,6 +62,10 @@ export function ExportCard({
       link.click();
     } finally {
       delete node.dataset.exportTheme;
+      containers.forEach((c, i) => {
+        c.style.maxHeight = estiloOriginal[i].maxHeight;
+        c.style.overflow = estiloOriginal[i].overflow;
+      });
       setExportando(false);
     }
   }

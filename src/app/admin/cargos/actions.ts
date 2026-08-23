@@ -10,6 +10,8 @@ const cargoSchema = z.object({
   nome: z.string().min(1, "Informe o nome do cargo"),
   recebeCestaBasica: z.boolean(),
   recebeValeRefeicao: z.boolean(),
+  departamento: z.string().nullable(),
+  setor: z.string().nullable(),
 });
 
 export async function createCargo(input: z.infer<typeof cargoSchema>) {

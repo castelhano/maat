@@ -68,7 +68,7 @@ export function parseFolhaSalarios(conteudo: string): FolhaSalariosParseResult {
     if (!valorMatch) {
       throw new Error(`Matrícula ${matricula}: não encontrei o salário na linha.`);
     }
-    const funcao = aposData.slice(0, valorMatch.index).trim();
+    const funcao = aposData.slice(0, valorMatch.index).trim().replace(/\s+/g, " ");
     const salario = parseValorMonetario(valorMatch[0]);
 
     linhas.push({

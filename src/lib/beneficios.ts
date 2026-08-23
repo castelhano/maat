@@ -58,8 +58,14 @@ export function calcularElegibilidadeCesta(funcionario: {
   faltasNoMes: number;
   recebeCestaBasicaResolvido: boolean;
 }, competencia: { ano: number; mes: number }): ResultadoCesta {
+  const admissaoAnoMes = funcionario.dataAdmissao.getUTCFullYear() * 12 + funcionario.dataAdmissao.getUTCMonth();
+  const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
+  if (admissaoAnoMes > competenciaAnoMes) {
+    return { elegivel: false, motivo: "Não admitido" };
+  }
+
   if (!funcionario.recebeCestaBasicaResolvido) {
-    return { elegivel: false, motivo: "Função sem direito a cesta básica" };
+    return { elegivel: false, motivo: "Função sem cesta" };
   }
 
   if (funcionario.status === "desligado") {
@@ -72,14 +78,14 @@ export function calcularElegibilidadeCesta(funcionario: {
       competencia.ano * 12 + competencia.mes - (afastamento.getUTCFullYear() * 12 + (afastamento.getUTCMonth() + 1));
 
     if (mesesDesdeAfastamento >= MESES_CESTA_APOS_AFASTAMENTO) {
-      return { elegivel: false, motivo: `Afastado há mais de ${MESES_CESTA_APOS_AFASTAMENTO} meses` };
+      return { elegivel: false, motivo: `Afastado +${MESES_CESTA_APOS_AFASTAMENTO} meses` };
     }
     if (mesesDesdeAfastamento === 0 && ehLicencaSemRemuneracao(funcionario.motivoAfastamento)) {
       const dias = diasTrabalhadosAte(afastamento);
       if (dias < DIAS_MINIMOS_NO_MES) {
         return {
           elegivel: false,
-          motivo: `Licença sem remuneração com menos de ${DIAS_MINIMOS_NO_MES} dias trabalhados no mês`,
+          motivo: `Licença s/ remun. <${DIAS_MINIMOS_NO_MES} dias`,
         };
       }
     }
@@ -90,12 +96,12 @@ export function calcularElegibilidadeCesta(funcionario: {
   if (admissao.getUTCFullYear() === competencia.ano && admissao.getUTCMonth() + 1 === competencia.mes) {
     const dias = diasTrabalhadosDesde(admissao, competencia.ano, competencia.mes);
     if (dias < DIAS_MINIMOS_NO_MES) {
-      return { elegivel: false, motivo: `Menos de ${DIAS_MINIMOS_NO_MES} dias trabalhados no mês de admissão` };
+      return { elegivel: false, motivo: `Admissão <${DIAS_MINIMOS_NO_MES} dias no mês` };
     }
   }
 
   if (funcionario.faltasNoMes > 2) {
-    return { elegivel: false, motivo: `Mais de 2 faltas no mês (${funcionario.faltasNoMes})` };
+    return { elegivel: false, motivo: "Faltas" };
   }
 
   return { elegivel: true, motivo: null };
@@ -153,8 +159,14 @@ export function calcularVR(
   },
   competencia: { ano: number; mes: number }
 ): ResultadoVR {
+  const admissaoAnoMes = funcionario.dataAdmissao.getUTCFullYear() * 12 + funcionario.dataAdmissao.getUTCMonth();
+  const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
+  if (admissaoAnoMes > competenciaAnoMes) {
+    return { elegivel: false, motivo: "Não admitido", baseCalculo: null, valor: 0 };
+  }
+
   if (!funcionario.recebeValeRefeicaoResolvido) {
-    return { elegivel: false, motivo: "Função sem direito a vale-refeição", baseCalculo: null, valor: 0 };
+    return { elegivel: false, motivo: "Função sem alimentação", baseCalculo: null, valor: 0 };
   }
   if (funcionario.status === "desligado") {
     return { elegivel: false, motivo: "Desligado", baseCalculo: null, valor: 0 };
@@ -163,10 +175,7 @@ export function calcularVR(
   const totalDias = diasNoMes(competencia.ano, competencia.mes);
   const diasEfetivos = diasEfetivosNoMes(funcionario, competencia);
   const proporcao = diasEfetivos / totalDias;
-  const motivoProporcional =
-    diasEfetivos < totalDias
-      ? `Proporcional a ${diasEfetivos}/${totalDias} dias (desconsiderado afastamento/retorno/admissão no mês)`
-      : null;
+  const motivoProporcional = diasEfetivos < totalDias ? `Proporcional a ${diasEfetivos}/${totalDias} dias` : null;
 
   if (funcionario.valorValeRefeicao !== null) {
     return { elegivel: true, motivo: motivoProporcional, baseCalculo: null, valor: funcionario.valorValeRefeicao * proporcao };

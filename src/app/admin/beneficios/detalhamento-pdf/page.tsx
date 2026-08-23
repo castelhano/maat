@@ -48,7 +48,7 @@ export default async function DetalhamentoPdfPage({
   const semDireito = itens.filter((i) => !elegivel(i));
   const valorTotal = comDireito.reduce((acc, i) => acc + i.valorVR, 0);
 
-  const rotulo = dimensao === "cesta" ? "Cesta Básica" : "Vale-Refeição";
+  const rotulo = dimensao === "cesta" ? "Cesta Básica" : "Vale-Alimentação";
   const filtrosAtivos = [empresa, area].filter(Boolean);
   const emitidoEm = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
@@ -112,7 +112,7 @@ export default async function DetalhamentoPdfPage({
                   {i.nome}
                   {i.tipo === "terceiro" && <span className="ml-1.5 text-[10px] font-normal text-neutral-400">terceiro</span>}
                 </td>
-                <td className="px-2 py-2 text-neutral-600">{i.empresaNome}</td>
+                <td className="px-2 py-2 text-neutral-600">{i.empresaAbbr}</td>
                 <td className="px-2 py-2 text-neutral-600">{i.cargo ?? "—"}</td>
                 <td className="px-2 py-2 text-neutral-600">{formatarData(i.dataAdmissao)}</td>
                 <td className={`px-2 py-2 font-medium ${eleg ? "text-emerald-700" : "text-red-600"}`}>
