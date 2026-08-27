@@ -189,14 +189,12 @@ export function BeneficioPainel({
 
   return (
     <div className="flex flex-col gap-4">
-      {dimensao === "cesta" && (
-        <div className="flex justify-end">
-          <Button variant="secondary" size="sm" onClick={() => window.open(relatorioPdfHref, "_blank")}>
-            <FileText />
-            Emitir relatório completo (PDF)
-          </Button>
-        </div>
-      )}
+      <div className="flex justify-end">
+        <Button variant="secondary" size="sm" onClick={() => window.open(relatorioPdfHref, "_blank")}>
+          <FileText />
+          Emitir relatório completo (PDF)
+        </Button>
+      </div>
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         {dimensao === "vr" ? (

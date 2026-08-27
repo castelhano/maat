@@ -26,6 +26,16 @@ function fmtHoras(decimal: number): string {
   return `${neg ? "-" : ""}${h}:${String(m).padStart(2, "0")}`;
 }
 
+// Pro CSV usamos "h" no lugar de ":" — o Excel reconhece "H:MM" como horário e, como não suporta
+// horário negativo por padrão, mostra #VALOR! nas linhas com saldo negativo.
+function fmtHorasCsv(decimal: number): string {
+  const neg = decimal < 0;
+  const abs = Math.abs(decimal);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `${neg ? "-" : ""}${h}h${String(m).padStart(2, "0")}`;
+}
+
 function nomeCompetencia(competencia: string): string {
   const [mes, ano] = competencia.split("/");
   const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -110,11 +120,11 @@ export function ExtratoCentral() {
     const headers = ["Competência", "Saldo Anterior", "Crédito", "Débito", "A Pagar", "Saldo Atual"];
     const linhas = resultado.linhas.map((l) => [
       l.competencia,
-      fmtHoras(l.saldoAnterior),
-      fmtHoras(l.creditoBruto),
-      fmtHoras(l.debitoBruto),
-      fmtHoras(l.aPagar),
-      fmtHoras(l.saldoAtual),
+      fmtHorasCsv(l.saldoAnterior),
+      fmtHorasCsv(l.creditoBruto),
+      fmtHorasCsv(l.debitoBruto),
+      fmtHorasCsv(l.aPagar),
+      fmtHorasCsv(l.saldoAtual),
     ]);
     baixarCsv(
       `extrato-banco-horas-${resultado.funcionario.matricula}`,

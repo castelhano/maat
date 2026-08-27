@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Download, FileDown, FileText, TriangleAlert } from "lucide-react";
+import { ChevronDown, Download, FileDown, FileText, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CompetenciaSelect } from "@/components/competencia-select";
 import { competenciaPadrao } from "@/lib/competencia";
 import { paraCsv, baixarCsv } from "@/lib/csv";
@@ -24,6 +30,21 @@ function fmtHoras(decimal: number): string {
   const h = Math.floor(abs);
   const m = Math.round((abs - h) * 60);
   return `${neg ? "-" : ""}${h}:${String(m).padStart(2, "0")}`;
+}
+
+// Pro CSV usamos "h" no lugar de ":" — o Excel reconhece "H:MM" como horário e, como não suporta
+// horário negativo por padrão, mostra #VALOR! nas linhas com saldo negativo.
+function fmtHorasCsv(decimal: number): string {
+  const neg = decimal < 0;
+  const abs = Math.abs(decimal);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `${neg ? "-" : ""}${h}h${String(m).padStart(2, "0")}`;
+}
+
+// Horas decimais com vírgula, ex. "2,50" — mesma convenção do TXT pro ERP.
+function fmtDecimalCsv(decimal: number): string {
+  return decimal.toFixed(2).replace(".", ",");
 }
 
 function baixarArquivo(nomeArquivo: string, conteudo: string, mime: string) {
@@ -104,20 +125,22 @@ export function ResumoMensal() {
 
   const alertas = useMemo(() => resultado?.linhas.filter((l) => l.alertaCredito) ?? [], [resultado]);
 
-  function handleExportarCsv() {
+  function handleExportarCsv(formato: "horas" | "decimal") {
     if (!resultado) return;
+    const fmt = formato === "decimal" ? fmtDecimalCsv : fmtHorasCsv;
     const headers = ["Matrícula", "Nome", "Empresa", "Crédito", "Débito", "A Pagar", "Saldo Final", "Alerta"];
     const linhas = resultado.linhas.map((l) => [
       l.matricula,
       l.nome,
       l.empresa,
-      fmtHoras(l.creditoBruto),
-      fmtHoras(l.debitoBruto),
-      fmtHoras(l.pagoNoMes),
-      fmtHoras(l.saldoFinal),
+      fmt(l.creditoBruto),
+      fmt(l.debitoBruto),
+      fmt(l.pagoNoMes),
+      fmt(l.saldoFinal),
       l.alertaCredito ? "crédito indevido" : "",
     ]);
-    baixarCsv(`banco-horas-resumo-${resultado.competencia.replace("/", "-")}`, paraCsv(headers, linhas));
+    const sufixo = formato === "decimal" ? "-decimal" : "";
+    baixarCsv(`banco-horas-resumo-${resultado.competencia.replace("/", "-")}${sufixo}`, paraCsv(headers, linhas));
   }
 
   function handleExportarTxtErp() {
@@ -204,10 +227,21 @@ export function ResumoMensal() {
 
         {resultado && (
           <div className="mb-[1px] flex gap-2">
-            <Button variant="secondary" size="sm" onClick={handleExportarCsv}>
-              <Download />
-              Exportar CSV
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button variant="secondary" size="sm">
+                    <Download />
+                    Exportar CSV
+                    <ChevronDown />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExportarCsv("horas")}>Em horas (H:MM)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExportarCsv("decimal")}>Em decimais (2,50)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="secondary" size="sm" onClick={handleExportarPdf}>
               <FileText />
               Exportar PDF

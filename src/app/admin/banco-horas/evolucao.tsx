@@ -50,6 +50,16 @@ function fmtHoras(decimal: number): string {
   return `${neg ? "-" : ""}${h}:${String(m).padStart(2, "0")}`;
 }
 
+// Pro CSV usamos "h" no lugar de ":" — o Excel reconhece "H:MM" como horário e, como não suporta
+// horário negativo por padrão, mostra #VALOR! nas linhas com saldo negativo.
+function fmtHorasCsv(decimal: number): string {
+  const neg = decimal < 0;
+  const abs = Math.abs(decimal);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `${neg ? "-" : ""}${h}h${String(m).padStart(2, "0")}`;
+}
+
 function nomeCompetencia(competencia: string): string {
   const [mes, ano] = competencia.split("/");
   const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -279,10 +289,10 @@ export function Evolucao() {
               headers: ["Competência", "Crédito", "Débito", "A Pagar", "Saldo"],
               linhas: resultado.porMes.map((m) => [
                 m.competencia,
-                fmtHoras(m.creditoBruto),
-                fmtHoras(m.debitoBruto),
-                fmtHoras(m.pagoNoMes),
-                fmtHoras(m.saldoFinal),
+                fmtHorasCsv(m.creditoBruto),
+                fmtHorasCsv(m.debitoBruto),
+                fmtHorasCsv(m.pagoNoMes),
+                fmtHorasCsv(m.saldoFinal),
               ]),
             }}
           >
@@ -335,9 +345,9 @@ export function Evolucao() {
               headers: ["Área", "Crédito", "Débito", "A Pagar", "Registros"],
               linhas: resultado.porSetor.map((s) => [
                 s.setor,
-                fmtHoras(s.creditoBruto),
-                fmtHoras(s.debitoBruto),
-                fmtHoras(s.pagoNoMes),
+                fmtHorasCsv(s.creditoBruto),
+                fmtHorasCsv(s.debitoBruto),
+                fmtHorasCsv(s.pagoNoMes),
                 s.registros,
               ]),
             }}
