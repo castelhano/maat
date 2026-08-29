@@ -391,6 +391,11 @@ model Ferias {
   // "pendente" | "programado" | "concluido"
   status String @default("pendente")
 
+  // Autorização manual pra esse período aparecer no Painel/Mural — algumas programações não devem
+  // ser expostas publicamente (ex.: cargos de confiança, situação ainda não confirmada com o
+  // colaborador). Default true: some do mural só quem for desmarcado explicitamente.
+  exibirMural Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

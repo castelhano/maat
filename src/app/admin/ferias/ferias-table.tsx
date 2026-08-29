@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { salvarProgramacao, salvarQuinzena } from "./actions";
+import { salvarProgramacao, salvarQuinzena, alternarExibirMural } from "./actions";
 import { Importador } from "./importador";
 import { dataPagamentoFerias } from "@/lib/feriados";
 
@@ -66,6 +66,7 @@ export type FeriasLinha = {
   gozoFim: string | null;
   dataPagamento: string | null;
   status: "pendente" | "programado" | "concluido";
+  exibirMural: boolean;
 };
 
 const MESES = [
@@ -108,6 +109,40 @@ function statusBadge(status: "pendente" | "programado" | "concluido") {
 // -----------------------------------------------------------------------
 // Diálogo de programação — um período por vez, com prévia grande das datas.
 // -----------------------------------------------------------------------
+function ExibirMuralToggle({
+  periodo,
+  onSaved,
+}: {
+  periodo: FeriasLinha;
+  onSaved: (p: FeriasLinha) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+
+  function alternar(checked: boolean) {
+    startTransition(async () => {
+      const result = await alternarExibirMural(periodo.id, checked);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      onSaved({ ...periodo, exibirMural: checked });
+    });
+  }
+
+  return (
+    <label className="flex cursor-pointer items-center gap-1.5" title="Autoriza esse colaborador a aparecer no Painel/Mural">
+      <input
+        type="checkbox"
+        checked={periodo.exibirMural}
+        disabled={isPending}
+        onChange={(e) => alternar(e.target.checked)}
+        className="size-3.5 accent-primary"
+      />
+      <span className="font-mono text-[9px] text-text-3">{periodo.exibirMural ? "Sim" : "Não"}</span>
+    </label>
+  );
+}
+
 function ProgramarDialog({
   periodo,
   quinzenas,
@@ -545,7 +580,14 @@ const TOOLTIP_STYLE = {
   color: "#e2e8f0",
 };
 
-type Filtro = { empresa: string; area: string; departamento: string; mes: number; ano: number };
+type Filtro = {
+  empresa: string;
+  area: string;
+  departamento: string;
+  mes: number;
+  ano: number;
+  quinzena: number;
+};
 
 function useFiltro(base: FeriasLinha[]) {
   const [empresa, setEmpresa] = useState("");
@@ -553,6 +595,7 @@ function useFiltro(base: FeriasLinha[]) {
   const [departamento, setDepartamento] = useState("");
   const [mes, setMes] = useState(0);
   const [ano, setAno] = useState(0);
+  const [quinzena, setQuinzena] = useState(0);
   const filtrados = useMemo(
     () =>
       base.filter(
@@ -561,11 +604,26 @@ function useFiltro(base: FeriasLinha[]) {
           (!area || (p.setor ?? "Não classificado") === area) &&
           (!departamento || (p.departamento ?? "Não classificado") === departamento) &&
           (!mes || p.mes === mes) &&
-          (!ano || p.ano === ano)
+          (!ano || p.ano === ano) &&
+          (!quinzena || p.quinzena === quinzena)
       ),
-    [base, empresa, area, departamento, mes, ano]
+    [base, empresa, area, departamento, mes, ano, quinzena]
   );
-  return { empresa, setEmpresa, area, setArea, departamento, setDepartamento, mes, setMes, ano, setAno, filtrados };
+  return {
+    empresa,
+    setEmpresa,
+    area,
+    setArea,
+    departamento,
+    setDepartamento,
+    mes,
+    setMes,
+    ano,
+    setAno,
+    quinzena,
+    setQuinzena,
+    filtrados,
+  };
 }
 
 function FiltroBar({
@@ -575,6 +633,7 @@ function FiltroBar({
   filtro,
   mostrarDepartamento = false,
   mostrarAno = false,
+  mostrarQuinzena = false,
 }: {
   empresas: string[];
   areas: string[];
@@ -585,9 +644,11 @@ function FiltroBar({
     setDepartamento: (v: string) => void;
     setMes: (v: number) => void;
     setAno: (v: number) => void;
+    setQuinzena: (v: number) => void;
   };
   mostrarDepartamento?: boolean;
   mostrarAno?: boolean;
+  mostrarQuinzena?: boolean;
 }) {
   const selectCls =
     "h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground outline-none focus-visible:border-primary";
@@ -623,6 +684,17 @@ function FiltroBar({
           <option key={m} value={i + 1}>{m}</option>
         ))}
       </select>
+      {mostrarQuinzena && (
+        <select
+          className={selectCls}
+          value={filtro.quinzena}
+          onChange={(e) => filtro.setQuinzena(Number(e.target.value))}
+        >
+          <option value={0}>Ambas quinzenas</option>
+          <option value={1}>1ª quinzena</option>
+          <option value={2}>2ª quinzena</option>
+        </select>
+      )}
       {mostrarAno && (
         <select className={selectCls} value={filtro.ano} onChange={(e) => filtro.setAno(Number(e.target.value))}>
           <option value={0}>Todos os anos</option>
@@ -689,7 +761,8 @@ export function FeriasTable({
     [periodos]
   );
 
-  const filtroMural = useFiltro(programados);
+  const autorizadosMural = useMemo(() => programados.filter((p) => p.exibirMural), [programados]);
+  const filtroMural = useFiltro(autorizadosMural);
   const empresaMural = useMemo(() => {
     if (filtroMural.empresa) return filtroMural.empresa;
     const empresasNoFiltro = new Set(filtroMural.filtrados.map((p) => p.empresa));
@@ -886,6 +959,7 @@ export function FeriasTable({
                   <TableHead>Gozo Ini.</TableHead>
                   <TableHead>Gozo Fim</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Mural</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -905,11 +979,14 @@ export function FeriasTable({
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{formatarData(p.dataLimite)}</TableCell>
                     <TableCell className="whitespace-nowrap">
-                      {p.mes ? `${MESES[p.mes - 1]}/${p.ano} · ${p.quinzena}ª quinz.` : "—"}
+                      {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{formatarData(p.gozoInicio)}</TableCell>
                     <TableCell className="whitespace-nowrap">{formatarData(p.gozoFim)}</TableCell>
                     <TableCell>{statusBadge(p.gozoInicio ? "programado" : "pendente")}</TableCell>
+                    <TableCell>
+                      <ExibirMuralToggle periodo={p} onSaved={atualizarPeriodo} />
+                    </TableCell>
                     <TableCell>
                       <ProgramarDialog periodo={p} quinzenas={quinzenas} onSaved={atualizarPeriodo} />
                     </TableCell>
@@ -1092,7 +1169,7 @@ export function FeriasTable({
 
       <TabsPanel value="mural" className="flex flex-col gap-3">
         <div className="flex items-center justify-between print:hidden">
-          <FiltroBar empresas={empresas} areas={areas} filtro={filtroMural} />
+          <FiltroBar empresas={empresas} areas={areas} filtro={filtroMural} mostrarQuinzena />
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer className="size-3.5" />
             Imprimir
@@ -1103,34 +1180,37 @@ export function FeriasTable({
           período específico.
         </p>
         <div className="flex flex-col items-center gap-0.5">
-          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase">
+          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-3xl">
             Programação de Férias — {empresaMural}
           </h2>
-          <p className="text-center font-mono text-[11px] tracking-[.06em] text-text-2 uppercase">
+          <p className="text-center font-mono text-[11px] tracking-[.06em] text-text-2 uppercase print:text-lg">
             Mês de referência: {filtroMural.mes ? MESES[filtroMural.mes - 1] : "todos os períodos programados"}
             {filtroMural.area && ` · ${filtroMural.area}`}
+            {filtroMural.quinzena && ` · ${filtroMural.quinzena}ª quinzena`}
           </p>
         </div>
-        <Table>
+        <Table className="print:text-lg" containerClassName="print:border-0">
           <TableHeader>
             <TableRow>
-              <TableHead>Matrícula</TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead>Departamento</TableHead>
-              <TableHead>Mês</TableHead>
-              <TableHead>Gozo Inicial</TableHead>
-              <TableHead>Gozo Final</TableHead>
+              <TableHead className="print:py-3 print:text-base">Matrícula</TableHead>
+              <TableHead className="print:py-3 print:text-base">Nome</TableHead>
+              <TableHead className="print:py-3 print:text-base">Departamento</TableHead>
+              <TableHead className="print:py-3 print:text-base">Mês</TableHead>
+              <TableHead className="print:py-3 print:text-base">Gozo Inicial</TableHead>
+              <TableHead className="print:py-3 print:text-base">Gozo Final</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtroMural.filtrados.map((p) => (
               <TableRow key={p.id}>
-                <TableCell>{p.matricula}</TableCell>
-                <TableCell className="font-medium text-foreground">{p.nome}</TableCell>
-                <TableCell>{p.departamento ?? "—"}</TableCell>
-                <TableCell>{p.mes ? `${MESES[p.mes - 1]}/${p.ano}` : "—"}</TableCell>
-                <TableCell>{formatarData(p.gozoInicio)}</TableCell>
-                <TableCell>{formatarData(p.gozoFim)}</TableCell>
+                <TableCell className="print:py-3">{p.matricula}</TableCell>
+                <TableCell className="font-medium text-foreground print:py-3">{p.nome}</TableCell>
+                <TableCell className="print:py-3">{p.departamento ?? "—"}</TableCell>
+                <TableCell className="print:py-3">
+                  {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
+                </TableCell>
+                <TableCell className="print:py-3">{formatarData(p.gozoInicio)}</TableCell>
+                <TableCell className="print:py-3">{formatarData(p.gozoFim)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -49,6 +49,7 @@ export default async function FeriasPage() {
     gozoFim: p.gozoFim?.toISOString() ?? null,
     dataPagamento: p.dataPagamento?.toISOString() ?? null,
     status: p.status as "pendente" | "programado" | "concluido",
+    exibirMural: p.exibirMural,
   }));
 
   return (

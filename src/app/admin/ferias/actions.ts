@@ -302,3 +302,16 @@ export async function salvarQuinzena(input: QuinzenaInput): Promise<{ error: str
 
   return { error: null };
 }
+
+// ---------------------------------------------------------------------------
+// Autorização de exibição no Painel/Mural — independente da programação em si.
+// ---------------------------------------------------------------------------
+
+export async function alternarExibirMural(
+  feriasId: string,
+  exibirMural: boolean
+): Promise<{ error: string | null }> {
+  await requireAdmin();
+  await prisma.ferias.update({ where: { id: feriasId }, data: { exibirMural } });
+  return { error: null };
+}
