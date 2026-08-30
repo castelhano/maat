@@ -29,7 +29,7 @@ const TIPOS: TipoDef[] = [
   {
     key: "situacao_vale_refeicao",
     titulo: "Situação & vale-refeição",
-    caminhoErp: "Folha > Relatórios > Listagem Generica > [ 996 ] > [ add campo VR ]",
+    caminhoErp: "Folha > Listagem Genérica > [ 996 ] > Campos (Cod;Sit;CPF;Func;ValeR;NomeC;Fone)",
     descricao: "atualiza status e elegibilidade de VR de quem já existe",
   },
   {

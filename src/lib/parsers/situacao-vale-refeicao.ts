@@ -1,33 +1,32 @@
-// Sincroniza dois campos de funcionários JÁ CADASTRADOS (não cria ninguém — cadastro é papel do
-// sync de folha em /admin/importar-folha, cujo arquivo tem a empresa): status (A/F/D) e a
-// elegibilidade de vale-refeição da função (coluna VALEREFEICFUNC, atributo do cargo, não do
-// indivíduo). O arquivo não traz código de empresa nem competência — casa por matrícula.
+// Sincroniza campos de funcionários JÁ CADASTRADOS (não cria ninguém — cadastro é papel do
+// sync de folha em /admin/importar-folha, cujo arquivo tem a empresa): status (A/F/D), CPF,
+// telefone, nome completo, e a elegibilidade de vale-refeição da função (coluna VALEREFEICFUNC,
+// atributo do cargo, não do indivíduo). O arquivo não traz código de empresa nem competência —
+// casa por matrícula.
 
 export type SituacaoStatus = "ativo" | "afastado" | "desligado";
 
 export type SituacaoValeRefeicaoLinha = {
   matricula: string;
-  nome: string;
+  nomeCompleto: string;
+  cpf: string;
+  telefone: string | null;
   status: SituacaoStatus;
-  dataAdmissao: Date;
   funcao: string;
   recebeValeRefeicao: boolean;
-  salario: number;
 };
 
 export type SituacaoValeRefeicaoParseResult = {
   linhas: SituacaoValeRefeicaoLinha[];
 };
 
-const LINHA_DADOS =
-  /^\s*(\d{6})\s+(.+?)\s+([AFD])\s+(\d{2})\/(\d{2})\/(\d{4})\s+(.+?)\s+([SN])\s+([\d.]+,\d{2})\s*$/;
+const LINHA_DADOS = /^\s*(\d{6})\s+([AFD])\s+(\d{11})\s+(.+?)\s+([SN])\s+(.+)$/;
 const LINHA_TOTAL = /^\s*(\d+)\s*$/;
+// Nome e telefone vêm colados no resto da linha, separados só por espaços de preenchimento de
+// largura fixa; o telefone (quando existe) é sempre o último "bloco" após o maior espaçamento.
+const NOME_TELEFONE = /^(.*\S)\s{2,}(\S.*)$/;
 
 const STATUS_MAP: Record<string, SituacaoStatus> = { A: "ativo", F: "afastado", D: "desligado" };
-
-function parseValorMonetario(valor: string): number {
-  return Number(valor.replace(/\./g, "").replace(",", "."));
-}
 
 export function parseSituacaoValeRefeicao(conteudo: string): SituacaoValeRefeicaoParseResult {
   const linhasArquivo = conteudo.split(/\r?\n/);
@@ -38,15 +37,16 @@ export function parseSituacaoValeRefeicao(conteudo: string): SituacaoValeRefeica
   for (const linha of linhasArquivo) {
     const dadosMatch = LINHA_DADOS.exec(linha);
     if (dadosMatch) {
-      const [, matricula, nome, situacao, dia, mes, ano, funcao, valeRefeicao, salario] = dadosMatch;
+      const [, matricula, situacao, cpf, funcao, valeRefeicao, resto] = dadosMatch;
+      const nomeTelefoneMatch = NOME_TELEFONE.exec(resto);
       linhas.push({
         matricula,
-        nome: nome.trim().replace(/\s+/g, " "),
+        nomeCompleto: (nomeTelefoneMatch ? nomeTelefoneMatch[1] : resto).trim().replace(/\s+/g, " "),
+        cpf,
+        telefone: nomeTelefoneMatch ? nomeTelefoneMatch[2].trim() : null,
         status: STATUS_MAP[situacao],
-        dataAdmissao: new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia))),
         funcao: funcao.trim().replace(/\s+/g, " "),
         recebeValeRefeicao: valeRefeicao === "S",
-        salario: parseValorMonetario(salario),
       });
       continue;
     }

@@ -147,6 +147,12 @@ model Funcionario {
   empresa      Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   matricula    String
   nome         String
+  // Nome completo vindo do import de situação/VR — separado de `nome` pra não afetar telas
+  // que já usam `nome` (Banco de Horas, Cesta Básica etc.). Usado futuramente pra exportação
+  // de arquivo pro banco.
+  nomeCompleto String?
+  cpf          String?
+  telefone     String?
   dataAdmissao DateTime
   cargoId      String
   cargo        Cargo    @relation(fields: [cargoId], references: [id])

@@ -62,13 +62,13 @@ async function montarDiff(linhas: SituacaoValeRefeicaoLinha[]) {
   for (const linha of linhas) {
     const candidatos = porMatricula.get(linha.matricula) ?? [];
     if (candidatos.length === 0) {
-      naoEncontrados.push({ matricula: linha.matricula, nome: linha.nome });
+      naoEncontrados.push({ matricula: linha.matricula, nome: linha.nomeCompleto });
       continue;
     }
     if (candidatos.length > 1) {
       ambiguos.push({
         matricula: linha.matricula,
-        nome: linha.nome,
+        nome: linha.nomeCompleto,
         empresasPossiveis: candidatos.map((c) => ({ id: c.empresaId, nome: c.empresa.nome })),
       });
       continue;
@@ -79,10 +79,19 @@ async function montarDiff(linhas: SituacaoValeRefeicaoLinha[]) {
     if (funcionario.status !== linha.status) {
       mudancas.push(`situação: ${STATUS_LABEL[funcionario.status as SituacaoStatus]} → ${STATUS_LABEL[linha.status]}`);
     }
+    if ((funcionario.cpf ?? "") !== linha.cpf) {
+      mudancas.push(`CPF: ${funcionario.cpf ?? "(vazio)"} → ${linha.cpf}`);
+    }
+    if ((funcionario.telefone ?? "") !== (linha.telefone ?? "")) {
+      mudancas.push(`telefone: ${funcionario.telefone ?? "(vazio)"} → ${linha.telefone ?? "(vazio)"}`);
+    }
+    if ((funcionario.nomeCompleto ?? "") !== linha.nomeCompleto) {
+      mudancas.push(`nome completo: ${funcionario.nomeCompleto ?? "(vazio)"} → ${linha.nomeCompleto}`);
+    }
     if (mudancas.length > 0) {
       atualizados.push({
         matricula: linha.matricula,
-        nome: linha.nome,
+        nome: linha.nomeCompleto,
         empresaId: funcionario.empresaId,
         empresaNome: funcionario.empresa.nome,
         mudancas,
@@ -177,7 +186,12 @@ export async function confirmarSituacaoVR(
       const linha = parsed.linhas.find((l) => l.matricula === item.matricula)!;
       await tx.funcionario.updateMany({
         where: { empresaId: item.empresaId, matricula: item.matricula },
-        data: { status: linha.status },
+        data: {
+          status: linha.status,
+          cpf: linha.cpf,
+          telefone: linha.telefone,
+          nomeCompleto: linha.nomeCompleto,
+        },
       });
       atualizadosCount++;
       porEmpresa.set(item.empresaId, (porEmpresa.get(item.empresaId) ?? 0) + 1);
@@ -190,9 +204,15 @@ export async function confirmarSituacaoVR(
         where: { empresaId_matricula: { empresaId, matricula: ambiguo.matricula } },
       });
       if (!funcionario) continue;
-      if (funcionario.status !== linha.status) {
-        await tx.funcionario.update({ where: { id: funcionario.id }, data: { status: linha.status } });
-      }
+      await tx.funcionario.update({
+        where: { id: funcionario.id },
+        data: {
+          status: linha.status,
+          cpf: linha.cpf,
+          telefone: linha.telefone,
+          nomeCompleto: linha.nomeCompleto,
+        },
+      });
       atualizadosCount++;
       porEmpresa.set(empresaId, (porEmpresa.get(empresaId) ?? 0) + 1);
     }

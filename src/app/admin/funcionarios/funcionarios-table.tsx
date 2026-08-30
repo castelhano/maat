@@ -46,6 +46,9 @@ type Funcionario = {
   cargoId: string;
   matricula: string;
   nome: string;
+  nomeCompleto: string | null;
+  cpf: string | null;
+  telefone: string | null;
   dataAdmissao: string;
   salario: number;
   status: Status;
@@ -73,6 +76,9 @@ const funcionarioFormSchema = z
     cargoId: z.string().min(1, "Selecione o cargo"),
     matricula: z.string().min(1, "Informe a matrícula"),
     nome: z.string().min(1, "Informe o nome"),
+    nomeCompleto: z.string(),
+    cpf: z.string(),
+    telefone: z.string(),
     dataAdmissao: z.string().min(1, "Informe a data de admissão"),
     salario: z
       .string()
@@ -174,6 +180,9 @@ export function FuncionariosTable({
       cargoId: cargos[0]?.id ?? "",
       matricula: "",
       nome: "",
+      nomeCompleto: "",
+      cpf: "",
+      telefone: "",
       dataAdmissao: "",
       salario: "",
       status: "ativo",
@@ -195,6 +204,9 @@ export function FuncionariosTable({
       cargoId: funcionario.cargoId,
       matricula: funcionario.matricula,
       nome: funcionario.nome,
+      nomeCompleto: funcionario.nomeCompleto ?? "",
+      cpf: funcionario.cpf ?? "",
+      telefone: funcionario.telefone ?? "",
       dataAdmissao: funcionario.dataAdmissao.slice(0, 10),
       salario: String(funcionario.salario),
       status: funcionario.status,
@@ -215,6 +227,9 @@ export function FuncionariosTable({
       cargoId: values.cargoId,
       matricula: values.matricula,
       nome: values.nome,
+      nomeCompleto: values.nomeCompleto || null,
+      cpf: values.cpf || null,
+      telefone: values.telefone || null,
       dataAdmissao: values.dataAdmissao,
       salario: paraNumero(values.salario),
       status: values.status,
@@ -336,6 +351,22 @@ export function FuncionariosTable({
                 {errors.nome && (
                   <p className="font-mono text-[10px] text-destructive">{errors.nome.message}</p>
                 )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="nomeCompleto">Nome completo (opcional)</Label>
+                <Input id="nomeCompleto" {...register("nomeCompleto")} />
+              </div>
+
+              <div className="grid min-w-0 grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="cpf">CPF</Label>
+                  <Input id="cpf" {...register("cpf")} />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="telefone">Telefone</Label>
+                  <Input id="telefone" {...register("telefone")} />
+                </div>
               </div>
 
               <div className="grid min-w-0 grid-cols-2 gap-3">
