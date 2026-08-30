@@ -282,11 +282,11 @@ export function ResumoMensal() {
               <span className="font-mono text-[20px] leading-none font-bold">{fmtHoras(resultado.totais.pagoNoMes)}</span>
             </div>
             <div className="flex flex-col gap-1 rounded-sm border border-border bg-secondary px-4 py-3">
-              <span className="font-mono text-[10px] tracking-[.06em] text-text-3 uppercase">Saldo (pos / neg)</span>
+              <span className="font-mono text-[10px] tracking-[.06em] text-text-3 uppercase">50% / Mês Anterior</span>
               <span className="font-mono text-[16px] leading-tight font-bold">
-                <span className="text-success">{fmtHoras(resultado.totais.saldoPositivo)}</span>
+                <span className="text-success">{fmtHoras(resultado.totais.pagoReferenteCreditoMes)}</span>
                 {" / "}
-                <span className="text-destructive">{fmtHoras(resultado.totais.saldoNegativo)}</span>
+                <span className="text-warning">{fmtHoras(resultado.totais.pagoReferenteSaldoAnterior)}</span>
               </span>
             </div>
           </div>
