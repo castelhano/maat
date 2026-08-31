@@ -763,6 +763,10 @@ export function FeriasTable({
 
   const autorizadosMural = useMemo(() => programados.filter((p) => p.exibirMural), [programados]);
   const filtroMural = useFiltro(autorizadosMural);
+  const muralOrdenado = useMemo(
+    () => [...filtroMural.filtrados].sort((a, b) => a.matricula.localeCompare(b.matricula, "pt-BR", { numeric: true })),
+    [filtroMural.filtrados]
+  );
   const empresaMural = useMemo(() => {
     if (filtroMural.empresa) return filtroMural.empresa;
     const empresasNoFiltro = new Set(filtroMural.filtrados.map((p) => p.empresa));
@@ -835,7 +839,7 @@ export function FeriasTable({
     baixarCsv(
       "envio_gestores_ferias.csv",
       ["Matrícula", "Nome", "Departamento", "Limite", "Mês", "1ª Quinz.", "2ª Quinz.", "Gozo Inicial", "Gozo Final"],
-      filtroMural.filtrados.map((p) => [
+      muralOrdenado.map((p) => [
         p.matricula,
         p.nome,
         p.departamento ?? "",
@@ -867,7 +871,7 @@ export function FeriasTable({
 
   return (
     <Tabs defaultValue="programacao" className="flex flex-col gap-4">
-      <style>{`@media print { @page { size: landscape; } }`}</style>
+      <style>{`@media print { @page { size: landscape; margin: 10mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }`}</style>
       <TabsList className="print:hidden">
         <TabsTab value="programacao">Programação</TabsTab>
         <TabsTab value="importar">Importar TXT</TabsTab>
@@ -1179,38 +1183,66 @@ export function FeriasTable({
           lista para impressão — apenas colaboradores já programados. Filtre por mês pra imprimir o mural de um
           período específico.
         </p>
-        <div className="flex flex-col items-center gap-0.5">
-          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-3xl">
+        <div className="flex flex-col items-center gap-0.5 print:gap-0">
+          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-xl">
             Programação de Férias — {empresaMural}
           </h2>
-          <p className="text-center font-mono text-[11px] tracking-[.06em] text-text-2 uppercase print:text-lg">
+          <p className="text-center font-mono text-[11px] tracking-[.06em] text-text-2 uppercase print:text-sm">
             Mês de referência: {filtroMural.mes ? MESES[filtroMural.mes - 1] : "todos os períodos programados"}
             {filtroMural.area && ` · ${filtroMural.area}`}
             {filtroMural.quinzena && ` · ${filtroMural.quinzena}ª quinzena`}
           </p>
+          <p className="hidden font-mono text-[10px] text-text-3 print:block">
+            {muralOrdenado.length} colaborador(es) — 1ª e 2ª quinzena juntas, em ordem de matrícula
+          </p>
         </div>
-        <Table className="print:text-lg" containerClassName="print:border-0">
+        <Table
+          className="print:text-xl print:[border-collapse:collapse]"
+          containerClassName="print:overflow-visible print:border-0"
+        >
           <TableHeader>
             <TableRow>
-              <TableHead className="print:py-3 print:text-base">Matrícula</TableHead>
-              <TableHead className="print:py-3 print:text-base">Nome</TableHead>
-              <TableHead className="print:py-3 print:text-base">Departamento</TableHead>
-              <TableHead className="print:py-3 print:text-base">Mês</TableHead>
-              <TableHead className="print:py-3 print:text-base">Gozo Inicial</TableHead>
-              <TableHead className="print:py-3 print:text-base">Gozo Final</TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Matrícula
+              </TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Nome
+              </TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Departamento
+              </TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Mês
+              </TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Gozo Inicial
+              </TableHead>
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+                Gozo Final
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtroMural.filtrados.map((p) => (
+            {muralOrdenado.map((p) => (
               <TableRow key={p.id}>
-                <TableCell className="print:py-3">{p.matricula}</TableCell>
-                <TableCell className="font-medium text-foreground print:py-3">{p.nome}</TableCell>
-                <TableCell className="print:py-3">{p.departamento ?? "—"}</TableCell>
-                <TableCell className="print:py-3">
+                <TableCell className="print:border print:border-neutral-400 print:py-1">
+                  {p.matricula}
+                </TableCell>
+                <TableCell className="font-medium text-foreground print:border print:border-neutral-400 print:py-1">
+                  {p.nome}
+                </TableCell>
+                <TableCell className="print:border print:border-neutral-400 print:py-1">
+                  {p.departamento ?? "—"}
+                </TableCell>
+                <TableCell className="print:border print:border-neutral-400 print:py-1">
                   {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
                 </TableCell>
-                <TableCell className="print:py-3">{formatarData(p.gozoInicio)}</TableCell>
-                <TableCell className="print:py-3">{formatarData(p.gozoFim)}</TableCell>
+                <TableCell className="print:border print:border-neutral-400 print:py-1">
+                  {formatarData(p.gozoInicio)}
+                </TableCell>
+                <TableCell className="print:border print:border-neutral-400 print:py-1">
+                  {formatarData(p.gozoFim)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
