@@ -35,7 +35,7 @@ const TIPOS: TipoDef[] = [
   {
     key: "faltas",
     titulo: "Faltas",
-    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > [ evento 21 ]",
+    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > (8;11;12;21;30;36;37;59)",
     descricao: "registra as datas de falta do período",
   },
   {

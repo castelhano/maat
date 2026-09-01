@@ -130,7 +130,7 @@ export async function confirmarFaltas(
         where: { funcionarioId: funcionario.id, data: { gte: parsed.periodo.inicio, lte: parsed.periodo.fim } },
       });
       await tx.falta.createMany({
-        data: linha.datas.map((data) => ({ funcionarioId: funcionario.id, data })),
+        data: linha.datas.map(({ data, ocorrencia }) => ({ funcionarioId: funcionario.id, data, ocorrencia })),
       });
       faltasRegistradas += linha.datas.length;
       funcionariosTocados++;

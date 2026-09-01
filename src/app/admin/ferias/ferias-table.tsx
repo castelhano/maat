@@ -1187,38 +1187,39 @@ export function FeriasTable({
           <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-xl">
             Programação de Férias — {empresaMural}
           </h2>
-          <p className="text-center font-mono text-[11px] tracking-[.06em] text-text-2 uppercase print:text-sm">
+          <p className="text-center font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase print:text-sm">
             Mês de referência: {filtroMural.mes ? MESES[filtroMural.mes - 1] : "todos os períodos programados"}
             {filtroMural.area && ` · ${filtroMural.area}`}
-            {filtroMural.quinzena && ` · ${filtroMural.quinzena}ª quinzena`}
-          </p>
-          <p className="hidden font-mono text-[10px] text-text-3 print:block">
-            {muralOrdenado.length} colaborador(es) — 1ª e 2ª quinzena juntas, em ordem de matrícula
+            {filtroMural.quinzena > 0 && ` · ${filtroMural.quinzena}ª quinzena`}
           </p>
         </div>
         <Table
-          className="print:text-xl print:[border-collapse:collapse]"
+          className="print:text-2xl print:[border-collapse:collapse]"
           containerClassName="print:overflow-visible print:border-0"
         >
           <TableHeader>
             <TableRow>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
-                Matrícula
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
+                <span className="print:hidden">Matrícula</span>
+                <span className="hidden print:inline">Matr</span>
               </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
                 Nome
               </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
-                Departamento
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
+                <span className="print:hidden">Departamento</span>
+                <span className="hidden print:inline">Depart</span>
               </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
                 Mês
               </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
-                Gozo Inicial
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
+                <span className="print:hidden">Gozo Inicial</span>
+                <span className="hidden print:inline">Início</span>
               </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-xl print:font-normal print:normal-case">
-                Gozo Final
+              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
+                <span className="print:hidden">Gozo Final</span>
+                <span className="hidden print:inline">Final</span>
               </TableHead>
             </TableRow>
           </TableHeader>

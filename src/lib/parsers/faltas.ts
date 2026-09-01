@@ -1,12 +1,18 @@
 // Relatório 3 (faltas por ocorrência). Traz um período explícito ("Periodo de: dd/mm/aaaa a
 // dd/mm/aaaa"), do qual a competência pode ser sugerida quando o período é um mês cheio — mas
 // quem decide a competência de fato é o usuário na tela, isso aqui só serve pra conferência.
+//
+// Cada data vem acompanhada da sigla da ocorrência (ATM, FALTA, FALTJ, SUSP etc.) — guardamos
+// isso só como informação adicional (pra um dashboard futuro); o que já era calculado a partir
+// da quantidade de datas (elegibilidade de cesta básica/VA) continua igual, sem distinguir tipo.
+
+export type FaltaOcorrencia = { data: Date; ocorrencia: string };
 
 export type FaltaLinha = {
   matricula: string;
   nome: string;
   funcao: string;
-  datas: Date[];
+  datas: FaltaOcorrencia[];
 };
 
 export type FaltasParseResult = {
@@ -19,17 +25,21 @@ export type FaltasParseResult = {
 const EMPRESA = /^Empresa\s*:\s*(\d{3})\s+(.+?)\s*$/m;
 const PERIODO = /Periodo de\s*:\s*(\d{2})\/(\d{2})\/(\d{4})\s*a\s*(\d{2})\/(\d{2})\/(\d{4})/i;
 const LINHA_REGISTRO = /^(\d{6})\s+(.+?)\s{2,}(.+?)\s+(\d+)\s+(.*)$/;
-const LINHA_CONTINUACAO_DATAS = /^(?:\d{2}\/\d{2}\/\d{4}\s*)+$/;
+// Linha de continuação: só repetições de "data sigla", sem matrícula/nome/função na frente.
+const LINHA_CONTINUACAO_DATAS = /^(?:\d{2}\/\d{2}\/\d{4}\s+\S+\s*)+$/;
 const TOTAL_FUNC = /TOTAL FUNC\s*-+>\s*(\d+)/;
 const TOTAL_GERAL = /TOTAL GERAL\s*-+>\s*(\d+)/;
-const DATA = /(\d{2})\/(\d{2})\/(\d{4})/g;
+const DATA_OCORRENCIA = /(\d{2})\/(\d{2})\/(\d{4})\s+(\S+)/g;
 
 function parseData(dia: string, mes: string, ano: string): Date {
   return new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia)));
 }
 
-function extrairDatas(texto: string): Date[] {
-  return [...texto.matchAll(DATA)].map((m) => parseData(m[1], m[2], m[3]));
+function extrairOcorrencias(texto: string): FaltaOcorrencia[] {
+  return [...texto.matchAll(DATA_OCORRENCIA)].map((m) => ({
+    data: parseData(m[1], m[2], m[3]),
+    ocorrencia: m[4],
+  }));
 }
 
 function competenciaDoPeriodo(inicio: Date, fim: Date): string | null {
@@ -70,7 +80,7 @@ export function parseFaltas(conteudo: string): FaltasParseResult {
         matricula,
         nome: nome.trim().replace(/\s+/g, " "),
         funcao: funcao.trim().replace(/\s+/g, " "),
-        datas: extrairDatas(detalhe),
+        datas: extrairOcorrencias(detalhe),
       });
       // Guardamos a qtde declarada junto pra conferir depois de fechar as continuações.
       (linhas[linhas.length - 1] as FaltaLinha & { qtdeDeclarada?: number }).qtdeDeclarada = Number(qtde);
@@ -78,7 +88,7 @@ export function parseFaltas(conteudo: string): FaltasParseResult {
     }
 
     if (LINHA_CONTINUACAO_DATAS.test(linha.trim()) && linhas.length > 0) {
-      linhas[linhas.length - 1].datas.push(...extrairDatas(linha));
+      linhas[linhas.length - 1].datas.push(...extrairOcorrencias(linha));
       continue;
     }
 

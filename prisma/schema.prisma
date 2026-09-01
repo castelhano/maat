@@ -207,6 +207,10 @@ model Falta {
   funcionarioId String
   funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
   data          DateTime
+  // Sigla da ocorrência vinda do relatório (ATM, FALTA, FALTJ, SUSP etc.) — informação adicional
+  // pra um dashboard futuro; não entra na conta de elegibilidade de cesta básica/VA, que continua
+  // contando linhas de Falta independente do tipo.
+  ocorrencia    String?
   createdAt     DateTime    @default(now())
 
   @@unique([funcionarioId, data])
