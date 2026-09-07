@@ -10,6 +10,7 @@ import { FaltasImportador } from "./faltas-importador";
 import { AfastamentosImportador } from "./afastamentos-importador";
 import { CatImportador } from "./cat-importador";
 import { IndicadoresImportador } from "./indicadores-importador";
+import { MovimentacaoImportador } from "./movimentacao-importador";
 import { statusImportacoes, type StatusImportacoes } from "./status-actions";
 
 type Empresa = { id: string; nome: string };
@@ -35,28 +36,34 @@ const TIPOS: TipoDef[] = [
     descricao: "atualiza status e elegibilidade de VR de quem já existe",
   },
   {
-    key: "faltas",
-    titulo: "Faltas",
-    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > (8;11;12;21;30;36;37;59)",
-    descricao: "registra as datas de falta do período",
-  },
-  {
     key: "afastamentos",
     titulo: "Afastamentos",
     caminhoErp: "Folha > Listagem generica > [ 003 ]",
     descricao: "atualiza status, data e motivo de quem está afastado",
   },
   {
-    key: "cat",
-    titulo: "CAT (acidentes de trabalho)",
-    caminhoErp: "Folha > Relatórios > Listagem Genérica > 7",
-    descricao: "guarda os acidentes reportados — ainda sem indicador montado em cima",
-  },
-  {
     key: "indicadores_mensais",
     titulo: "Indicadores mensais (Resumo Gerencial)",
     caminhoErp: "Folha > Relatórios > Resumo Gerencial Analítico",
     descricao: "alimenta o dashboard de indicadores por área — headcount, folha, encargos e benefícios",
+  },
+  {
+    key: "movimentacao_aprendiz",
+    titulo: "Admitidos/Desligados (aprendiz)",
+    caminhoErp: "Folha > Relatórios > Controle de datas > Admitidos/Desligados",
+    descricao: "conta aprendiz admitido/desligado por mês, pra excluir do cálculo de turnover",
+  },
+  {
+    key: "faltas",
+    titulo: "Faltas",
+    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > (8;11;12;21;30;36;37;59)",
+    descricao: "registra as datas de falta do período",
+  },
+  {
+    key: "cat",
+    titulo: "CAT (acidentes de trabalho)",
+    caminhoErp: "Folha > Relatórios > Listagem Genérica > 7",
+    descricao: "guarda os acidentes reportados — ainda sem indicador montado em cima",
   },
 ];
 
@@ -138,7 +145,10 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
 
               {estaAberto && (
                 <div className="border-t border-border px-4 py-5">
-                  {!competencia && tipo.key !== "cat" && tipo.key !== "indicadores_mensais" && (
+                  {!competencia &&
+                    tipo.key !== "cat" &&
+                    tipo.key !== "indicadores_mensais" &&
+                    tipo.key !== "movimentacao_aprendiz" && (
                     <p className="mb-4 font-mono text-[10px] text-warning">
                       Selecione a competência acima antes de importar.
                     </p>
@@ -194,6 +204,9 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
                   )}
                   {tipo.key === "indicadores_mensais" && (
                     <IndicadoresImportador onImportado={() => competencia && recarregarStatus(competencia)} />
+                  )}
+                  {tipo.key === "movimentacao_aprendiz" && (
+                    <MovimentacaoImportador onImportado={() => competencia && recarregarStatus(competencia)} />
                   )}
                 </div>
               )}

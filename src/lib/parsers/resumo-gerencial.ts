@@ -12,10 +12,19 @@ export type ResumoGerencialLinha = {
   admitidos: number | null;
   desligados: number | null;
   afastados: number | null;
+  // Sem linha própria no relatório — sempre null aqui, entram editáveis (usados só pra excluir
+  // aprendiz da conta de turnover, ver calcularDerivados).
+  aprendizesAtivos: number | null;
+  aprendizesAdmitidos: number | null;
+  aprendizesDesligados: number | null;
   folhaBruta: number | null;
   liquidoPagar: number | null;
   horaExtra: number | null;
   horaExtraHoras: number | null;
+  comissao: number | null;
+  // Nunca vem do PDF — sempre fica null aqui, pra entrar zerado e editável na tela de importação
+  // (a folha suplementar é processada à parte, fora desse relatório).
+  folhaSuplementar: number | null;
   faltasDias: number | null;
   faltasValor: number | null;
   atestadosDias: number | null;
@@ -26,7 +35,14 @@ export type ResumoGerencialLinha = {
   // irrfNormal da competência ANTERIOR (ver src/app/admin/indicadores/actions.ts).
   irrfFerias: number | null;
   irrfNormal: number | null;
-  custoBeneficios: number | null;
+  // Vêm do PDF (códigos 00970, 00972, 00971).
+  cestaBasica: number | null;
+  valeGas: number | null;
+  valeAlimentacao: number | null;
+  // Não têm código no relatório — sempre ficam null aqui, entram editáveis na tela de importação.
+  cafeManha: number | null;
+  refeitorio: number | null;
+  proSaude: number | null;
 };
 
 export type ResumoGerencialParseResult = {
@@ -53,17 +69,17 @@ function numerosNaLinha(linha: string): number[] {
   return [...linha.matchAll(NUMERO)].map((m) => paraNumero(m[0]));
 }
 
-// O relatório lista PROVENTO e DESCONTO lado a lado na mesma linha ("00003 HORA EXTRA ... 00481
-// IRF FERIAS ..."), e a extração do texto do PDF gruda os dois blocos numa linha só — por isso
-// "pegar o último número da linha" pra um código do lado esquerdo acabava trazendo o total do
-// código vizinho à direita. Corta a linha assim que aparece outro código de 5 dígitos depois do
-// ponto onde o rótulo procurado foi encontrado.
+// O relatório lista PROVENTO e DESCONTO lado a lado na mesma linha ("00119 DSR S/ AD ... 00508
+// FALTAS ..."), e a extração do texto do PDF gruda os dois blocos numa linha só. Isola só o trecho
+// do código procurado: começa DEPOIS do rótulo (não pega os números do código vizinho à esquerda,
+// quando o nosso é o da direita) e termina antes do próximo código de 5 dígitos (não pega os
+// números do vizinho à direita, quando o nosso é o da esquerda).
 const PROXIMO_CODIGO = /\s\d{5}\s+\S/;
 
 function linhaAteProximoCodigo(linha: string, apartirDe: number): string {
   const resto = linha.slice(apartirDe);
   const m = PROXIMO_CODIGO.exec(resto);
-  return m ? linha.slice(0, apartirDe + m.index) : linha;
+  return m ? resto.slice(0, m.index) : resto;
 }
 
 // Pega o último número da primeira linha (a partir do início do arquivo) que contém `rotulo`.
@@ -119,12 +135,17 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const admitidos = inteiroAposRotulo(texto, /Admitidos\.*:\s*(\d+)/);
   const desligados = inteiroAposRotulo(texto, /Desligados\.*:\s*(\d+)/);
   const afastados = inteiroAposRotulo(texto, /Afastados\.*:\s*(\d+)/);
+  // Sem linha própria no relatório — sempre editável na tela de importação.
+  const aprendizesAtivos = null;
+  const aprendizesAdmitidos = null;
+  const aprendizesDesligados = null;
 
   const folhaBruta = ultimoNumeroAposRotulo(texto, /TOTAIS PROVENTOS/, /TOTAIS DESCONTOS/);
   const liquidoPagar = ultimoNumeroAposRotulo(texto, /Liquido a Pagar/);
   // INSS RETIDO do funcionário (não o total patronal+retido) — linha própria no relatório.
   const inssRetido = ultimoNumeroAposRotulo(texto, /INSS Retido dos Funcionarios/i);
-  const fgts = ultimoNumeroAposRotulo(texto, /Deposito FGTS(?!\s*\()/);
+  // Soma "Deposito FGTS" + "Deposito FGTS (Categoria 07)" — exclui só a linha "(Contr. Social)".
+  const fgts = somarPorDescricao(texto, /Deposito FGTS(?!\s*\(Contr)/)?.total ?? null;
   // IRRF normal (código 00453) e IRRF sobre férias (código 00481) ficam CRUS — o valor "do mês"
   // combina os dois em competências diferentes (ver módulo do dashboard), então aqui só extrai
   // cada um separado, sem somar.
@@ -134,7 +155,12 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const horaExtraSoma = somarPorDescricao(texto, /^\s*(00003|00659)\b/m);
   const horaExtra = horaExtraSoma?.total ?? null;
   const horaExtraHoras = horaExtraSoma?.quantidade ?? null;
+  // Código 00227.
+  const comissao = ultimoNumeroAposRotulo(texto, /^\s*00227\b/m);
+  // Não tem código no relatório — sempre editável na tela de importação.
+  const folhaSuplementar = null;
 
+  // Quantidade de dias de falta e valor descontado — código 00508 (REFER = dias).
   const faltasSoma = somarPorDescricao(texto, /\b00508\s+FALTAS/);
   const faltasDias = faltasSoma?.quantidade ?? null;
   const faltasValor = faltasSoma?.total ?? null;
@@ -142,13 +168,13 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const atestadosDias = atestadosSoma?.quantidade ?? null;
   const atestadosValor = atestadosSoma?.total ?? null;
 
-  const cesta = ultimoNumeroAposRotulo(texto, /\b00970\s+0\s+CESTA BASICA/);
-  const alimentacao = ultimoNumeroAposRotulo(texto, /\b00971\s+1\s+ALIMENTACAO CARTAO/);
+  const cestaBasica = ultimoNumeroAposRotulo(texto, /\b00970\s+0\s+CESTA BASICA/);
   const valeGas = ultimoNumeroAposRotulo(texto, /\b00972\s+2\s+VALE GAS/);
-  const custoBeneficios =
-    cesta === null && alimentacao === null && valeGas === null
-      ? null
-      : (cesta ?? 0) + (alimentacao ?? 0) + (valeGas ?? 0);
+  const valeAlimentacao = ultimoNumeroAposRotulo(texto, /\b00971\s+1\s+ALIMENTACAO CARTAO/);
+  // Sem código no relatório — sempre editáveis na tela de importação.
+  const cafeManha = null;
+  const refeitorio = null;
+  const proSaude = null;
 
   return {
     setor,
@@ -156,10 +182,15 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     admitidos,
     desligados,
     afastados,
+    aprendizesAtivos,
+    aprendizesAdmitidos,
+    aprendizesDesligados,
     folhaBruta,
     liquidoPagar,
     horaExtra,
     horaExtraHoras,
+    comissao,
+    folhaSuplementar,
     faltasDias,
     faltasValor,
     atestadosDias,
@@ -168,7 +199,12 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     fgts,
     irrfFerias,
     irrfNormal,
-    custoBeneficios,
+    cestaBasica,
+    valeGas,
+    valeAlimentacao,
+    cafeManha,
+    refeitorio,
+    proSaude,
   };
 }
 

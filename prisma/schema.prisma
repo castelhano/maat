@@ -209,9 +209,10 @@ model Falta {
   funcionarioId String
   funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
   data          DateTime
-  // Sigla da ocorrência vinda do relatório (ATM, FALTA, FALTJ, SUSP etc.) — informação adicional
-  // pra um dashboard futuro; não entra na conta de elegibilidade de cesta básica/VA, que continua
-  // contando linhas de Falta independente do tipo.
+  // Sigla da ocorrência vinda do relatório (ATM, FALTA, FALTJ, SUSP etc.). Só "FALTA" (falta sem
+  // justificativa) entra na conta de elegibilidade de cesta básica/VA — as demais são
+  // afastamentos amparados (atestado médico, óbito, suspensão, paternidade, casamento etc.) e
+  // não descontam benefício.
   ocorrencia    String?
   createdAt     DateTime    @default(now())
 
@@ -252,8 +253,8 @@ model Cat {
 // Snapshot mensal de indicadores de RH/folha por empresa+área, alimentado pelo PDF "Resumo
 // Gerencial Analítico" do ERP (um snapshot é necessário porque o cadastro de Funcionario só
 // reflete o estado atual — não dá pra reconstruir headcount de um mês passado a partir dele).
-// Campos derivados (custo total do empregador, custo por funcionário, % de encargos sobre a
-// folha, taxa de rotatividade) são calculados na leitura, não guardados aqui.
+// Campos derivados (custo total do empregador, custo por funcionário, custo total de benefícios,
+// % de encargos sobre a folha, taxa de rotatividade) são calculados na leitura, não guardados aqui.
 model IndicadorMensal {
   id          String  @id @default(cuid())
   empresaId   String
@@ -266,14 +267,23 @@ model IndicadorMensal {
   admitidos  Int
   desligados Int
   afastados  Int
+  // Sem código/linha própria no relatório — sempre lançado manualmente. Descontado de
+  // ativos/admitidos/desligados só na hora de calcular turnover (aprendiz não entra nessa conta).
+  aprendizesAtivos     Int @default(0)
+  aprendizesAdmitidos  Int @default(0)
+  aprendizesDesligados Int @default(0)
 
   folhaBruta     Decimal
   liquidoPagar   Decimal
   // Códigos 00003 + 00659 (hora extra 50%) somados — valor em R$ e a referência em horas.
   horaExtra      Decimal
   horaExtraHoras Decimal
-  // Faltas (código 00508) e atestados (código 00752) ficam separados — cada um com a quantidade
-  // de dias (campo REFER) e o valor em R$ descontado por causa deles.
+  // Código 00227.
+  comissao Decimal @default(0)
+  // Não vem do PDF nenhum — sempre lançado manualmente (folha processada à parte).
+  folhaSuplementar Decimal @default(0)
+  // Dias de falta (quantidade, campo REFER do código 00508) e atestados (código
+  // 00752), cada um com o valor em R$ descontado por causa deles.
   faltasDias      Decimal
   faltasValor     Decimal
   atestadosDias   Decimal
@@ -287,7 +297,15 @@ model IndicadorMensal {
   // irrfFerias da competência atual + irrfNormal da competência ANTERIOR (ver actions.ts).
   irrfFerias      Decimal
   irrfNormal      Decimal
-  custoBeneficios Decimal // cesta básica + alimentação cartão + vale-gás
+  // Benefícios extraídos do PDF (códigos 00970, 00972, 00971) — o custo total de benefícios é
+  // calculado na leitura somando esses 3 com os 3 abaixo, que não têm código no relatório e
+  // ficam sempre editáveis.
+  cestaBasica     Decimal @default(0)
+  valeGas         Decimal @default(0)
+  valeAlimentacao Decimal @default(0)
+  cafeManha       Decimal @default(0)
+  refeitorio      Decimal @default(0)
+  proSaude        Decimal @default(0)
 
   // Nomes dos campos acima que vieram editados manualmente (o parser não achou no PDF, ou o
   // usuário corrigiu) — só pra sinalizar na tela, não afeta nenhum cálculo.

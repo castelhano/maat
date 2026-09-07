@@ -3,8 +3,8 @@
 // quem decide a competência de fato é o usuário na tela, isso aqui só serve pra conferência.
 //
 // Cada data vem acompanhada da sigla da ocorrência (ATM, FALTA, FALTJ, SUSP etc.) — guardamos
-// isso só como informação adicional (pra um dashboard futuro); o que já era calculado a partir
-// da quantidade de datas (elegibilidade de cesta básica/VA) continua igual, sem distinguir tipo.
+// todas aqui; quem decide o que conta pra elegibilidade de benefício (só "FALTA") é a apuração
+// (src/app/admin/beneficios/actions.ts), não o parser.
 
 export type FaltaOcorrencia = { data: Date; ocorrencia: string };
 
@@ -76,6 +76,14 @@ export function parseFaltas(conteudo: string): FaltasParseResult {
     const registroMatch = LINHA_REGISTRO.exec(linha);
     if (registroMatch) {
       const [, matricula, nome, funcao, qtde, detalhe] = registroMatch;
+      const ultima = linhas[linhas.length - 1];
+      // Quando o registro é grande, o relatório quebra em página nova e REPETE a linha inteira
+      // (matrícula+nome+função+quantidade) em vez de só continuar com datas soltas — mesma
+      // matrícula do registro anterior, não é um funcionário novo.
+      if (ultima && ultima.matricula === matricula) {
+        ultima.datas.push(...extrairOcorrencias(detalhe));
+        continue;
+      }
       linhas.push({
         matricula,
         nome: nome.trim().replace(/\s+/g, " "),

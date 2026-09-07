@@ -59,9 +59,17 @@ export function FaltasImportador({
         toast.error(result.error);
         return;
       }
-      toast.success(
-        `Faltas aplicadas: ${result.resumo?.faltasRegistradas} falta(s) em ${result.resumo?.funcionarios} funcionário(s).`
-      );
+      const naoEncontrados = result.resumo?.naoEncontrados ?? 0;
+      const aviso = naoEncontrados > 0 ? ` ${naoEncontrados} matrícula(s) do arquivo não têm cadastro e ficaram de fora.` : "";
+      if (naoEncontrados > 0) {
+        toast.warning(
+          `Faltas aplicadas: ${result.resumo?.faltasRegistradas} falta(s) em ${result.resumo?.funcionarios} funcionário(s).${aviso}`
+        );
+      } else {
+        toast.success(
+          `Faltas aplicadas: ${result.resumo?.faltasRegistradas} falta(s) em ${result.resumo?.funcionarios} funcionário(s).`
+        );
+      }
       handleCancelar();
       onImportado?.();
     });

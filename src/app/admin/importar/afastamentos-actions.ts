@@ -87,9 +87,12 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
           `situação: ${funcionario.status} → ativo (retornou em ${linha.dataRetorno!.toLocaleDateString("pt-BR")})`
         );
       }
-      if (funcionario.dataAfastamento !== null) {
+      // Data de retorno é o que a apuração de benefícios usa pra proporcionalizar o VR do mês —
+      // precisa disparar atualização mesmo quando status/afastamento já estavam "limpos" (ex.:
+      // afastou e voltou dentro do mesmo mês, então nunca chegou a persistir como "afastado").
+      if ((funcionario.dataRetorno?.getTime() ?? null) !== linha.dataRetorno!.getTime()) {
         mudancas.push(
-          `data do afastamento: ${funcionario.dataAfastamento.toLocaleDateString("pt-BR")} → —`
+          `data de retorno: ${funcionario.dataRetorno ? funcionario.dataRetorno.toLocaleDateString("pt-BR") : "—"} → ${linha.dataRetorno!.toLocaleDateString("pt-BR")}`
         );
       }
       if (funcionario.motivoAfastamento) {
@@ -210,7 +213,15 @@ export async function confirmarAfastamentos(
       await tx.funcionario.updateMany({
         where: { empresaId, matricula },
         data: retornou
-          ? { status: "ativo", dataAfastamento: null, motivoAfastamento: null, dataRetorno: linha.dataRetorno }
+          ? {
+              status: "ativo",
+              // Mantém a data de afastamento desse mesmo evento (em vez de apagar): se ela caiu
+              // no mesmo mês do retorno, a apuração de benefícios usa as duas datas juntas pra
+              // saber que só essa janela ficou de fora, não o mês inteiro até o retorno.
+              dataAfastamento: linha.dataAfastamento,
+              motivoAfastamento: null,
+              dataRetorno: linha.dataRetorno,
+            }
           : { status: "afastado", dataAfastamento: linha.dataAfastamento, motivoAfastamento: linha.motivo, dataRetorno: null },
       });
       atualizadosCount++;

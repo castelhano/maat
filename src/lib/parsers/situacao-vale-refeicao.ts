@@ -20,7 +20,11 @@ export type SituacaoValeRefeicaoParseResult = {
   linhas: SituacaoValeRefeicaoLinha[];
 };
 
-const LINHA_DADOS = /^\s*(\d{6})\s+([AFD])\s+(\d{11})\s+(.+?)\s+([SN])\s+(.+)$/;
+// O relatório às vezes traz duas colunas extras que este import ignora: data de admissão (logo
+// após a situação) e salário base (logo após o vale-refeição) — ambas opcionais aqui pra aceitar
+// tanto essa variante quanto a mais enxuta (sem essas colunas).
+const LINHA_DADOS =
+  /^\s*(\d{6})\s+([AFD])\s+(?:\d{2}\/\d{2}\/\d{4}\s+)?(\d{11})\s+(.+?)\s+([SN])\s+(?:[\d.,]+\s+)?(.+)$/;
 const LINHA_TOTAL = /^\s*(\d+)\s*$/;
 // Nome e telefone vêm colados no resto da linha, separados só por espaços de preenchimento de
 // largura fixa; o telefone (quando existe) é sempre o último "bloco" após o maior espaçamento.

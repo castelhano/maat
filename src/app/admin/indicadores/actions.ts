@@ -28,6 +28,29 @@ export async function listarEmpresasIndicadores(): Promise<OpcaoEmpresa[]> {
   return empresas;
 }
 
+// "Aprendizes ativos" não tem como vir de um relatório de admitidos/desligados (é foto de um
+// momento, não evento) — pra competência ATUAL calcula direto do cadastro de Funcionário em vez de
+// depender do valor editado manualmente. Meses passados continuam com o que foi editado/importado
+// (o cadastro só reflete o estado de hoje, não dá pra reconstruir retroativo com isso).
+async function contarAprendizesAtivosPorEmpresa(): Promise<{ setor: string | null; porEmpresa: Map<string, number> }> {
+  const cargos = await prisma.cargo.findMany({ select: { nome: true, setor: true } });
+  const cargoAprendiz = cargos.find((c) => c.nome.toUpperCase() === "APRENDIZ");
+  if (!cargoAprendiz) return { setor: null, porEmpresa: new Map() };
+
+  const funcionarios = await prisma.funcionario.findMany({
+    where: { status: "ativo", cargo: { nome: cargoAprendiz.nome } },
+    select: { empresaId: true },
+  });
+  const porEmpresa = new Map<string, number>();
+  for (const f of funcionarios) porEmpresa.set(f.empresaId, (porEmpresa.get(f.empresaId) ?? 0) + 1);
+  return { setor: cargoAprendiz.setor, porEmpresa };
+}
+
+function competenciaAtual(): string {
+  const agora = new Date();
+  return `${String(agora.getMonth() + 1).padStart(2, "0")}/${agora.getFullYear()}`;
+}
+
 export async function carregarIndicadores(filtro: {
   empresaId?: string;
   setor?: string;
@@ -44,6 +67,9 @@ export async function carregarIndicadores(filtro: {
     },
     include: { empresa: { select: { nome: true, abbr: true } } },
   });
+
+  const mesAtual = competenciaAtual();
+  const { setor: setorAprendiz, porEmpresa: aprendizesAtivosPorEmpresa } = await contarAprendizesAtivosPorEmpresa();
 
   const irrfNormalPorChave = new Map<string, number>();
   for (const r of registros) {
@@ -63,29 +89,22 @@ export async function carregarIndicadores(filtro: {
       const irrfNormalMesAnterior =
         irrfNormalPorChave.get(`${r.empresaId}|${r.setor}|${competenciaAnterior(r.competencia)}`) ?? 0;
 
+      const campos = {} as Record<CampoIndicador, number>;
+      for (const campo of CAMPOS_INDICADOR) {
+        const valor = r[campo];
+        campos[campo] = typeof valor === "number" ? valor : valor.toNumber();
+      }
+      if (r.competencia === mesAtual && r.setor === setorAprendiz) {
+        campos.aprendizesAtivos = aprendizesAtivosPorEmpresa.get(r.empresaId) ?? 0;
+      }
+
       return {
         id: r.id,
         competencia: r.competencia,
         setor: r.setor,
         empresaId: r.empresaId,
         empresaNome: r.empresa.abbr ?? r.empresa.nome,
-        ativos: r.ativos,
-        admitidos: r.admitidos,
-        desligados: r.desligados,
-        afastados: r.afastados,
-        folhaBruta: r.folhaBruta.toNumber(),
-        liquidoPagar: r.liquidoPagar.toNumber(),
-        horaExtra: r.horaExtra.toNumber(),
-        horaExtraHoras: r.horaExtraHoras.toNumber(),
-        faltasDias: r.faltasDias.toNumber(),
-        faltasValor: r.faltasValor.toNumber(),
-        atestadosDias: r.atestadosDias.toNumber(),
-        atestadosValor: r.atestadosValor.toNumber(),
-        inssRetido: r.inssRetido.toNumber(),
-        fgts: r.fgts.toNumber(),
-        irrfFerias: r.irrfFerias.toNumber(),
-        irrfNormal: r.irrfNormal.toNumber(),
-        custoBeneficios: r.custoBeneficios.toNumber(),
+        ...campos,
         irrf: r.irrfFerias.toNumber() + irrfNormalMesAnterior,
       };
     });

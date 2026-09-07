@@ -186,8 +186,21 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
                     ))}
                   </TableRow>
                 ))}
+                <TableRow>
+                  <TableCell className="font-bold whitespace-nowrap text-foreground">Total</TableCell>
+                  {CAMPOS_INDICADOR.map((campo) => (
+                    <TableCell key={campo} className="font-bold text-foreground">
+                      {linhas
+                        .reduce((soma, l) => soma + (Number(l[campo]) || 0), 0)
+                        .toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                    </TableCell>
+                  ))}
+                </TableRow>
               </TableBody>
             </Table>
+            <p className="mt-2 font-mono text-[10px] text-text-3">
+              confira a linha Total contra o bloco &quot;TOTAL DA EMPRESA&quot; do relatório.
+            </p>
           </div>
 
           <div>

@@ -129,10 +129,13 @@ export async function confirmarFaltas(
       await tx.falta.deleteMany({
         where: { funcionarioId: funcionario.id, data: { gte: parsed.periodo.inicio, lte: parsed.periodo.fim } },
       });
+      // O relatório às vezes repete a mesma data (duas ocorrências no mesmo dia, ex. FALTA + ATM) —
+      // o cadastro só guarda uma linha por dia, então mantém a primeira e descarta a repetição.
+      const datasUnicas = new Map(linha.datas.map((d) => [d.data.getTime(), d]));
       await tx.falta.createMany({
-        data: linha.datas.map(({ data, ocorrencia }) => ({ funcionarioId: funcionario.id, data, ocorrencia })),
+        data: [...datasUnicas.values()].map(({ data, ocorrencia }) => ({ funcionarioId: funcionario.id, data, ocorrencia })),
       });
-      faltasRegistradas += linha.datas.length;
+      faltasRegistradas += datasUnicas.size;
       funcionariosTocados++;
     }
 

@@ -4,7 +4,13 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
-import { calcularElegibilidadeCesta, calcularVR, calcularValorCestaConvertida, resolverHeranca } from "@/lib/beneficios";
+import {
+  calcularElegibilidadeCesta,
+  calcularVR,
+  calcularValorCestaConvertida,
+  resolverHeranca,
+  statusNaCompetencia,
+} from "@/lib/beneficios";
 
 export type ApuracaoItemDTO = {
   tipo: string;
@@ -91,6 +97,14 @@ export async function processarApuracao(
   const inicio = new Date(Date.UTC(ano, mes - 1, 1));
   const fim = new Date(Date.UTC(ano, mes, 0, 23, 59, 59, 999));
 
+  // O crédito de "cesta convertida em VR" é pago com base na elegibilidade da cesta do MÊS
+  // ANTERIOR (ex.: VR de agosto olha as faltas de julho) — regra específica só desse crédito;
+  // a aba de Cesta Básica em si continua mostrando a elegibilidade do mês corrente normalmente.
+  const anoAnterior = mes === 1 ? ano - 1 : ano;
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const inicioAnterior = new Date(Date.UTC(anoAnterior, mesAnterior - 1, 1));
+  const fimAnterior = new Date(Date.UTC(anoAnterior, mesAnterior, 0, 23, 59, 59, 999));
+
   const empresas = await prisma.empresa.findMany();
 
   let empresasProcessadas = 0;
@@ -103,12 +117,30 @@ export async function processarApuracao(
     });
     const terceiros = await prisma.terceiro.findMany({ where: { empresaId: empresa.id, ativo: true } });
 
+    // Só a ocorrência "FALTA" (falta sem justificativa) conta pra regra de perda de benefício —
+    // atestado médico, falta justificada, óbito, suspensão, paternidade e casamento são
+    // afastamentos amparados, não faltas.
     const faltasAgrupadas = await prisma.falta.groupBy({
       by: ["funcionarioId"],
-      where: { funcionarioId: { in: funcionarios.map((f) => f.id) }, data: { gte: inicio, lte: fim } },
+      where: {
+        funcionarioId: { in: funcionarios.map((f) => f.id) },
+        data: { gte: inicio, lte: fim },
+        ocorrencia: "FALTA",
+      },
       _count: { _all: true },
     });
     const faltasPorFuncionario = new Map(faltasAgrupadas.map((f) => [f.funcionarioId, f._count._all]));
+
+    const faltasAgrupadasAnterior = await prisma.falta.groupBy({
+      by: ["funcionarioId"],
+      where: {
+        funcionarioId: { in: funcionarios.map((f) => f.id) },
+        data: { gte: inicioAnterior, lte: fimAnterior },
+        ocorrencia: "FALTA",
+      },
+      _count: { _all: true },
+    });
+    const faltasPorFuncionarioAnterior = new Map(faltasAgrupadasAnterior.map((f) => [f.funcionarioId, f._count._all]));
 
     const valorCestaBasicaEmpresa = empresa.valorCestaBasica?.toNumber() ?? null;
     const itens: Prisma.ApuracaoItemCreateWithoutApuracaoInput[] = [];
@@ -139,15 +171,36 @@ export async function processarApuracao(
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,
           dataRetorno: f.dataRetorno,
+          dataDesligamento: f.dataDesligamento,
         },
         { ano, mes }
       );
 
-      const valorCestaConvertida = calcularValorCestaConvertida({
-        elegivelCesta: cesta.elegivel,
-        recebeCestaComoVR: f.recebeCestaComoVR,
-        valorCestaBasicaEmpresa,
-      });
+      // O crédito depende da elegibilidade da cesta no mês ANTERIOR, não neste — usa as faltas
+      // reais daquele mês e corrige o status pra "ativo" se o desligamento/afastamento atual só
+      // aconteceu depois (statusNaCompetencia), já que aí ele ainda estava trabalhando normal.
+      const cestaMesAnterior = calcularElegibilidadeCesta(
+        {
+          status: statusNaCompetencia(f, { ano: anoAnterior, mes: mesAnterior }),
+          dataAdmissao: f.dataAdmissao,
+          dataAfastamento: f.dataAfastamento,
+          motivoAfastamento: f.motivoAfastamento,
+          faltasNoMes: faltasPorFuncionarioAnterior.get(f.id) ?? 0,
+          recebeCestaBasicaResolvido: recebeCestaResolvido,
+        },
+        { ano: anoAnterior, mes: mesAnterior }
+      );
+
+      // Só faz sentido pagar o crédito da cesta convertida se o VR do mês em si é devido — quem
+      // não tem mais direito a VR (ex.: desligado antes do dia que mantém o benefício, pago em
+      // verbas rescisórias em vez de VR) também não recebe esse crédito junto.
+      const valorCestaConvertida = vr.elegivel
+        ? calcularValorCestaConvertida({
+            elegivelCesta: cestaMesAnterior.elegivel,
+            recebeCestaComoVR: f.recebeCestaComoVR,
+            valorCestaBasicaEmpresa,
+          })
+        : null;
 
       // Quem tem direito à cesta mas optou por receber em VR não recebe a cesta física — na aba
       // de cesta básica ele deve aparecer como "sem direito", não como se estivesse recebendo as

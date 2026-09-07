@@ -14,6 +14,32 @@ export type ResultadoCesta = {
   motivo: string | null;
 };
 
+// O cadastro só guarda o status ATUAL do funcionário — não há histórico mês a mês. Pra apurar
+// uma competência passada (ex.: elegibilidade de cesta do mês anterior, usada no crédito
+// convertido em VR), o status desligado/afastado só é válido se a data correspondente já tinha
+// acontecido naquele mês; senão ele ainda estava ativo então, mesmo já estando desligado/afastado
+// hoje.
+export function statusNaCompetencia(
+  funcionario: { status: string; dataAfastamento: Date | null; dataDesligamento: Date | null },
+  competencia: { ano: number; mes: number }
+): string {
+  const anoMesCompetencia = competencia.ano * 12 + (competencia.mes - 1);
+
+  if (funcionario.status === "desligado" && funcionario.dataDesligamento) {
+    const anoMesDesligamento =
+      funcionario.dataDesligamento.getUTCFullYear() * 12 + funcionario.dataDesligamento.getUTCMonth();
+    if (anoMesDesligamento > anoMesCompetencia) return "ativo";
+  }
+
+  if (funcionario.status === "afastado" && funcionario.dataAfastamento) {
+    const anoMesAfastamento =
+      funcionario.dataAfastamento.getUTCFullYear() * 12 + funcionario.dataAfastamento.getUTCMonth();
+    if (anoMesAfastamento > anoMesCompetencia) return "ativo";
+  }
+
+  return funcionario.status;
+}
+
 export type ResultadoVR = {
   elegivel: boolean;
   motivo: string | null;
@@ -107,43 +133,78 @@ export function calcularElegibilidadeCesta(funcionario: {
   return { elegivel: true, motivo: null };
 }
 
+// A partir de que dia do mês um desligamento ainda mantém o VR daquele mês (proporcional),
+// em vez de zerar — regra da empresa: quem sai perto do fim do mês já teve o arquivo de VR
+// fechado, então o benefício é mantido em vez de estornado nas verbas rescisórias.
+const DIA_MINIMO_DESLIGAMENTO_MANTEM_VR = 25;
+
 // Dias efetivos no mês para fins de VR: desconsidera dias antes da admissão (quando ela cai
-// dentro do mês de competência), dias de afastamento (parcial, quando o afastamento começou
-// dentro do mês; ou o mês inteiro, quando o afastamento já vinha de meses anteriores) e dias
-// antes do retorno (quando o colaborador voltou de um afastamento dentro do próprio mês da
-// competência — dataRetorno continua marcada mesmo já com status "ativo", só pra isso). Faltas
-// não entram nessa conta — só afastamento, retorno e admissão afetam o VR.
+// dentro do mês de competência), dias de afastamento, dias de retorno e dias depois do
+// desligamento (quando ele mantém VR por ter saído no fim do mês — o próprio dia do
+// desligamento ainda conta como trabalhado). Faltas não entram nessa conta.
+//
+// Marca dia a dia (em vez de um único intervalo [início,fim]) porque um afastamento que começa
+// E termina dentro do mesmo mês (ex.: afastou dia 17, voltou dia 23) deixa só essa janela de
+// fora — o resto do mês foi trabalhado normalmente. Um intervalo único não representa isso: só
+// dá pra cortar do início OU do fim, não abrir um buraco no meio.
 function diasEfetivosNoMes(
-  funcionario: { dataAdmissao: Date; status: string; dataAfastamento: Date | null; dataRetorno: Date | null },
+  funcionario: {
+    dataAdmissao: Date;
+    status: string;
+    dataAfastamento: Date | null;
+    dataRetorno: Date | null;
+    dataDesligamento: Date | null;
+  },
   competencia: { ano: number; mes: number }
 ): number {
   const totalDias = diasNoMes(competencia.ano, competencia.mes);
-  let inicio = 1;
-  let fim = totalDias;
+  const trabalhou = new Array<boolean>(totalDias + 1).fill(true); // índices 1..totalDias
 
-  const admissao = funcionario.dataAdmissao;
-  if (admissao.getUTCFullYear() === competencia.ano && admissao.getUTCMonth() + 1 === competencia.mes) {
-    inicio = admissao.getUTCDate();
+  const noMes = (d: Date) => d.getUTCFullYear() === competencia.ano && d.getUTCMonth() + 1 === competencia.mes;
+  const anoMes = (d: Date) => d.getUTCFullYear() * 12 + d.getUTCMonth();
+  const anoMesCompetencia = competencia.ano * 12 + (competencia.mes - 1);
+
+  function marcarFora(deInclusive: number, ateInclusive: number) {
+    for (let d = Math.max(1, deInclusive); d <= Math.min(totalDias, ateInclusive); d++) trabalhou[d] = false;
   }
 
-  if (funcionario.status === "afastado" && funcionario.dataAfastamento) {
-    const afastamento = funcionario.dataAfastamento;
-    const afastamentoAnoMes = afastamento.getUTCFullYear() * 12 + afastamento.getUTCMonth();
-    const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
-
-    if (afastamentoAnoMes < competenciaAnoMes) {
-      fim = 0;
-    } else if (afastamentoAnoMes === competenciaAnoMes) {
-      fim = Math.min(fim, afastamento.getUTCDate() - 1);
-    }
-  } else if (funcionario.dataRetorno) {
-    const retorno = funcionario.dataRetorno;
-    if (retorno.getUTCFullYear() === competencia.ano && retorno.getUTCMonth() + 1 === competencia.mes) {
-      inicio = Math.max(inicio, retorno.getUTCDate());
-    }
+  if (noMes(funcionario.dataAdmissao)) {
+    marcarFora(1, funcionario.dataAdmissao.getUTCDate() - 1);
   }
 
-  return Math.max(0, fim - inicio + 1);
+  if (funcionario.status === "desligado" && funcionario.dataDesligamento && noMes(funcionario.dataDesligamento)) {
+    const desligamento = funcionario.dataDesligamento;
+    marcarFora(desligamento.getUTCDate() + 1, totalDias);
+    // Desligado direto de um afastamento que nunca teve retorno (ex.: saiu de licença médica e
+    // foi desligado sem voltar a trabalhar) — os dias de afastamento também não foram
+    // trabalhados, não só os de depois do desligamento.
+    if (funcionario.dataAfastamento) {
+      if (anoMes(funcionario.dataAfastamento) < anoMesCompetencia) {
+        marcarFora(1, desligamento.getUTCDate());
+      } else if (noMes(funcionario.dataAfastamento)) {
+        marcarFora(funcionario.dataAfastamento.getUTCDate(), desligamento.getUTCDate());
+      }
+    }
+  } else if (funcionario.status === "afastado" && funcionario.dataAfastamento) {
+    if (anoMes(funcionario.dataAfastamento) < anoMesCompetencia) {
+      marcarFora(1, totalDias);
+    } else if (noMes(funcionario.dataAfastamento)) {
+      marcarFora(funcionario.dataAfastamento.getUTCDate(), totalDias);
+    }
+  } else if (funcionario.dataRetorno && noMes(funcionario.dataRetorno)) {
+    // Se o próprio afastamento que gerou esse retorno também caiu neste mês, só a janela entre
+    // as duas datas fica de fora; senão (o afastamento já vinha de um mês anterior), o mês
+    // inteiro até a véspera do retorno é que fica de fora.
+    const inicioAfastamento =
+      funcionario.dataAfastamento && noMes(funcionario.dataAfastamento)
+        ? funcionario.dataAfastamento.getUTCDate()
+        : 1;
+    marcarFora(inicioAfastamento, funcionario.dataRetorno.getUTCDate() - 1);
+  }
+
+  let dias = 0;
+  for (let d = 1; d <= totalDias; d++) if (trabalhou[d]) dias++;
+  return dias;
 }
 
 export function calcularVR(
@@ -156,6 +217,7 @@ export function calcularVR(
     dataAdmissao: Date;
     dataAfastamento: Date | null;
     dataRetorno: Date | null;
+    dataDesligamento: Date | null;
   },
   competencia: { ano: number; mes: number }
 ): ResultadoVR {
@@ -169,7 +231,16 @@ export function calcularVR(
     return { elegivel: false, motivo: "Função sem alimentação", baseCalculo: null, valor: 0 };
   }
   if (funcionario.status === "desligado") {
-    return { elegivel: false, motivo: "Desligado", baseCalculo: null, valor: 0 };
+    const desligamento = funcionario.dataDesligamento;
+    const mantemPorDesligamentoNoFimDoMes =
+      desligamento !== null &&
+      desligamento.getUTCFullYear() === competencia.ano &&
+      desligamento.getUTCMonth() + 1 === competencia.mes &&
+      desligamento.getUTCDate() >= DIA_MINIMO_DESLIGAMENTO_MANTEM_VR;
+
+    if (!mantemPorDesligamentoNoFimDoMes) {
+      return { elegivel: false, motivo: "Desligado", baseCalculo: null, valor: 0 };
+    }
   }
 
   const totalDias = diasNoMes(competencia.ano, competencia.mes);
