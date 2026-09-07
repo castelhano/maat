@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Upload, FileText, CheckCircle2, ChevronDown, TriangleAlert } from "lucide-react";
+import { Upload, FileText, CheckCircle2, ChevronDown, TriangleAlert, Snowflake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { lerArquivoTexto } from "../importar/ler-arquivo";
@@ -10,6 +10,7 @@ import {
   previewExtratoBancoHoras,
   confirmarExtratoBancoHoras,
   type PreviewBancoHorasResult,
+  type AlertaCongelamento,
 } from "./importar-actions";
 
 export function Importador({ onImportado }: { onImportado?: () => void }) {
@@ -18,11 +19,13 @@ export function Importador({ onImportado }: { onImportado?: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [conteudo, setConteudo] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewBancoHorasResult | null>(null);
+  const [alertasCongelamento, setAlertasCongelamento] = useState<AlertaCongelamento[]>([]);
   const [isPending, startTransition] = useTransition();
 
   async function handleFile(f: File) {
     setFile(f);
     setPreview(null);
+    setAlertasCongelamento([]);
 
     const texto = await lerArquivoTexto(f);
     setConteudo(texto);
@@ -49,6 +52,7 @@ export function Importador({ onImportado }: { onImportado?: () => void }) {
       toast.success(
         `Banco de horas atualizado: ${result.resumo?.funcionarios} funcionário(s), ${result.resumo?.competenciasRecalculadas} competência(s) recalculada(s).`
       );
+      setAlertasCongelamento(result.resumo?.alertasCongelamento ?? []);
       handleCancelar();
       onImportado?.();
     });
@@ -104,6 +108,33 @@ export function Importador({ onImportado }: { onImportado?: () => void }) {
             </strong>
             {file && <span className="font-mono text-[10px] text-success">{file.name}</span>}
           </label>
+
+          {alertasCongelamento.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-primary/30 bg-accent-glow px-4 py-3.5">
+              <div className="flex items-center gap-2">
+                <Snowflake className="size-4 text-primary" />
+                <span className="font-mono text-[11px] font-bold tracking-[.04em] text-primary">
+                  {alertasCongelamento.length} colaborador(es) entraram em congelamento de saldo (afastados há mais
+                  de 30 dias)
+                </span>
+              </div>
+              <p className="font-mono text-[10px] text-text-3">
+                O saldo deles ficou intacto nesta competência — nada foi pago. Volta a processar normalmente quando
+                o retorno for registrado na importação de afastamentos.
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {alertasCongelamento.map((a) => (
+                  <span
+                    key={`${a.matricula}-${a.competencia}`}
+                    className="rounded-[3px] border border-primary/30 bg-card px-2 py-0.5 font-mono text-[10px] text-primary"
+                    title={a.motivoAfastamento ?? undefined}
+                  >
+                    {a.matricula} · {a.nome} · {a.competencia}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isPending && !preview && <p className="font-mono text-[11px] text-text-3">processando arquivo...</p>}
 

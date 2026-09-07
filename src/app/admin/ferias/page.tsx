@@ -25,7 +25,13 @@ export default async function FeriasPage() {
     dataFim: q.dataFim.toISOString(),
   }));
 
-  const periodosSerializados = periodos.map((p) => ({
+  // Aprendizes não têm direito a férias programadas na mesma régua dos demais colaboradores —
+  // ocultado de toda a tela (Programação, Resumo, Painel/Mural) em vez de aparecer como pendente.
+  const periodosSemAprendiz = periodos.filter(
+    (p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ")
+  );
+
+  const periodosSerializados = periodosSemAprendiz.map((p) => ({
     id: p.id,
     matricula: p.funcionario.matricula,
     nome: p.funcionario.nome,

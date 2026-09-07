@@ -93,6 +93,15 @@ function calcularValorAproximado(salario: number, diasGozo: number) {
   return (salario / 30) * diasGozo * 1.333 * 1.2;
 }
 
+// Ordena por competência programada (ano/mês/quinzena) — quem ainda não tem mês programado vai
+// para o final, em ordem de matrícula.
+function compararCompetencia(a: FeriasLinha, b: FeriasLinha) {
+  if (a.ano !== b.ano) return (a.ano ?? Infinity) - (b.ano ?? Infinity);
+  if (a.mes !== b.mes) return (a.mes ?? Infinity) - (b.mes ?? Infinity);
+  if (a.quinzena !== b.quinzena) return (a.quinzena ?? Infinity) - (b.quinzena ?? Infinity);
+  return a.matricula.localeCompare(b.matricula, "pt-BR", { numeric: true });
+}
+
 function statusBadge(status: "pendente" | "programado" | "concluido") {
   const cfg = {
     pendente: { label: "Não programado", cls: "text-text-3 bg-bg-4 border-border" },
@@ -182,6 +191,8 @@ function ProgramarDialog({
     : null;
   const pagamentoPreview = gozoInicioPreview ? dataPagamentoFerias(gozoInicioPreview) : null;
 
+  const excedeuLimite = !!(gozoInicioPreview && gozoInicioPreview.getTime() > new Date(periodo.dataLimite).getTime());
+
   function salvar() {
     if (!mes || !ano || !quinzena) {
       toast.error("Escolha o mês, o ano e a quinzena.");
@@ -189,6 +200,10 @@ function ProgramarDialog({
     }
     if (diasAbono > 0 && !abonoTipo) {
       toast.error("Escolha se o abono fica no início ou no final do período de gozo.");
+      return;
+    }
+    if (excedeuLimite) {
+      toast.error("Início do gozo é depois do limite legal deste colaborador. Escolha um mês/quinzena anterior.");
       return;
     }
     startTransition(async () => {
@@ -349,10 +364,24 @@ function ProgramarDialog({
             </div>
           </div>
 
-          <div className="rounded-lg border border-primary/30 bg-accent-glow p-4">
-            <p className="mb-3 font-mono text-[10px] font-bold tracking-[.06em] text-primary uppercase">
+          <div
+            className={`rounded-lg border p-4 ${
+              excedeuLimite ? "border-danger/40 bg-danger/10" : "border-primary/30 bg-accent-glow"
+            }`}
+          >
+            <p
+              className={`mb-3 font-mono text-[10px] font-bold tracking-[.06em] uppercase ${
+                excedeuLimite ? "text-danger" : "text-primary"
+              }`}
+            >
               Prévia da programação
             </p>
+            {excedeuLimite && (
+              <p className="mb-3 font-mono text-[11px] font-bold text-danger">
+                Início do gozo passa do limite legal ({formatarData(periodo.dataLimite)}) — escolha um mês/quinzena
+                anterior.
+              </p>
+            )}
             {gozoInicioPreview && gozoFimPreview ? (
               <div className="flex flex-col gap-2">
                 <div className="flex items-baseline justify-between">
@@ -395,7 +424,7 @@ function ProgramarDialog({
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={isPending}>
             Cancelar
           </Button>
-          <Button onClick={salvar} disabled={isPending}>
+          <Button onClick={salvar} disabled={isPending || excedeuLimite}>
             {isPending ? "Salvando..." : "Salvar programação"}
           </Button>
         </DialogFooter>
@@ -742,14 +771,19 @@ export function FeriasTable({
   const naoProgramados = periodos.filter((p) => !p.gozoInicio);
 
   const [busca, setBusca] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "programados" | "nao-programados">("todos");
   const filtroProgramacao = useFiltro(periodos);
   const periodosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    if (!termo) return filtroProgramacao.filtrados;
-    return filtroProgramacao.filtrados.filter(
-      (p) => p.matricula.toLowerCase().includes(termo) || p.nome.toLowerCase().includes(termo)
-    );
-  }, [filtroProgramacao.filtrados, busca]);
+    let base = termo
+      ? filtroProgramacao.filtrados.filter(
+          (p) => p.matricula.toLowerCase().includes(termo) || p.nome.toLowerCase().includes(termo)
+        )
+      : filtroProgramacao.filtrados;
+    if (filtroStatus === "programados") base = base.filter((p) => !!p.gozoInicio);
+    if (filtroStatus === "nao-programados") base = base.filter((p) => !p.gozoInicio);
+    return [...base].sort(compararCompetencia);
+  }, [filtroProgramacao.filtrados, busca, filtroStatus]);
 
   const empresas = useMemo(() => [...new Set(periodos.map((p) => p.empresa))].sort(), [periodos]);
   const areas = useMemo(
@@ -839,7 +873,7 @@ export function FeriasTable({
     baixarCsv(
       "envio_gestores_ferias.csv",
       ["Matrícula", "Nome", "Departamento", "Limite", "Mês", "1ª Quinz.", "2ª Quinz.", "Gozo Inicial", "Gozo Final"],
-      muralOrdenado.map((p) => [
+      periodosFiltrados.map((p) => [
         p.matricula,
         p.nome,
         p.departamento ?? "",
@@ -889,20 +923,41 @@ export function FeriasTable({
           </p>
         ) : (
           <>
-            {alertaVencendo.length > 0 && (
-              <div className="flex items-start gap-2.5 rounded-sm border border-danger/40 bg-danger/10 px-3.5 py-2.5">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
-                <div className="flex flex-col gap-1">
-                  <p className="font-mono text-[11px] font-bold tracking-[.04em] text-danger uppercase">
-                    {alertaVencendo.length} colaborador(es) com 21+ meses vencidos — programar com urgência
-                  </p>
-                  <p className="font-mono text-[10px] text-text-2">
-                    {alertaVencendo.map((p) => p.nome).slice(0, 8).join(" · ")}
-                    {alertaVencendo.length > 8 && ` · +${alertaVencendo.length - 8}`}
-                  </p>
+            {naoProgramados.length > 0 && (() => {
+              const urgente = alertaVencendo.length > 0;
+              const corBox = urgente
+                ? "border-danger/40 bg-danger/10"
+                : "border-warning/40 bg-warning/10";
+              const corIcone = urgente ? "text-danger" : "text-warning";
+              const corTitulo = urgente ? "text-danger" : "text-warning";
+              const ordenados = [...naoProgramados].sort((a, b) => b.meses - a.meses);
+              return (
+                <div className={`flex items-start gap-2.5 rounded-sm border px-3.5 py-2.5 ${corBox}`}>
+                  <AlertTriangle className={`mt-0.5 size-4 shrink-0 ${corIcone}`} />
+                  <div className="flex flex-col gap-1">
+                    <p className={`font-mono text-[11px] font-bold tracking-[.04em] uppercase ${corTitulo}`}>
+                      {naoProgramados.length} colaborador(es) sem programação
+                      {urgente && ` — ${alertaVencendo.length} com 21+ meses vencidos`}
+                    </p>
+                    <p className="font-mono text-[10px] text-text-2">
+                      {[...new Set(naoProgramados.map((p) => p.empresa))]
+                        .map((emp) => `${emp}: ${naoProgramados.filter((p) => p.empresa === emp).length}`)
+                        .join(" · ")}
+                    </p>
+                    <p className="flex flex-wrap gap-x-1.5 font-mono text-[10px] text-text-2">
+                      {ordenados.slice(0, 10).map((p, i) => (
+                        <span key={p.id} className={p.meses >= 21 ? "font-bold text-danger" : undefined}>
+                          {p.nome}
+                          {p.meses >= 21 ? ` (${p.meses}m)` : ""}
+                          {i < Math.min(ordenados.length, 10) - 1 ? " ·" : ""}
+                        </span>
+                      ))}
+                      {ordenados.length > 10 && <span>· +{ordenados.length - 10}</span>}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             <div className="flex flex-wrap items-center justify-between gap-2.5">
               <div className="flex flex-wrap items-center gap-2.5">
                 <input
@@ -912,6 +967,15 @@ export function FeriasTable({
                   onChange={(e) => setBusca(e.target.value)}
                   className="h-8 w-64 rounded-sm border border-border-hi bg-secondary px-2.5 font-mono text-[11px] text-foreground outline-none placeholder:text-text-3 focus-visible:border-primary"
                 />
+                <select
+                  className="h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground outline-none focus-visible:border-primary"
+                  value={filtroStatus}
+                  onChange={(e) => setFiltroStatus(e.target.value as "todos" | "programados" | "nao-programados")}
+                >
+                  <option value="todos">Todos os status</option>
+                  <option value="nao-programados">Não programados</option>
+                  <option value="programados">Programados</option>
+                </select>
                 <FiltroBar
                   empresas={empresas}
                   areas={areas}
@@ -928,6 +992,7 @@ export function FeriasTable({
                     ...(filtroProgramacao.area && { area: filtroProgramacao.area }),
                     ...(filtroProgramacao.departamento && { departamento: filtroProgramacao.departamento }),
                     ...(filtroProgramacao.mes && { mes: String(filtroProgramacao.mes) }),
+                    ...(filtroStatus !== "todos" && { status: filtroStatus }),
                   }).toString()}`}
                   target="_blank"
                   rel="noopener noreferrer"

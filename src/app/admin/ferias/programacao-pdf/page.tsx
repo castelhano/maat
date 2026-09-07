@@ -20,36 +20,38 @@ export default async function ProgramacaoPdfPage({
     area?: string;
     departamento?: string;
     mes?: string;
+    status?: string;
   }>;
 }) {
   await requireAdmin();
-  const { busca, empresa, area, departamento, mes } = await searchParams;
+  const { busca, empresa, area, departamento, mes, status } = await searchParams;
 
   const periodos = await prisma.ferias.findMany({
-    orderBy: { dataLimite: "asc" },
     include: { funcionario: { include: { empresa: true, cargo: true } } },
   });
 
   const termo = busca?.trim().toLowerCase() ?? "";
   const mesFiltro = mes ? Number(mes) : null;
 
-  let linhas = periodos.map((p) => ({
-    id: p.id,
-    matricula: p.funcionario.matricula,
-    nome: p.funcionario.nome,
-    departamento: p.funcionario.cargo.departamento,
-    setor: p.funcionario.cargo.setor,
-    empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
-    faltas: p.faltas,
-    diasDireito: p.diasDireito,
-    meses: p.meses,
-    dataLimite: p.dataLimite,
-    mes: p.mes,
-    ano: p.ano,
-    quinzena: p.quinzena,
-    gozoInicio: p.gozoInicio,
-    gozoFim: p.gozoFim,
-  }));
+  let linhas = periodos
+    .filter((p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ"))
+    .map((p) => ({
+      id: p.id,
+      matricula: p.funcionario.matricula,
+      nome: p.funcionario.nome,
+      departamento: p.funcionario.cargo.departamento,
+      setor: p.funcionario.cargo.setor,
+      empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
+      faltas: p.faltas,
+      diasDireito: p.diasDireito,
+      meses: p.meses,
+      dataLimite: p.dataLimite,
+      mes: p.mes,
+      ano: p.ano,
+      quinzena: p.quinzena,
+      gozoInicio: p.gozoInicio,
+      gozoFim: p.gozoFim,
+    }));
 
   if (termo) {
     linhas = linhas.filter(
@@ -60,6 +62,17 @@ export default async function ProgramacaoPdfPage({
   if (area) linhas = linhas.filter((l) => (l.setor ?? "Não classificado") === area);
   if (departamento) linhas = linhas.filter((l) => (l.departamento ?? "Não classificado") === departamento);
   if (mesFiltro) linhas = linhas.filter((l) => l.mes === mesFiltro);
+  if (status === "programados") linhas = linhas.filter((l) => !!l.gozoInicio);
+  if (status === "nao-programados") linhas = linhas.filter((l) => !l.gozoInicio);
+
+  // Ordem de competência programada (ano/mês/quinzena) — quem ainda não tem mês programado vai
+  // para o final da lista, ordenado por matrícula.
+  linhas.sort((a, b) => {
+    if (a.ano !== b.ano) return (a.ano ?? Infinity) - (b.ano ?? Infinity);
+    if (a.mes !== b.mes) return (a.mes ?? Infinity) - (b.mes ?? Infinity);
+    if (a.quinzena !== b.quinzena) return (a.quinzena ?? Infinity) - (b.quinzena ?? Infinity);
+    return a.matricula.localeCompare(b.matricula, "pt-BR", { numeric: true });
+  });
 
   const filtrosAtivos = [
     busca && `busca: ${busca}`,
@@ -67,6 +80,8 @@ export default async function ProgramacaoPdfPage({
     area,
     departamento,
     mesFiltro && MESES[mesFiltro - 1],
+    status === "programados" && "programados",
+    status === "nao-programados" && "não programados",
   ].filter(Boolean);
   const emitidoEm = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { ChevronDown, Download, FileDown, FileText, TriangleAlert } from "lucide-react";
+import { ChevronDown, Download, FileDown, FileText, Snowflake, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -334,6 +334,11 @@ export function ResumoMensal() {
                   <TableCell>
                     <span className="inline-flex items-center gap-1.5">
                       {l.alertaCredito && <TriangleAlert className="size-3.5 shrink-0 text-warning" />}
+                      {l.congelado && (
+                        <span title="Saldo congelado — colaborador afastado há mais de 30 dias">
+                          <Snowflake className="size-3.5 shrink-0 text-primary" />
+                        </span>
+                      )}
                       {l.matricula}
                     </span>
                   </TableCell>

@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/session";
 import { parseBancoHoras, type BancoHorasLinha } from "@/lib/parsers/banco-horas";
 import { processarHistorico, type CompetenciaEntrada } from "@/lib/banco-horas";
 import { funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
+import { estaCongeladoNaCompetencia } from "@/lib/banco-horas-afastamento";
 
 function compararCompetencias(a: string, b: string): number {
   const [ma, aa] = a.split("/").map(Number);
@@ -107,10 +108,20 @@ export async function previewExtratoBancoHoras(
   };
 }
 
+export type AlertaCongelamento = { matricula: string; nome: string; competencia: string; motivoAfastamento: string | null };
+
 export async function confirmarExtratoBancoHoras(
   conteudo: string,
   nomeArquivo: string
-): Promise<{ error: string | null; resumo?: { funcionarios: number; competenciasRecalculadas: number; naoEncontrados: number } }> {
+): Promise<{
+  error: string | null;
+  resumo?: {
+    funcionarios: number;
+    competenciasRecalculadas: number;
+    naoEncontrados: number;
+    alertasCongelamento: AlertaCongelamento[];
+  };
+}> {
   const admin = await requireAdmin();
 
   let parsed;
@@ -136,13 +147,14 @@ export async function confirmarExtratoBancoHoras(
 
   const funcionarios = await prisma.funcionario.findMany({
     where: { empresaId: empresa.id, matricula: { in: [...linhasPorMatricula.keys()] } },
-    select: { id: true, matricula: true },
+    select: { id: true, matricula: true, nome: true, status: true, dataAfastamento: true, dataRetorno: true, motivoAfastamento: true },
   });
   const funcPorMatricula = new Map(funcionarios.map((f) => [f.matricula, f]));
   const naoEncontrados = [...linhasPorMatricula.keys()].filter((m) => !funcPorMatricula.has(m));
 
   let competenciasRecalculadas = 0;
   let funcionariosTocados = 0;
+  const alertasCongelamento: AlertaCongelamento[] = [];
 
   await prisma.$transaction(
     async (tx) => {
@@ -169,12 +181,29 @@ export async function confirmarExtratoBancoHoras(
             debitoDecimal: l.debitoDecimal,
           });
         }
+        // Funcionário afastado há mais de 30 dias nesta competência: congela o saldo (ver
+        // src/lib/banco-horas-afastamento.ts) — nada é pago até ele retornar.
+        for (const entrada of seriePorCompetencia.values()) {
+          entrada.congelado = estaCongeladoNaCompetencia(func, entrada.competencia);
+        }
         const serie = [...seriePorCompetencia.values()].sort((a, b) => compararCompetencias(a.competencia, b.competencia));
 
         const saldoInicialDecimal = saldoInicial ? Number(saldoInicial.saldoDecimal) : 0;
         const { apuracoes } = processarHistorico(saldoInicialDecimal, serie);
 
-        for (const a of apuracoes) {
+        const competenciasNovas = new Set(novasLinhas.map((l) => l.competencia));
+        for (let i = 0; i < apuracoes.length; i++) {
+          const a = apuracoes[i];
+          const estavaCongeladoAntes = i > 0 && apuracoes[i - 1].congelado;
+          if (a.congelado && !estavaCongeladoAntes && competenciasNovas.has(a.competencia)) {
+            alertasCongelamento.push({
+              matricula: func.matricula,
+              nome: func.nome,
+              competencia: a.competencia,
+              motivoAfastamento: func.motivoAfastamento,
+            });
+          }
+
           await tx.bancoHorasApuracao.upsert({
             where: { funcionarioId_competencia: { funcionarioId: func.id, competencia: a.competencia } },
             create: {
@@ -187,6 +216,7 @@ export async function confirmarExtratoBancoHoras(
               saldoPositivo: a.saldoPositivoDecimal,
               saldoNegativo: a.saldoNegativoDecimal,
               saldoFinal: a.saldoFinalDecimal,
+              congelado: a.congelado,
             },
             update: {
               creditoBruto: a.creditoBrutoDecimal,
@@ -196,6 +226,7 @@ export async function confirmarExtratoBancoHoras(
               saldoPositivo: a.saldoPositivoDecimal,
               saldoNegativo: a.saldoNegativoDecimal,
               saldoFinal: a.saldoFinalDecimal,
+              congelado: a.congelado,
             },
           });
         }
@@ -221,6 +252,11 @@ export async function confirmarExtratoBancoHoras(
 
   return {
     error: null,
-    resumo: { funcionarios: funcionariosTocados, competenciasRecalculadas, naoEncontrados: naoEncontrados.length },
+    resumo: {
+      funcionarios: funcionariosTocados,
+      competenciasRecalculadas,
+      naoEncontrados: naoEncontrados.length,
+      alertasCongelamento: alertasCongelamento.sort((a, b) => a.matricula.localeCompare(b.matricula)),
+    },
   };
 }

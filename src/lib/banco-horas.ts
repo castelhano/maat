@@ -26,6 +26,9 @@ export type CompetenciaEntrada = {
   competencia: string; // "MM/AAAA"
   creditoDecimal: number; // horas
   debitoDecimal: number; // horas
+  // Funcionário afastado há mais de 30 dias nesta competência (ver src/lib/banco-horas-afastamento.ts):
+  // não gera crédito líquido nem paga o saldo anterior — o saldo fica intacto até o retorno.
+  congelado?: boolean;
 };
 
 export type ApuracaoMes = {
@@ -37,6 +40,7 @@ export type ApuracaoMes = {
   saldoPositivoDecimal: number; // max(saldoFinal, 0) — só pra exibição/relatório
   saldoNegativoDecimal: number; // min(saldoFinal, 0) — só pra exibição/relatório
   saldoFinalDecimal: number;
+  congelado: boolean;
 };
 
 function mesDaCompetencia(competencia: string): number {
@@ -54,6 +58,26 @@ export function processarCompetencia(
   saldoAnteriorDecimal: number,
   entrada: CompetenciaEntrada
 ): { saldoFinalDecimal: number; apuracao: ApuracaoMes } {
+  // Congelado: mantém o saldo exatamente como está, sem aplicar nem a fórmula do mês nem a
+  // paridade — o crédito bruto/débito bruto do mês fica registrado só pra auditoria (não afeta
+  // nada), e retomamos o processamento normal a partir daqui quando o funcionário voltar.
+  if (entrada.congelado) {
+    return {
+      saldoFinalDecimal: saldoAnteriorDecimal,
+      apuracao: {
+        competencia: entrada.competencia,
+        creditoBrutoDecimal: Math.max(0, entrada.creditoDecimal),
+        debitoBrutoDecimal: Math.max(0, entrada.debitoDecimal),
+        creditoLiquidoDecimal: 0,
+        pagoNoMesDecimal: 0,
+        saldoPositivoDecimal: Math.max(saldoAnteriorDecimal, 0),
+        saldoNegativoDecimal: Math.min(saldoAnteriorDecimal, 0),
+        saldoFinalDecimal: saldoAnteriorDecimal,
+        congelado: true,
+      },
+    };
+  }
+
   const mesAtual = mesDaCompetencia(entrada.competencia);
 
   // Regra c: paridade, aplicada na ENTRADA da competência.
@@ -88,6 +112,7 @@ export function processarCompetencia(
       saldoPositivoDecimal: Math.max(saldoFinalDecimal, 0),
       saldoNegativoDecimal: Math.min(saldoFinalDecimal, 0),
       saldoFinalDecimal,
+      congelado: false,
     },
   };
 }

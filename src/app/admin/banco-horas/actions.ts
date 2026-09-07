@@ -49,6 +49,8 @@ export type ResumoMensalLinha = {
   pagoReferenteSaldoAnterior: number;
   saldoFinal: number;
   alertaCredito: boolean;
+  // Funcionário afastado há mais de 30 dias nesta competência: saldo intacto, nada foi pago.
+  congelado: boolean;
 };
 
 export type ResumoMensalResult = {
@@ -111,6 +113,9 @@ export async function buscarResumoMensal(
     where: {
       competencia,
       funcionario: {
+        // Desligados não entram no fechamento mensal dos ativos — ficam ocultos aqui mesmo com
+        // apuração de banco de horas gravada (ex.: importada só pra calcular verbas rescisórias).
+        status: { not: "desligado" },
         empresaId: filtros?.empresaId || undefined,
         cargo: {
           departamento: filtros?.departamento || undefined,
@@ -164,8 +169,14 @@ export async function buscarResumoMensal(
       const debitoBruto = Number(a.debitoBruto);
       const pagoNoMes = Number(a.pagoNoMes);
       const saldoAnterior = saldoAnteriorPorFuncionario.get(a.funcionarioId) ?? 0;
-      const pagoReferenteSaldoAnterior = saldoAnterior >= debitoBruto ? Math.max(0, saldoAnterior - debitoBruto) : 0;
-      const pagoReferenteCreditoMes = pagoNoMes - pagoReferenteSaldoAnterior;
+      // Congelado (afastado há mais de 30 dias): nada foi pago, nem crédito do mês nem saldo
+      // anterior — as duas caixinhas ficam em zero, não em "zero e negativo".
+      const pagoReferenteSaldoAnterior = a.congelado
+        ? 0
+        : saldoAnterior >= debitoBruto
+          ? Math.max(0, saldoAnterior - debitoBruto)
+          : 0;
+      const pagoReferenteCreditoMes = a.congelado ? 0 : pagoNoMes - pagoReferenteSaldoAnterior;
       return {
         matricula: a.funcionario.matricula,
         nome: a.funcionario.nome,
@@ -178,6 +189,7 @@ export async function buscarResumoMensal(
         pagoReferenteSaldoAnterior,
         saldoFinal: Number(a.saldoFinal),
         alertaCredito: creditoBruto > 0.001 && funcaoNaoPodeCredito(a.funcionario.cargo.nome, a.funcionario.temGratificacao),
+        congelado: a.congelado,
       };
     })
     .sort((a, b) => a.matricula.localeCompare(b.matricula));

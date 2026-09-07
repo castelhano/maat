@@ -108,6 +108,7 @@ export default async function ResumoPdfPage({
               <td className="px-2 py-2 font-medium text-neutral-900">
                 {l.nome}
                 {l.alertaCredito && <span className="ml-1.5 text-[10px] font-normal text-amber-600">⚠ crédito indevido</span>}
+                {l.congelado && <span className="ml-1.5 text-[10px] font-normal text-blue-600">❄ saldo congelado</span>}
               </td>
               <td className="px-2 py-2 text-neutral-600">{l.empresa}</td>
               <td className="px-2 py-2 text-right tabular-nums text-neutral-600">{fmtHoras(l.creditoBruto)}</td>

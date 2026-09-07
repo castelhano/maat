@@ -252,6 +252,12 @@ export async function salvarProgramacao(
   const diasGozo = ferias.diasDireito - input.diasAbono;
   const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo);
 
+  if (gozoInicio && gozoInicio.getTime() > ferias.dataLimite.getTime()) {
+    return {
+      error: `Início do gozo (${gozoInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}) é depois do limite legal deste colaborador (${ferias.dataLimite.toLocaleDateString("pt-BR", { timeZone: "UTC" })}). Escolha um mês/quinzena anterior ao limite.`,
+    };
+  }
+
   await prisma.ferias.update({
     where: { id: input.feriasId },
     data: {

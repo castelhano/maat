@@ -1,0 +1,108 @@
+"use server";
+
+import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/session";
+import { CAMPOS_INDICADOR, chaveCompetencia, competenciaAnterior, type CampoIndicador } from "@/lib/indicadores";
+
+const DESDE_COMPETENCIA = "01/2026";
+
+export type IndicadorLinha = {
+  id: string;
+  competencia: string;
+  setor: string;
+  empresaId: string;
+  empresaNome: string;
+  // IRRF "do mês", já combinado (não é um campo cru — ver comentário abaixo).
+  irrf: number;
+} & Record<CampoIndicador, number>;
+
+export type OpcaoEmpresa = { id: string; nome: string };
+
+export async function listarEmpresasIndicadores(): Promise<OpcaoEmpresa[]> {
+  await requireAdmin();
+  const empresas = await prisma.empresa.findMany({
+    where: { indicadoresMensais: { some: {} } },
+    select: { id: true, nome: true },
+    orderBy: { nome: "asc" },
+  });
+  return empresas;
+}
+
+export async function carregarIndicadores(filtro: {
+  empresaId?: string;
+  setor?: string;
+}): Promise<{ linhas: IndicadorLinha[] }> {
+  await requireAdmin();
+
+  // Busca sem limitar por competência aqui — o IRRF "do mês" de jan/2026 depende do irrfNormal
+  // lançado em dez/2025, então precisa desse histórico completo antes de cortar a partir de
+  // DESDE_COMPETENCIA no resultado final.
+  const registros = await prisma.indicadorMensal.findMany({
+    where: {
+      ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
+      ...(filtro.setor ? { setor: filtro.setor } : {}),
+    },
+    include: { empresa: { select: { nome: true, abbr: true } } },
+  });
+
+  const irrfNormalPorChave = new Map<string, number>();
+  for (const r of registros) {
+    irrfNormalPorChave.set(`${r.empresaId}|${r.setor}|${r.competencia}`, r.irrfNormal.toNumber());
+  }
+
+  const desde = chaveCompetencia(DESDE_COMPETENCIA);
+
+  const linhas: IndicadorLinha[] = registros
+    .filter((r) => chaveCompetencia(r.competencia) >= desde)
+    .sort((a, b) => chaveCompetencia(a.competencia) - chaveCompetencia(b.competencia))
+    .map((r) => {
+      // O sistema de origem lança o IRRF normal (código 00453) com 1 mês de atraso em relação ao
+      // IRRF de férias (código 00481) — por isso o IRRF "do mês" exibido soma o irrfFerias desta
+      // competência com o irrfNormal da competência ANTERIOR (ex.: IRRF de agosto = IRF férias de
+      // agosto + IRRF normal de julho). Sem registro do mês anterior, assume 0 (melhor esforço).
+      const irrfNormalMesAnterior =
+        irrfNormalPorChave.get(`${r.empresaId}|${r.setor}|${competenciaAnterior(r.competencia)}`) ?? 0;
+
+      return {
+        id: r.id,
+        competencia: r.competencia,
+        setor: r.setor,
+        empresaId: r.empresaId,
+        empresaNome: r.empresa.abbr ?? r.empresa.nome,
+        ativos: r.ativos,
+        admitidos: r.admitidos,
+        desligados: r.desligados,
+        afastados: r.afastados,
+        folhaBruta: r.folhaBruta.toNumber(),
+        liquidoPagar: r.liquidoPagar.toNumber(),
+        horaExtra: r.horaExtra.toNumber(),
+        horaExtraHoras: r.horaExtraHoras.toNumber(),
+        faltasDias: r.faltasDias.toNumber(),
+        faltasValor: r.faltasValor.toNumber(),
+        atestadosDias: r.atestadosDias.toNumber(),
+        atestadosValor: r.atestadosValor.toNumber(),
+        inssRetido: r.inssRetido.toNumber(),
+        fgts: r.fgts.toNumber(),
+        irrfFerias: r.irrfFerias.toNumber(),
+        irrfNormal: r.irrfNormal.toNumber(),
+        custoBeneficios: r.custoBeneficios.toNumber(),
+        irrf: r.irrfFerias.toNumber() + irrfNormalMesAnterior,
+      };
+    });
+
+  return { linhas };
+}
+
+export async function atualizarCampoIndicador(
+  id: string,
+  campo: CampoIndicador,
+  valor: number
+): Promise<{ error: string | null }> {
+  await requireAdmin();
+
+  if (!CAMPOS_INDICADOR.includes(campo)) return { error: "Campo inválido." };
+  if (Number.isNaN(valor)) return { error: "Valor inválido." };
+
+  await prisma.indicadorMensal.update({ where: { id }, data: { [campo]: valor } });
+  return { error: null };
+}

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { processarHistorico, type CompetenciaEntrada } from "../src/lib/banco-horas";
+import { estaCongeladoNaCompetencia } from "../src/lib/banco-horas-afastamento";
 
 // Recalcula TODO o histórico de banco de horas de todos os funcionários a partir dos dados já
 // persistidos (creditoBruto/debitoBruto de cada BancoHorasApuracao + saldo inicial), usando a
@@ -20,7 +21,7 @@ function compararCompetencias(a: string, b: string): number {
 async function main() {
   const funcionarios = await prisma.funcionario.findMany({
     where: { bancoHorasApuracoes: { some: {} } },
-    select: { id: true, matricula: true, nome: true },
+    select: { id: true, matricula: true, nome: true, status: true, dataAfastamento: true, dataRetorno: true },
   });
 
   console.log(`Funcionários com banco de horas: ${funcionarios.length}`);
@@ -31,7 +32,12 @@ async function main() {
     const saldoInicial = await prisma.bancoHorasSaldoInicial.findUnique({ where: { funcionarioId: func.id } });
     const apuracoesExistentes = await prisma.bancoHorasApuracao.findMany({ where: { funcionarioId: func.id } });
     const serie: CompetenciaEntrada[] = apuracoesExistentes
-      .map((a) => ({ competencia: a.competencia, creditoDecimal: Number(a.creditoBruto), debitoDecimal: Number(a.debitoBruto) }))
+      .map((a) => ({
+        competencia: a.competencia,
+        creditoDecimal: Number(a.creditoBruto),
+        debitoDecimal: Number(a.debitoBruto),
+        congelado: estaCongeladoNaCompetencia(func, a.competencia),
+      }))
       .sort((a, b) => compararCompetencias(a.competencia, b.competencia));
 
     const saldoInicialDecimal = saldoInicial ? Number(saldoInicial.saldoDecimal) : 0;
@@ -41,7 +47,7 @@ async function main() {
     for (const a of apuracoes) {
       const existente = apuracoesExistentes.find((e) => e.competencia === a.competencia)!;
       const diff = Math.abs(Number(existente.saldoFinal) - a.saldoFinalDecimal);
-      if (diff > 1e-6) mudouAlgumaCoisa = true;
+      if (diff > 1e-6 || existente.congelado !== a.congelado) mudouAlgumaCoisa = true;
 
       if (commit) {
         await prisma.bancoHorasApuracao.update({
@@ -52,6 +58,7 @@ async function main() {
             saldoPositivo: a.saldoPositivoDecimal,
             saldoNegativo: a.saldoNegativoDecimal,
             saldoFinal: a.saldoFinalDecimal,
+            congelado: a.congelado,
           },
         });
       }

@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { ProjectCard } from "@/components/project-card";
@@ -16,9 +16,11 @@ export default async function DashboardPage() {
         prisma.importacao.count(),
         prisma.terceiro.count(),
         prisma.ferias.count({ where: { gozoInicio: null } }),
+        prisma.indicadorMensal.count(),
       ])
     : null;
-  const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes] = counts ?? [0, 0, 0, 0, 0, 0];
+  const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes, indicadores] =
+    counts ?? [0, 0, 0, 0, 0, 0, 0];
 
   return (
     <>
@@ -48,6 +50,14 @@ export default async function DashboardPage() {
             tag="rotina"
             nome="Banco de Horas"
             descricao="extrato mensal por colaborador — crédito, débito, saldo anterior, a pagar e saldo atual."
+          />
+          <ProjectCard
+            href="/admin/indicadores"
+            icon={BarChart3}
+            cor="rose"
+            tag="rotina"
+            nome="Indicadores"
+            descricao={`${indicadores} registro(s) de indicador mensal. Headcount, custo de pessoal, absenteísmo, benefícios e encargos por área.`}
           />
           <ProjectCard
             href="/admin/importar"

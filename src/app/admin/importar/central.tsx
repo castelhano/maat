@@ -8,6 +8,8 @@ import { Importador as FolhaImportador } from "../importar-folha/importador";
 import { SituacaoImportador } from "./situacao-importador";
 import { FaltasImportador } from "./faltas-importador";
 import { AfastamentosImportador } from "./afastamentos-importador";
+import { CatImportador } from "./cat-importador";
+import { IndicadoresImportador } from "./indicadores-importador";
 import { statusImportacoes, type StatusImportacoes } from "./status-actions";
 
 type Empresa = { id: string; nome: string };
@@ -43,6 +45,18 @@ const TIPOS: TipoDef[] = [
     titulo: "Afastamentos",
     caminhoErp: "Folha > Listagem generica > [ 003 ]",
     descricao: "atualiza status, data e motivo de quem está afastado",
+  },
+  {
+    key: "cat",
+    titulo: "CAT (acidentes de trabalho)",
+    caminhoErp: "Folha > Relatórios > Listagem Genérica > 7",
+    descricao: "guarda os acidentes reportados — ainda sem indicador montado em cima",
+  },
+  {
+    key: "indicadores_mensais",
+    titulo: "Indicadores mensais (Resumo Gerencial)",
+    caminhoErp: "Folha > Relatórios > Resumo Gerencial Analítico",
+    descricao: "alimenta o dashboard de indicadores por área — headcount, folha, encargos e benefícios",
   },
 ];
 
@@ -124,7 +138,7 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
 
               {estaAberto && (
                 <div className="border-t border-border px-4 py-5">
-                  {!competencia && (
+                  {!competencia && tipo.key !== "cat" && tipo.key !== "indicadores_mensais" && (
                     <p className="mb-4 font-mono text-[10px] text-warning">
                       Selecione a competência acima antes de importar.
                     </p>
@@ -174,6 +188,12 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
                       competencia={competencia}
                       onImportado={() => competencia && recarregarStatus(competencia)}
                     />
+                  )}
+                  {tipo.key === "cat" && (
+                    <CatImportador onImportado={() => competencia && recarregarStatus(competencia)} />
+                  )}
+                  {tipo.key === "indicadores_mensais" && (
+                    <IndicadoresImportador onImportado={() => competencia && recarregarStatus(competencia)} />
                   )}
                 </div>
               )}
