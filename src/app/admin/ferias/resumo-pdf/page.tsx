@@ -30,7 +30,7 @@ export default async function ResumoPdfPage({
 
   const [periodos, quinzenas] = await Promise.all([
     prisma.ferias.findMany({
-      where: { gozoInicio: { not: null } },
+      where: { gozoInicio: { not: null }, funcionario: { status: { not: "desligado" } } },
       include: { funcionario: { include: { empresa: true, cargo: true } } },
     }),
     prisma.quinzenaPeriodo.findMany(),

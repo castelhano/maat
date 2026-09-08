@@ -12,7 +12,13 @@ import {
   type PreviewIndicadoresResult,
   type IndicadorLinhaEditada,
 } from "./indicadores-actions";
-import { CAMPOS_INDICADOR, CAMPO_LABEL, labelSetor, type CampoIndicador } from "@/lib/indicadores";
+import { CAMPOS_INDICADOR, RATEIO_CAMPOS, CAMPO_LABEL, labelSetor, type CampoIndicador } from "@/lib/indicadores";
+
+// Folha suplementar, café da manhã, refeitório e pró-saúde não são mais editados por área nessa
+// tela — cada um é um valor total por empresa (editado no dashboard de indicadores, com rateio
+// automático por área). Esses campos continuam existindo em CAMPOS_INDICADOR (gravam 0 aqui) só
+// pra não duplicar a lista em vários lugares do código.
+const CAMPOS_VISIVEIS = CAMPOS_INDICADOR.filter((c) => !RATEIO_CAMPOS.includes(c as (typeof RATEIO_CAMPOS)[number]));
 
 function arquivoParaBase64(f: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -163,7 +169,7 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
               <TableHeader>
                 <TableRow>
                   <TableHead>Área</TableHead>
-                  {CAMPOS_INDICADOR.map((campo) => (
+                  {CAMPOS_VISIVEIS.map((campo) => (
                     <TableHead key={campo}>{CAMPO_LABEL[campo]}</TableHead>
                   ))}
                 </TableRow>
@@ -174,7 +180,7 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
                     <TableCell className="font-medium whitespace-nowrap text-foreground">
                       {labelSetor(linha.setor)}
                     </TableCell>
-                    {CAMPOS_INDICADOR.map((campo) => (
+                    {CAMPOS_VISIVEIS.map((campo) => (
                       <TableCell key={campo}>
                         <Input
                           value={linha[campo]}
@@ -188,7 +194,7 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
                 ))}
                 <TableRow>
                   <TableCell className="font-bold whitespace-nowrap text-foreground">Total</TableCell>
-                  {CAMPOS_INDICADOR.map((campo) => (
+                  {CAMPOS_VISIVEIS.map((campo) => (
                     <TableCell key={campo} className="font-bold text-foreground">
                       {linhas
                         .reduce((soma, l) => soma + (Number(l[campo]) || 0), 0)

@@ -31,6 +31,17 @@ export type ResumoGerencialLinha = {
   atestadosValor: number | null;
   inssRetido: number | null;
   fgts: number | null;
+  // Encargos patronais: "INSS da Empresa" (parte patronal), "Acidente de Trabalho" (RAT/SAT — não
+  // confundir com "Acidente de Trabalho Ag.Nocivo", linha separada) e "Terceiros".
+  inssPatronal: number | null;
+  acidenteTrabalho: number | null;
+  terceiros: number | null;
+  // Descontos por código (o nome do fornecedor de farmácia varia por empresa, por isso vai pelo
+  // código, não pelo rótulo): 00381 farmácia, 00492 contribuição confederativa, 00493 contribuição
+  // social (sindical).
+  farmacia: number | null;
+  contribuicaoConfederativa: number | null;
+  contribuicaoSocial: number | null;
   // Crus — o IRRF "do mês" exibido no dashboard combina irrfFerias desta competência com o
   // irrfNormal da competência ANTERIOR (ver src/app/admin/indicadores/actions.ts).
   irrfFerias: number | null;
@@ -146,6 +157,19 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const inssRetido = ultimoNumeroAposRotulo(texto, /INSS Retido dos Funcionarios/i);
   // Soma "Deposito FGTS" + "Deposito FGTS (Categoria 07)" — exclui só a linha "(Contr. Social)".
   const fgts = somarPorDescricao(texto, /Deposito FGTS(?!\s*\(Contr)/)?.total ?? null;
+  // INSS da Empresa (parte patronal, distinta do INSS Retido dos Funcionários acima).
+  const inssPatronal = ultimoNumeroAposRotulo(texto, /INSS da Empresa/i);
+  // "Acidente de Trabalho" (RAT/SAT) — não pode casar com a linha separada "Acidente de Trabalho
+  // Ag.Nocivo" logo abaixo dela no relatório.
+  const acidenteTrabalho = ultimoNumeroAposRotulo(texto, /Acidente de Trabalho(?!\s*Ag)/i);
+  const terceiros = ultimoNumeroAposRotulo(texto, /\bTerceiros\b/i);
+  // Código 00381 (nome do fornecedor de farmácia varia por empresa, ex. "BIG MASTER").
+  // Sem âncora de início de linha — esses códigos podem vir como o segundo código colado na mesma
+  // linha de um provento/desconto vizinho (mesmo caso do FALTAS/CESTA BASICA acima), então casa em
+  // qualquer posição da linha; linhaAteProximoCodigo() já isola só o trecho certo a partir daí.
+  const farmacia = ultimoNumeroAposRotulo(texto, /\b00381\b/);
+  const contribuicaoConfederativa = ultimoNumeroAposRotulo(texto, /\b00492\b/);
+  const contribuicaoSocial = ultimoNumeroAposRotulo(texto, /\b00493\b/);
   // IRRF normal (código 00453) e IRRF sobre férias (código 00481) ficam CRUS — o valor "do mês"
   // combina os dois em competências diferentes (ver módulo do dashboard), então aqui só extrai
   // cada um separado, sem somar.
@@ -197,6 +221,12 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     atestadosValor,
     inssRetido,
     fgts,
+    inssPatronal,
+    acidenteTrabalho,
+    terceiros,
+    farmacia,
+    contribuicaoConfederativa,
+    contribuicaoSocial,
     irrfFerias,
     irrfNormal,
     cestaBasica,

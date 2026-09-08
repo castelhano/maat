@@ -2,7 +2,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { CAMPOS_INDICADOR, chaveCompetencia, competenciaAnterior, type CampoIndicador } from "@/lib/indicadores";
+import {
+  CAMPOS_INDICADOR,
+  RATEIO_CAMPOS,
+  chaveCompetencia,
+  competenciaAnterior,
+  type CampoIndicador,
+  type CampoRateio,
+} from "@/lib/indicadores";
 
 const DESDE_COMPETENCIA = "01/2026";
 
@@ -14,6 +21,9 @@ export type IndicadorLinha = {
   empresaNome: string;
   // IRRF "do mês", já combinado (não é um campo cru — ver comentário abaixo).
   irrf: number;
+  // Valor total de cada campo de RATEIO_CAMPOS naquela empresa+competência (o que foi editado em
+  // RateioTotalCampo) — só pra mostrar de onde veio o valor já rateado por área.
+  totaisRateio: Record<CampoRateio, number>;
 } & Record<CampoIndicador, number>;
 
 export type OpcaoEmpresa = { id: string; nome: string };
@@ -68,6 +78,31 @@ export async function carregarIndicadores(filtro: {
     include: { empresa: { select: { nome: true, abbr: true } } },
   });
 
+  // Os campos de RATEIO_CAMPOS são rateados por área a partir de um valor TOTAL da empresa (ver
+  // RateioTotalCampo) — o rateio precisa do total de ativos de TODAS as áreas da empresa naquela
+  // competência, então busca sem o filtro de área (senão o total ficaria incompleto quando uma
+  // área específica está selecionada na tela).
+  const registrosTodasAreas = filtro.setor
+    ? await prisma.indicadorMensal.findMany({
+        where: { ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}) },
+        select: { empresaId: true, competencia: true, ativos: true },
+      })
+    : registros;
+
+  const totalAtivosPorChave = new Map<string, number>();
+  for (const r of registrosTodasAreas) {
+    const chave = `${r.empresaId}|${r.competencia}`;
+    totalAtivosPorChave.set(chave, (totalAtivosPorChave.get(chave) ?? 0) + r.ativos);
+  }
+
+  const rateiosTotais = await prisma.rateioTotalCampo.findMany({
+    where: { ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}) },
+  });
+  const rateioTotalPorChave = new Map<string, number>();
+  for (const p of rateiosTotais) {
+    rateioTotalPorChave.set(`${p.empresaId}|${p.competencia}|${p.campo}`, p.valor.toNumber());
+  }
+
   const mesAtual = competenciaAtual();
   const { setor: setorAprendiz, porEmpresa: aprendizesAtivosPorEmpresa } = await contarAprendizesAtivosPorEmpresa();
 
@@ -98,6 +133,18 @@ export async function carregarIndicadores(filtro: {
         campos.aprendizesAtivos = aprendizesAtivosPorEmpresa.get(r.empresaId) ?? 0;
       }
 
+      // RATEIO_CAMPOS não são mais editados por área — cada um é rateado a partir do valor total
+      // da empresa (editável em RateioTotalCampo): ativos da área / total de ativos da empresa ×
+      // valor total.
+      const chave = `${r.empresaId}|${r.competencia}`;
+      const totalAtivos = totalAtivosPorChave.get(chave) ?? 0;
+      const totaisRateio = {} as Record<CampoRateio, number>;
+      for (const campo of RATEIO_CAMPOS) {
+        const totalValor = rateioTotalPorChave.get(`${chave}|${campo}`) ?? 0;
+        totaisRateio[campo] = totalValor;
+        campos[campo] = totalAtivos > 0 ? (r.ativos / totalAtivos) * totalValor : 0;
+      }
+
       return {
         id: r.id,
         competencia: r.competencia,
@@ -106,10 +153,68 @@ export async function carregarIndicadores(filtro: {
         empresaNome: r.empresa.abbr ?? r.empresa.nome,
         ...campos,
         irrf: r.irrfFerias.toNumber() + irrfNormalMesAnterior,
+        totaisRateio,
       };
     });
 
+  // "Aprendizes ativos" dos meses ANTERIORES ao atual não tem como vir do cadastro (que só reflete
+  // hoje) nem do relatório de admitidos/desligados (que só traz eventos, não headcount) — mas dá
+  // pra reconstruir andando pra trás a partir do mês mais recente conhecido: ativos do mês anterior
+  // = ativos deste mês - admitidos deste mês + desligados deste mês. Só funciona sem buracos (cada
+  // competência precisa ter o Resumo Gerencial + o relatório de admitidos/desligados importados) —
+  // onde faltar, o valor herdado fica sem correção retroativa a partir dali.
+  if (setorAprendiz) {
+    const porEmpresa = new Map<string, IndicadorLinha[]>();
+    for (const l of linhas) {
+      if (l.setor !== setorAprendiz) continue;
+      const arr = porEmpresa.get(l.empresaId) ?? [];
+      arr.push(l);
+      porEmpresa.set(l.empresaId, arr);
+    }
+    for (const arr of porEmpresa.values()) {
+      // `linhas` já está ordenado cronologicamente — arr preserva essa ordem.
+      for (let i = arr.length - 2; i >= 0; i--) {
+        const atual = arr[i];
+        const seguinte = arr[i + 1];
+        atual.aprendizesAtivos = Math.max(
+          0,
+          seguinte.aprendizesAtivos - seguinte.aprendizesAdmitidos + seguinte.aprendizesDesligados
+        );
+      }
+    }
+  }
+
   return { linhas };
+}
+
+export async function carregarRateioTotal(
+  empresaId: string,
+  competencia: string,
+  campo: CampoRateio
+): Promise<{ valor: number }> {
+  await requireAdmin();
+  const registro = await prisma.rateioTotalCampo.findUnique({
+    where: { empresaId_competencia_campo: { empresaId, competencia, campo } },
+  });
+  return { valor: registro?.valor.toNumber() ?? 0 };
+}
+
+export async function atualizarRateioTotal(
+  empresaId: string,
+  competencia: string,
+  campo: CampoRateio,
+  valor: number
+): Promise<{ error: string | null }> {
+  await requireAdmin();
+  if (!RATEIO_CAMPOS.includes(campo)) return { error: "Campo inválido." };
+  if (Number.isNaN(valor) || valor < 0) return { error: "Valor inválido." };
+
+  await prisma.rateioTotalCampo.upsert({
+    where: { empresaId_competencia_campo: { empresaId, competencia, campo } },
+    create: { empresaId, competencia, campo, valor },
+    update: { valor },
+  });
+  return { error: null };
 }
 
 export async function atualizarCampoIndicador(
@@ -120,6 +225,9 @@ export async function atualizarCampoIndicador(
   await requireAdmin();
 
   if (!CAMPOS_INDICADOR.includes(campo)) return { error: "Campo inválido." };
+  if (RATEIO_CAMPOS.includes(campo as CampoRateio)) {
+    return { error: "Esse campo não é mais editado por área — edite o valor total da empresa (rateio é automático)." };
+  }
   if (Number.isNaN(valor)) return { error: "Valor inválido." };
 
   await prisma.indicadorMensal.update({ where: { id }, data: { [campo]: valor } });

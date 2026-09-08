@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -23,22 +24,32 @@ import { ExportCard } from "../beneficios/export-card";
 import {
   carregarIndicadores,
   atualizarCampoIndicador,
+  carregarRateioTotal,
+  atualizarRateioTotal,
   type IndicadorLinha,
   type OpcaoEmpresa,
 } from "./actions";
 import { carregarAbsenteismo, type AbsenteismoMes } from "./absenteismo-actions";
 import {
   CAMPOS_INDICADOR,
+  RATEIO_CAMPOS,
   CAMPO_LABEL,
   SETORES_INDICADOR,
   labelSetor,
   calcularDerivados,
   chaveCompetencia,
   type CampoIndicador,
+  type CampoRateio,
   type ComDerivados,
 } from "@/lib/indicadores";
 
 const TODOS = "__todos__";
+
+// Admitidos/desligados de aprendiz são preenchidos sozinhos pela importação "Admitidos/Desligados
+// (aprendiz)" — tirados da tabela detalhada pra não poluir visualmente com colunas que não
+// precisam de conferência manual no dia a dia (continuam gravados e usados nos cálculos).
+const CAMPOS_OCULTOS_TABELA = new Set<CampoIndicador>(["aprendizesAdmitidos", "aprendizesDesligados"]);
+const CAMPOS_TABELA = CAMPOS_INDICADOR.filter((c) => !CAMPOS_OCULTOS_TABELA.has(c));
 
 // Mesmas cores já usadas em outras telas do app (teal/azul/âmbar/violeta) — mantém consistência
 // visual em vez de introduzir uma paleta nova só pra isso.
@@ -240,6 +251,62 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
   const dadosBeneficios = useMemo(() => pivotPorArea(dados, "custoBeneficios"), [dados]);
   const dadosEncargos = useMemo(() => pivotPorArea(dados, "encargos"), [dados]);
 
+  const competenciasTabela = useMemo(
+    () => [...new Set(dados.map((l) => l.competencia))].sort((a, b) => chaveCompetencia(a) - chaveCompetencia(b)),
+    [dados]
+  );
+  const [competenciaTabela, setCompetenciaTabela] = useState<string>(TODOS);
+  const dadosTabela = useMemo(
+    () => (competenciaTabela === TODOS ? dados : dados.filter((l) => l.competencia === competenciaTabela)),
+    [dados, competenciaTabela]
+  );
+
+  // Folha suplementar, café da manhã, refeitório e pró-saúde: um valor TOTAL por empresa+
+  // competência (não por área) — o rateio por área acontece no servidor (ver carregarIndicadores).
+  // Só dá pra editar com uma empresa específica selecionada. Um campo por vez (escolhido no
+  // seletor "Lançamento"), pra não empilhar 4 caixinhas na tela.
+  const [competenciaRateioSelecionada, setCompetenciaRateioSelecionada] = useState<string | null>(null);
+  const competenciaRateio =
+    competenciaRateioSelecionada && competenciasTabela.includes(competenciaRateioSelecionada)
+      ? competenciaRateioSelecionada
+      : (competenciasTabela.at(-1) ?? null);
+  const [campoRateioSelecionado, setCampoRateioSelecionado] = useState<CampoRateio>(RATEIO_CAMPOS[0]);
+  const [valorRateio, setValorRateio] = useState<string>("");
+  const [carregandoRateio, iniciarCarregarRateio] = useTransition();
+  const [salvandoRateio, setSalvandoRateio] = useState(false);
+
+  useEffect(() => {
+    if (empresaId === TODOS || !competenciaRateio) return;
+    iniciarCarregarRateio(async () => {
+      const r = await carregarRateioTotal(empresaId, competenciaRateio, campoRateioSelecionado);
+      setValorRateio(String(r.valor));
+    });
+  }, [empresaId, competenciaRateio, campoRateioSelecionado, iniciarCarregarRateio]);
+
+  // Aceita vírgula como separador decimal (formato brasileiro, ex.: "5.839,80"), além do ponto.
+  function paraNumero(texto: string): number {
+    const limpo = texto.trim();
+    return limpo.includes(",") ? Number(limpo.replace(/\./g, "").replace(",", ".")) : Number(limpo);
+  }
+
+  async function handleSalvarRateio() {
+    if (empresaId === TODOS || !competenciaRateio) return;
+    const valor = paraNumero(valorRateio);
+    if (Number.isNaN(valor)) {
+      toast.error("Valor inválido.");
+      return;
+    }
+    setSalvandoRateio(true);
+    const result = await atualizarRateioTotal(empresaId, competenciaRateio, campoRateioSelecionado, valor);
+    setSalvandoRateio(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`${CAMPO_LABEL[campoRateioSelecionado]} atualizado — rateando por área.`);
+    carregar({});
+  }
+
   async function handleEditarCampo(id: string, campo: CampoIndicador, valorTexto: string) {
     const valor = Number(valorTexto);
     if (Number.isNaN(valor)) {
@@ -260,20 +327,31 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
     "Empresa",
     "Área",
     "Competência",
-    ...CAMPOS_INDICADOR.map((c) => CAMPO_LABEL[c]),
+    ...CAMPOS_TABELA.map((c) => CAMPO_LABEL[c]),
     "IRRF do mês (R$)",
     "% Encargos",
     "Rotatividade %",
   ];
-  const csvLinhas = dados.map((l) => [
+  const csvLinhas = dadosTabela.map((l) => [
     l.empresaNome,
     labelSetor(l.setor),
     l.competencia,
-    ...CAMPOS_INDICADOR.map((c) => l[c]),
+    ...CAMPOS_TABELA.map((c) => l[c]),
     l.irrf,
-    l.percentualEncargos.toFixed(1),
-    l.taxaRotatividade.toFixed(1),
+    l.percentualEncargos,
+    l.taxaRotatividade,
   ]);
+  if (dadosTabela.length > 0) {
+    csvLinhas.push([
+      "Total",
+      "",
+      "",
+      ...CAMPOS_TABELA.map((c) => dadosTabela.reduce((soma, l) => soma + l[c], 0)),
+      dadosTabela.reduce((soma, l) => soma + l.irrf, 0),
+      "",
+      "",
+    ]);
+  }
 
   const queryString = new URLSearchParams({
     ...(empresaId !== TODOS ? { empresaId } : {}),
@@ -341,7 +419,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                 d.Admitidos,
                 d.Desligados,
                 d["Total Colab."],
-                d.Turnover.toFixed(2),
+                d.Turnover,
               ]),
             }}
           >
@@ -504,7 +582,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
             arquivo="indicadores-absenteismo-percentual"
             csv={{
               headers: ["Competência", "Dias de ausência", "Absenteísmo %"],
-              linhas: dadosAbsenteismoPct.map((d) => [d.competencia, d.Dias, d.Absenteísmo.toFixed(2)]),
+              linhas: dadosAbsenteismoPct.map((d) => [d.competencia, d.Dias, d.Absenteísmo]),
             }}
           >
             <Legenda
@@ -676,7 +754,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
 
           <ExportCard
             titulo="Encargos por área"
-            descricao="INSS retido + FGTS + IRRF (IRRF do mês = férias da competência + normal do mês anterior)"
+            descricao="INSS retido + FGTS + IRRF + INSS patronal + Acidente de Trabalho (RAT) + Terceiros (IRRF do mês = férias da competência + normal do mês anterior)"
             arquivo="indicadores-encargos"
             csv={{
               headers: ["Competência", ...areasPresentes],
@@ -687,6 +765,62 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
             <AreaBarChart dados={dadosEncargos} areasPresentes={areasPresentes} formatter={fmtMoeda} />
           </ExportCard>
 
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <p className="mb-1 font-mono text-[13px] font-bold text-foreground">Lançamento total (por empresa)</p>
+            <p className="mb-3 font-mono text-[10px] text-text-3">
+              escolha o lançamento e o mês, informe o valor total pago pela empresa — o rateio por área (ativos da área ÷
+              total de ativos × valor total) é automático e aparece na coluna correspondente da tabela abaixo
+            </p>
+            {empresaId === TODOS ? (
+              <p className="font-mono text-[11px] text-warning">Selecione uma empresa específica no filtro do topo para editar.</p>
+            ) : (
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-2">
+                  <Label>Lançamento</Label>
+                  <Select value={campoRateioSelecionado} onValueChange={(v) => setCampoRateioSelecionado(v as CampoRateio)}>
+                    <SelectTrigger className="w-48">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RATEIO_CAMPOS.map((campo) => (
+                        <SelectItem key={campo} value={campo}>
+                          {CAMPO_LABEL[campo]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Competência</Label>
+                  <Select value={competenciaRateio ?? undefined} onValueChange={(v) => setCompetenciaRateioSelecionada(v as string)}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {competenciasTabela.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {nomeCompetencia(c)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Valor total (R$)</Label>
+                  <Input
+                    value={valorRateio}
+                    disabled={carregandoRateio || salvandoRateio}
+                    onChange={(e) => setValorRateio(e.target.value)}
+                    className="w-36"
+                  />
+                </div>
+                <Button onClick={handleSalvarRateio} disabled={carregandoRateio || salvandoRateio || !competenciaRateio}>
+                  {salvandoRateio ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+            )}
+          </div>
+
           <ExportCard
             titulo="Tabela detalhada — editável"
             descricao="clique num valor pra corrigir; grava assim que sai do campo"
@@ -694,13 +828,30 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
             pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
             csv={{ headers: csvHeaders, linhas: csvLinhas }}
           >
+            <div className="mb-3 flex flex-col gap-2">
+              <Label>Competência</Label>
+              <Select value={competenciaTabela} onValueChange={(v) => setCompetenciaTabela(v as string)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={TODOS}>Todas</SelectItem>
+                  {competenciasTabela.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {nomeCompetencia(c)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <Table containerClassName="max-h-[70vh] overflow-y-auto">
               <TableHeader>
                 <TableRow>
                   <TableHead>Empresa</TableHead>
                   <TableHead>Área</TableHead>
                   <TableHead>Competência</TableHead>
-                  {CAMPOS_INDICADOR.map((c) => (
+                  {CAMPOS_TABELA.map((c) => (
                     <TableHead key={c}>{CAMPO_LABEL[c]}</TableHead>
                   ))}
                   <TableHead>IRRF do mês (R$)</TableHead>
@@ -709,23 +860,33 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {dados.map((l) => (
+                {dadosTabela.map((l) => (
                   <TableRow key={l.id}>
                     <TableCell>{l.empresaNome}</TableCell>
                     <TableCell className="font-medium whitespace-nowrap text-foreground">{labelSetor(l.setor)}</TableCell>
                     <TableCell>{nomeCompetencia(l.competencia)}</TableCell>
-                    {CAMPOS_INDICADOR.map((c) => (
-                      <TableCell key={c}>
-                        <Input
-                          defaultValue={l[c]}
-                          disabled={salvandoId === l.id}
-                          className="w-24"
-                          onBlur={(e) => {
-                            if (Number(e.target.value) !== l[c]) handleEditarCampo(l.id, c, e.target.value);
-                          }}
-                        />
-                      </TableCell>
-                    ))}
+                    {CAMPOS_TABELA.map((c) =>
+                      RATEIO_CAMPOS.includes(c as CampoRateio) ? (
+                        <TableCell
+                          key={c}
+                          className="text-text-2"
+                          title={`Rateado do total da empresa (R$ ${l.totaisRateio[c as CampoRateio].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}) — edite o total acima, não esta célula`}
+                        >
+                          {l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                      ) : (
+                        <TableCell key={c}>
+                          <Input
+                            defaultValue={l[c]}
+                            disabled={salvandoId === l.id}
+                            className="w-24"
+                            onBlur={(e) => {
+                              if (Number(e.target.value) !== l[c]) handleEditarCampo(l.id, c, e.target.value);
+                            }}
+                          />
+                        </TableCell>
+                      )
+                    )}
                     <TableCell title="IRRF férias desta competência + IRRF normal da competência anterior">
                       {l.irrf.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                     </TableCell>
@@ -733,6 +894,23 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                     <TableCell>{l.taxaRotatividade.toFixed(1)}%</TableCell>
                   </TableRow>
                 ))}
+                {dadosTabela.length > 0 && (
+                  <TableRow>
+                    <TableCell className="font-bold text-foreground">Total</TableCell>
+                    <TableCell />
+                    <TableCell />
+                    {CAMPOS_TABELA.map((c) => (
+                      <TableCell key={c} className="font-bold text-foreground">
+                        {dadosTabela.reduce((soma, l) => soma + l[c], 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </TableCell>
+                    ))}
+                    <TableCell className="font-bold text-foreground">
+                      {dadosTabela.reduce((soma, l) => soma + l.irrf, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell>—</TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </ExportCard>

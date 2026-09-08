@@ -34,7 +34,11 @@ export default async function ProgramacaoPdfPage({
   const mesFiltro = mes ? Number(mes) : null;
 
   let linhas = periodos
-    .filter((p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ"))
+    .filter(
+      (p) =>
+        !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ") &&
+        p.funcionario.status !== "desligado"
+    )
     .map((p) => ({
       id: p.id,
       matricula: p.funcionario.matricula,

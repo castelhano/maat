@@ -1,7 +1,17 @@
 const SEPARADOR = ";";
 
+// Excel em pt-BR espera vírgula como separador decimal — escrever o número puro do JS (ponto, e às
+// vezes com erro de ponto flutuante de somas repetidas, tipo 18786.059999999998) faz o Excel
+// confundir cada ponto com separador de milhar e "explodir" o valor. Números inteiros (contagens
+// como Ativos/Admitidos) saem sem casas decimais; os demais são arredondados em 2 casas.
+function formatarNumeroCsv(valor: number): string {
+  if (!Number.isFinite(valor)) return "0";
+  const texto = Number.isInteger(valor) ? String(valor) : valor.toFixed(2);
+  return texto.replace(".", ",");
+}
+
 function escaparCampoCsv(valor: string | number): string {
-  const texto = String(valor);
+  const texto = typeof valor === "number" ? formatarNumeroCsv(valor) : valor;
   if (new RegExp(`["${SEPARADOR}\n]`).test(texto)) return `"${texto.replace(/"/g, '""')}"`;
   return texto;
 }

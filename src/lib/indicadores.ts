@@ -26,6 +26,12 @@ export const CAMPOS_INDICADOR = [
   "atestadosValor",
   "inssRetido",
   "fgts",
+  "inssPatronal",
+  "acidenteTrabalho",
+  "terceiros",
+  "farmacia",
+  "contribuicaoConfederativa",
+  "contribuicaoSocial",
   "irrfFerias",
   "irrfNormal",
   "cestaBasica",
@@ -38,34 +44,47 @@ export const CAMPOS_INDICADOR = [
 
 export type CampoIndicador = (typeof CAMPOS_INDICADOR)[number];
 
+// Campos "sempre editáveis" (sem código/linha própria no relatório) que agora são lançados como um
+// valor TOTAL por empresa+competência (ver model RateioTotalCampo) em vez de por área — o rateio
+// por área acontece na leitura: ativos da área / total de ativos da empresa × valor total (ver
+// carregarIndicadores).
+export const RATEIO_CAMPOS = ["folhaSuplementar", "cafeManha", "refeitorio", "proSaude"] as const satisfies readonly CampoIndicador[];
+export type CampoRateio = (typeof RATEIO_CAMPOS)[number];
+
 export const CAMPO_LABEL: Record<CampoIndicador, string> = {
   ativos: "Ativos",
   admitidos: "Admitidos",
   desligados: "Desligados",
   afastados: "Afastados",
-  aprendizesAtivos: "Aprendizes ativos",
-  aprendizesAdmitidos: "Aprendizes admitidos",
-  aprendizesDesligados: "Aprendizes desligados",
+  aprendizesAtivos: "Aprend. ativos",
+  aprendizesAdmitidos: "Aprend. admit.",
+  aprendizesDesligados: "Aprend. deslig.",
   folhaBruta: "Folha bruta (R$)",
-  liquidoPagar: "Líquido a pagar (R$)",
+  liquidoPagar: "Líq. a pagar (R$)",
   horaExtra: "Hora extra 50% (R$)",
   horaExtraHoras: "Hora extra 50% (h)",
   comissao: "Comissão (R$)",
-  folhaSuplementar: "Folha suplementar (R$)",
+  folhaSuplementar: "Folha suplem. (R$)",
   faltasDias: "Faltas (dias)",
   faltasValor: "Faltas (R$)",
   atestadosDias: "Atestados (dias)",
   atestadosValor: "Atestados (R$)",
-  inssRetido: "INSS retido funcionário (R$)",
+  inssRetido: "INSS retido (R$)",
   fgts: "FGTS (R$)",
+  inssPatronal: "INSS patronal (R$)",
+  acidenteTrabalho: "RAT (R$)",
+  terceiros: "Terceiros (R$)",
+  farmacia: "Farmácia (R$)",
+  contribuicaoConfederativa: "Confer. (R$)",
+  contribuicaoSocial: "Social (R$)",
   irrfFerias: "IRRF férias (R$)",
   irrfNormal: "IRRF normal (R$)",
   cestaBasica: "Cesta básica (R$)",
   valeGas: "Vale gás (R$)",
-  valeAlimentacao: "Vale alimentação (R$)",
+  valeAlimentacao: "Vale aliment. (R$)",
   cafeManha: "Café da manhã (R$)",
   refeitorio: "Refeitório (R$)",
-  proSaude: "Pró-saúde do trabalhador (R$)",
+  proSaude: "Pró-saúde trab. (R$)",
 };
 
 // Mesmos valores usados em Cargo.setor — a área "OPERACAO MOTORISTA" tem que vir testada antes de
@@ -114,12 +133,16 @@ export type ComDerivados<T> = T & {
 // próprio relatório) + folha suplementar (processada à parte, não está na folha bruta) + FGTS +
 // benefícios. O INSS aqui é só o retido do funcionário (não tem a parte patronal separada no
 // relatório), por isso fica de fora do custo do empregador e só entra no indicador de encargos.
+//
+// Encargos = INSS retido do funcionário + FGTS + IRRF + INSS patronal + Acidente de Trabalho
+// (RAT/SAT) + Terceiros (Sistema S, INCRA, salário educação etc.) — os 3 últimos são encargos
+// patronais extraídos do relatório (ver resumo-gerencial.ts).
 export function calcularDerivados<T extends Record<CampoIndicador, number> & { irrf: number }>(
   l: T
 ): ComDerivados<T> {
   const custoBeneficios = l.cestaBasica + l.valeGas + l.valeAlimentacao + l.cafeManha + l.refeitorio + l.proSaude;
   const custoTotalEmpregador = l.folhaBruta + l.folhaSuplementar + l.fgts + custoBeneficios;
-  const encargos = l.inssRetido + l.fgts + l.irrf;
+  const encargos = l.inssRetido + l.fgts + l.irrf + l.inssPatronal + l.acidenteTrabalho + l.terceiros;
   const diasAusencia = l.faltasDias + l.atestadosDias;
   return {
     ...l,

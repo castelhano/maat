@@ -15,7 +15,15 @@ export default async function DashboardPage() {
         prisma.empresa.count(),
         prisma.importacao.count(),
         prisma.terceiro.count(),
-        prisma.ferias.count({ where: { gozoInicio: null } }),
+        prisma.ferias
+          .findMany({
+            where: { gozoInicio: null, funcionario: { status: { not: "desligado" } } },
+            select: { funcionario: { select: { cargo: { select: { nome: true } } } } },
+          })
+          .then(
+            (lista) =>
+              lista.filter((p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ")).length
+          ),
         prisma.indicadorMensal.count(),
       ])
     : null;

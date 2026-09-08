@@ -114,6 +114,7 @@ model Empresa {
   apuracoes            Apuracao[]
   bancoHorasImportacoes BancoHorasImportacao[]
   indicadoresMensais   IndicadorMensal[]
+  rateiosTotais        RateioTotalCampo[]
 
   @@unique([codigo])
   @@map("empresa")
@@ -291,6 +292,17 @@ model IndicadorMensal {
   // INSS retido do funcionário (não o total patronal+retido) — "INSS Retido dos Funcionarios".
   inssRetido      Decimal
   fgts            Decimal
+  // Encargos patronais extraídos do relatório: "INSS da Empresa" (parte patronal), "Acidente de
+  // Trabalho" (RAT/SAT) e "Terceiros" (Sistema S, INCRA, salário educação etc.).
+  inssPatronal      Decimal @default(0)
+  acidenteTrabalho  Decimal @default(0)
+  terceiros         Decimal @default(0)
+  // Descontos por código: 00381 farmácia (nome do fornecedor varia por empresa — ex. "BIG
+  // MASTER" — por isso extraído pelo código, não pelo rótulo), 00492 contribuição confederativa,
+  // 00493 contribuição social (sindical).
+  farmacia                  Decimal @default(0)
+  contribuicaoConfederativa Decimal @default(0)
+  contribuicaoSocial        Decimal @default(0)
   // O relatório desse mês traz o IRRF sobre férias (código 00481) já da competência corrente,
   // mas o IRRF normal (código 00453) sai defasado em 1 mês no sistema de origem — por isso os
   // dois ficam crus aqui, e o IRRF "do mês" exibido no dashboard é montado na leitura somando
@@ -318,6 +330,27 @@ model IndicadorMensal {
   @@unique([empresaId, setor, competencia])
   @@index([empresaId, competencia])
   @@map("indicador_mensal")
+}
+
+// Valor total mensal de um benefício "sempre editável" (pró-saúde, folha suplementar, café da
+// manhã, refeitório — ver RATEIO_CAMPOS em lib/indicadores.ts), lançado uma vez por empresa (não
+// por área). O rateio por área é feito na leitura: ativos da área / total de ativos da empresa ×
+// este valor (ver carregarIndicadores). Substitui o antigo lançamento manual por área desses
+// campos em IndicadorMensal.
+model RateioTotalCampo {
+  id          String  @id @default(cuid())
+  empresaId   String
+  empresa     Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  competencia String // "mm/yyyy"
+  // Nome do campo de IndicadorMensal que este total rateia (ex.: "proSaude", "folhaSuplementar").
+  campo       String
+  valor       Decimal @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([empresaId, competencia, campo])
+  @@map("rateio_total_campo")
 }
 
 // Cadastro de terceiros (não vêm da folha do ERP): opção de lançar manualmente e manter

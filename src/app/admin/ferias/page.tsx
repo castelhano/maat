@@ -27,8 +27,11 @@ export default async function FeriasPage() {
 
   // Aprendizes não têm direito a férias programadas na mesma régua dos demais colaboradores —
   // ocultado de toda a tela (Programação, Resumo, Painel/Mural) em vez de aparecer como pendente.
+  // Colaboradores desligados também saem da programação assim que o desligamento é registrado.
   const periodosSemAprendiz = periodos.filter(
-    (p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ")
+    (p) =>
+      !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ") &&
+      p.funcionario.status !== "desligado"
   );
 
   const periodosSerializados = periodosSemAprendiz.map((p) => ({
