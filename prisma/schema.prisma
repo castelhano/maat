@@ -386,6 +386,11 @@ model Apuracao {
   geradoPorId String
   createdAt   DateTime @default(now())
 
+  // Cesta básica e vale-alimentação fecham em datas diferentes, então cada um tem seu próprio
+  // "processado em" — reprocessar um não mexe no horário do outro.
+  geradoCestaEm DateTime?
+  geradoVrEm    DateTime?
+
   itens ApuracaoItem[]
 
   @@unique([empresaId, competencia])
@@ -401,11 +406,16 @@ model ApuracaoItem {
   // "funcionario" | "terceiro" — dados abaixo são um snapshot no momento do cálculo, para o
   // relatório continuar íntegro mesmo se o cadastro de origem mudar ou for removido depois.
   tipo         String
-  matricula    String?
-  nome         String
-  cargo        String?
-  salario      Decimal?
-  dataAdmissao DateTime?
+  // Id de origem (Funcionario.id ou Terceiro.id) — usado só pra reconciliar a linha entre um
+  // processamento de cesta básica e um de vale-alimentação (datas diferentes), sem depender de
+  // matrícula (terceiro não tem). Null em snapshots antigos, gerados antes dessa separação.
+  funcionarioId String?
+  terceiroId    String?
+  matricula     String?
+  nome          String
+  cargo         String?
+  salario       Decimal?
+  dataAdmissao  DateTime?
 
   elegivelCestaBasica  Boolean
   motivoPerdaCesta     String?
@@ -419,6 +429,8 @@ model ApuracaoItem {
 
   createdAt DateTime @default(now())
 
+  @@unique([apuracaoId, funcionarioId])
+  @@unique([apuracaoId, terceiroId])
   @@index([apuracaoId])
   @@map("apuracao_item")
 }

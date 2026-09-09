@@ -20,6 +20,7 @@ export type ApuracaoItemDTO = {
   area: string | null;
   salario: number | null;
   dataAdmissao: string | null;
+  empresaId: string;
   empresaNome: string;
   empresaAbbr: string;
   elegivelCestaBasica: boolean;
@@ -34,7 +35,8 @@ export type ApuracaoItemDTO = {
 
 export type ApuracaoResumo = {
   competencia: string;
-  geradoEm: string | null;
+  geradoCestaEm: string | null;
+  geradoVrEm: string | null;
   itens: ApuracaoItemDTO[];
 };
 
@@ -53,9 +55,16 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
     orderBy: { empresa: { nome: "asc" } },
   });
 
-  if (apuracoes.length === 0) return { competencia, geradoEm: null, itens: [] };
+  if (apuracoes.length === 0) return { competencia, geradoCestaEm: null, geradoVrEm: null, itens: [] };
 
-  const geradoEm = apuracoes.reduce<Date | null>((acc, a) => (!acc || a.createdAt > acc ? a.createdAt : acc), null);
+  function maisRecente(pegar: (a: (typeof apuracoes)[number]) => Date | null): Date | null {
+    return apuracoes.reduce<Date | null>((acc, a) => {
+      const v = pegar(a);
+      return v && (!acc || v > acc) ? v : acc;
+    }, null);
+  }
+  const geradoCestaEm = maisRecente((a) => a.geradoCestaEm);
+  const geradoVrEm = maisRecente((a) => a.geradoVrEm);
 
   // Área/setor não fica salva no snapshot da apuração (ApuracaoItem guarda só o nome do cargo);
   // busca no cadastro atual de Cargo pra não precisar de migração nem reprocessar apurações antigas.
@@ -71,6 +80,7 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
       area: i.cargo ? (setorPorCargo.get(i.cargo) ?? null) : null,
       salario: i.salario?.toNumber() ?? null,
       dataAdmissao: i.dataAdmissao ? i.dataAdmissao.toISOString() : null,
+      empresaId: a.empresaId,
       empresaNome: a.empresa.nome,
       empresaAbbr: a.empresa.abbr || primeiraPalavra(a.empresa.nome),
       elegivelCestaBasica: i.elegivelCestaBasica,
@@ -84,11 +94,20 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
     }))
   );
 
-  return { competencia, geradoEm: geradoEm ? geradoEm.toISOString() : null, itens };
+  return {
+    competencia,
+    geradoCestaEm: geradoCestaEm ? geradoCestaEm.toISOString() : null,
+    geradoVrEm: geradoVrEm ? geradoVrEm.toISOString() : null,
+    itens,
+  };
 }
 
+export type DimensaoApuracao = "cesta" | "vr";
+
 export async function processarApuracao(
-  competencia: string
+  competencia: string,
+  dimensao: DimensaoApuracao,
+  empresaId?: string
 ): Promise<{ error: string | null; resumo?: { empresas: number; itens: number } }> {
   const admin = await requireAdmin();
   if (!competencia.trim()) return { error: "Selecione a competência." };
@@ -105,7 +124,7 @@ export async function processarApuracao(
   const inicioAnterior = new Date(Date.UTC(anoAnterior, mesAnterior - 1, 1));
   const fimAnterior = new Date(Date.UTC(anoAnterior, mesAnterior, 0, 23, 59, 59, 999));
 
-  const empresas = await prisma.empresa.findMany();
+  const empresas = await prisma.empresa.findMany({ where: empresaId ? { id: empresaId } : undefined });
 
   let empresasProcessadas = 0;
   let itensTotal = 0;
@@ -143,7 +162,11 @@ export async function processarApuracao(
     const faltasPorFuncionarioAnterior = new Map(faltasAgrupadasAnterior.map((f) => [f.funcionarioId, f._count._all]));
 
     const valorCestaBasicaEmpresa = empresa.valorCestaBasica?.toNumber() ?? null;
-    const itens: Prisma.ApuracaoItemCreateWithoutApuracaoInput[] = [];
+    // Cesta básica e vale-alimentação são fechados em datas diferentes — cada um só grava os
+    // campos da sua própria dimensão, pra reprocessar um não sobrescrever o outro (ex.: apurar
+    // cesta de novo não pode zerar um valor de VA já fechado, e vice-versa).
+    type ItemUpsert = { chave: { funcionarioId: string | null; terceiroId: string | null }; base: Prisma.ApuracaoItemCreateWithoutApuracaoInput };
+    const itens: ItemUpsert[] = [];
 
     for (const f of funcionarios) {
       const recebeCestaResolvido = resolverHeranca(f.recebeCestaBasica, f.cargo.recebeCestaBasica);
@@ -208,20 +231,23 @@ export async function processarApuracao(
       const cestaConvertidaComoVR = cesta.elegivel && f.recebeCestaComoVR;
 
       itens.push({
-        tipo: "funcionario",
-        matricula: f.matricula,
-        nome: f.nome,
-        cargo: f.cargo.nome,
-        salario: f.salario,
-        dataAdmissao: f.dataAdmissao,
-        elegivelCestaBasica: cesta.elegivel && !cestaConvertidaComoVR,
-        motivoPerdaCesta: cestaConvertidaComoVR ? "Cesta convertida (VA)" : cesta.motivo,
-        recebeCestaComoVR: f.recebeCestaComoVR,
-        valorCestaConvertida,
-        elegivelVR: vr.elegivel,
-        motivoPerdaVR: vr.motivo,
-        baseCalculoVR: vr.baseCalculo,
-        valorVR: vr.valor + (valorCestaConvertida ?? 0),
+        chave: { funcionarioId: f.id, terceiroId: null },
+        base: {
+          tipo: "funcionario",
+          matricula: f.matricula,
+          nome: f.nome,
+          cargo: f.cargo.nome,
+          salario: f.salario,
+          dataAdmissao: f.dataAdmissao,
+          elegivelCestaBasica: cesta.elegivel && !cestaConvertidaComoVR,
+          motivoPerdaCesta: cestaConvertidaComoVR ? "Cesta convertida (VA)" : cesta.motivo,
+          recebeCestaComoVR: f.recebeCestaComoVR,
+          valorCestaConvertida,
+          elegivelVR: vr.elegivel,
+          motivoPerdaVR: vr.motivo,
+          baseCalculoVR: vr.baseCalculo,
+          valorVR: vr.valor + (valorCestaConvertida ?? 0),
+        },
       });
     }
 
@@ -235,37 +261,95 @@ export async function processarApuracao(
       const cestaConvertidaComoVR = t.recebeCestaBasica && t.recebeCestaComoVR;
 
       itens.push({
-        tipo: "terceiro",
-        matricula: null,
-        nome: t.nome,
-        cargo: null,
-        salario: null,
-        dataAdmissao: null,
-        elegivelCestaBasica: t.recebeCestaBasica && !cestaConvertidaComoVR,
-        motivoPerdaCesta: cestaConvertidaComoVR
-          ? "Cesta convertida (VA)"
-          : t.recebeCestaBasica
-            ? null
-            : "Terceiro sem cesta (manual)",
-        recebeCestaComoVR: t.recebeCestaComoVR,
-        valorCestaConvertida,
-        elegivelVR: t.recebeValeRefeicao,
-        motivoPerdaVR: t.recebeValeRefeicao ? null : "Terceiro sem alimentação",
-        baseCalculoVR: null,
-        valorVR: valorVRBase + (valorCestaConvertida ?? 0),
+        chave: { funcionarioId: null, terceiroId: t.id },
+        base: {
+          tipo: "terceiro",
+          matricula: null,
+          nome: t.nome,
+          cargo: null,
+          salario: null,
+          dataAdmissao: null,
+          elegivelCestaBasica: t.recebeCestaBasica && !cestaConvertidaComoVR,
+          motivoPerdaCesta: cestaConvertidaComoVR
+            ? "Cesta convertida (VA)"
+            : t.recebeCestaBasica
+              ? null
+              : "Terceiro sem cesta (manual)",
+          recebeCestaComoVR: t.recebeCestaComoVR,
+          valorCestaConvertida,
+          elegivelVR: t.recebeValeRefeicao,
+          motivoPerdaVR: t.recebeValeRefeicao ? null : "Terceiro sem alimentação",
+          baseCalculoVR: null,
+          valorVR: valorVRBase + (valorCestaConvertida ?? 0),
+        },
       });
     }
 
     if (itens.length === 0) continue;
 
+    // Campos que pertencem à outra dimensão (não processada agora) só entram como valor inicial
+    // se a linha ainda não existir — se já existir, o update abaixo nem toca neles.
+    const camposCesta = ["elegivelCestaBasica", "motivoPerdaCesta", "recebeCestaComoVR"] as const;
+    const camposVR = ["valorCestaConvertida", "elegivelVR", "motivoPerdaVR", "baseCalculoVR", "valorVR"] as const;
+    const camposComuns = ["tipo", "matricula", "nome", "cargo", "salario", "dataAdmissao"] as const;
+    const camposAtualizar = dimensao === "cesta" ? camposCesta : camposVR;
+
     await prisma.$transaction(async (tx) => {
-      await tx.apuracao.deleteMany({ where: { empresaId: empresa.id, competencia } });
-      await tx.apuracao.create({
+      // Reconcilia linhas de apurações antigas (de antes dessa separação, sem funcionarioId/
+      // terceiroId salvo) usando matrícula/nome, pra não duplicar a linha da pessoa.
+      const apuracaoExistente = await tx.apuracao.findUnique({
+        where: { empresaId_competencia: { empresaId: empresa.id, competencia } },
+        include: { itens: true },
+      });
+      if (apuracaoExistente) {
+        for (const item of apuracaoExistente.itens) {
+          if (item.funcionarioId || item.terceiroId) continue;
+          const correspondente = itens.find((i) =>
+            item.tipo === "funcionario"
+              ? i.chave.funcionarioId && i.base.matricula === item.matricula
+              : i.chave.terceiroId && i.base.nome === item.nome
+          );
+          if (correspondente) {
+            await tx.apuracaoItem.update({
+              where: { id: item.id },
+              data: { funcionarioId: correspondente.chave.funcionarioId, terceiroId: correspondente.chave.terceiroId },
+            });
+          }
+        }
+      }
+
+      const apuracao =
+        apuracaoExistente ??
+        (await tx.apuracao.create({
+          data: { empresaId: empresa.id, competencia, geradoPorId: admin.id },
+        }));
+
+      for (const { chave, base } of itens) {
+        const dataAtualizar: Prisma.ApuracaoItemUpdateInput = {};
+        for (const campo of [...camposComuns, ...camposAtualizar]) {
+          (dataAtualizar as Record<string, unknown>)[campo] = base[campo as keyof typeof base];
+        }
+
+        if (chave.funcionarioId) {
+          await tx.apuracaoItem.upsert({
+            where: { apuracaoId_funcionarioId: { apuracaoId: apuracao.id, funcionarioId: chave.funcionarioId } },
+            create: { apuracaoId: apuracao.id, funcionarioId: chave.funcionarioId, ...base },
+            update: dataAtualizar,
+          });
+        } else {
+          await tx.apuracaoItem.upsert({
+            where: { apuracaoId_terceiroId: { apuracaoId: apuracao.id, terceiroId: chave.terceiroId! } },
+            create: { apuracaoId: apuracao.id, terceiroId: chave.terceiroId, ...base },
+            update: dataAtualizar,
+          });
+        }
+      }
+
+      await tx.apuracao.update({
+        where: { id: apuracao.id },
         data: {
-          empresaId: empresa.id,
-          competencia,
           geradoPorId: admin.id,
-          itens: { create: itens },
+          ...(dimensao === "cesta" ? { geradoCestaEm: new Date() } : { geradoVrEm: new Date() }),
         },
       });
     });

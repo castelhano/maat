@@ -21,6 +21,7 @@ export function ExportCard({
   descricao,
   arquivo,
   csv,
+  csvLista,
   pdfHref,
   children,
 }: {
@@ -28,6 +29,11 @@ export function ExportCard({
   descricao?: string;
   arquivo: string;
   csv?: { headers: string[]; linhas: (string | number)[][] };
+  // Segunda opção de CSV no mesmo formato ({headers, linhas}), mas em lista — uma linha por
+  // Empresa+Área+Competência+Indicador+Valor, em vez de uma coluna por indicador. Melhor pra jogar
+  // num Excel dinâmico/Power BI depois; a tabela "larga" (csv acima) continua igual pra quem só
+  // quer olhar de relance.
+  csvLista?: { headers: string[]; linhas: (string | number)[][] };
   pdfHref?: string;
   children: React.ReactNode;
 }) {
@@ -75,6 +81,11 @@ export function ExportCard({
     baixarCsv(arquivo, paraCsv(csv.headers, csv.linhas));
   }
 
+  function exportarCsvLista() {
+    if (!csvLista) return;
+    baixarCsv(`${arquivo}-lista`, paraCsv(csvLista.headers, csvLista.linhas));
+  }
+
   return (
     <Card>
       <div ref={ref} className="flex flex-col gap-(--card-spacing) bg-card py-(--card-spacing)">
@@ -98,6 +109,7 @@ export function ExportCard({
                 <DropdownMenuItem onClick={() => exportarPng(false)}>PNG (escuro)</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => exportarPng(true)}>PNG (claro)</DropdownMenuItem>
                 {csv && <DropdownMenuItem onClick={exportarCsv}>CSV</DropdownMenuItem>}
+                {csvLista && <DropdownMenuItem onClick={exportarCsvLista}>CSV (lista)</DropdownMenuItem>}
                 {pdfHref && (
                   <DropdownMenuItem onClick={() => window.open(pdfHref, "_blank")}>
                     <FileText />

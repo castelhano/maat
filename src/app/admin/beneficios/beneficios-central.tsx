@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { CompetenciaSelect } from "@/components/competencia-select";
 import { competenciaPadrao } from "@/lib/competencia";
-import { carregarApuracao, processarApuracao, type ApuracaoResumo } from "./actions";
+import { carregarApuracao, processarApuracao, type ApuracaoResumo, type DimensaoApuracao } from "./actions";
 import { BeneficioPainel } from "./beneficio-painel";
 
 const TODAS = "__todas__";
@@ -32,11 +32,16 @@ export function BeneficiosCentral() {
   const [processando, startProcessando] = useTransition();
   const [filtroEmpresa, setFiltroEmpresa] = useState(TODAS);
   const [filtroArea, setFiltroArea] = useState(TODAS);
+  const [aba, setAba] = useState<DimensaoApuracao>("cesta");
 
   const competencia = mes && ano ? `${mes}/${ano}` : "";
 
   const empresas = useMemo(
     () => [...new Set((apuracao?.itens ?? []).map((i) => i.empresaNome))].sort(),
+    [apuracao]
+  );
+  const empresaIdPorNome = useMemo(
+    () => new Map((apuracao?.itens ?? []).map((i) => [i.empresaNome, i.empresaId])),
     [apuracao]
   );
   const areas = useMemo(
@@ -80,22 +85,26 @@ export function BeneficiosCentral() {
     else setApuracao(null);
   }
 
+  const rotuloAba: Record<DimensaoApuracao, string> = { cesta: "cesta básica", vr: "vale-alimentação" };
+  const geradoEmAba = aba === "cesta" ? apuracao?.geradoCestaEm : apuracao?.geradoVrEm;
+  const empresaSelecionadaId = filtroEmpresa === TODAS ? undefined : empresaIdPorNome.get(filtroEmpresa);
+  const escopoProcessar = filtroEmpresa === TODAS ? "todas as empresas" : filtroEmpresa;
+
   function handleProcessar() {
     if (!competencia) return;
     if (
-      apuracao &&
-      apuracao.itens.length > 0 &&
-      !confirm(`Já existe uma apuração salva para ${competencia} (gerada em ${formatarDataHora(apuracao.geradoEm!)}). Reprocessar vai substituí-la com os dados atuais. Continuar?`)
+      geradoEmAba &&
+      !confirm(`Já existe uma apuração de ${rotuloAba[aba]} salva para ${competencia}. Reprocessar (${escopoProcessar}) vai atualizá-la com os dados atuais, sem mexer nas demais empresas nem na outra aba. Continuar?`)
     ) {
       return;
     }
     startProcessando(async () => {
-      const result = await processarApuracao(competencia);
+      const result = await processarApuracao(competencia, aba, empresaSelecionadaId);
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success(`Apuração processada: ${result.resumo?.empresas} empresa(s), ${result.resumo?.itens} item(ns).`);
+      toast.success(`${rotuloAba[aba]} processada (${escopoProcessar}): ${result.resumo?.empresas} empresa(s), ${result.resumo?.itens} item(ns).`);
       carregar(competencia);
     });
   }
@@ -111,11 +120,11 @@ export function BeneficiosCentral() {
         <div className="flex flex-col items-end gap-1.5">
           <Button onClick={handleProcessar} disabled={isPending || !competencia}>
             <RefreshCw />
-            {processando ? "Processando..." : "Processar"}
+            {processando ? "Processando..." : `Processar ${rotuloAba[aba]}${filtroEmpresa === TODAS ? "" : ` — ${filtroEmpresa}`}`}
           </Button>
-          {apuracao?.geradoEm && (
+          {geradoEmAba && (
             <span className="font-mono text-[10px] text-text-3">
-              última apuração: {formatarDataHora(apuracao.geradoEm)}
+              última apuração de {rotuloAba[aba]}: {formatarDataHora(geradoEmAba)}
             </span>
           )}
         </div>
@@ -170,7 +179,7 @@ export function BeneficiosCentral() {
               Nenhum item para os filtros selecionados.
             </p>
           ) : (
-            <Tabs defaultValue="cesta">
+            <Tabs value={aba} onValueChange={(v) => setAba((v as DimensaoApuracao) ?? "cesta")}>
               <TabsList>
                 <TabsIndicator />
                 <TabsTab value="cesta">Cesta básica</TabsTab>

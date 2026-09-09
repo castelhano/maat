@@ -353,6 +353,16 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
     ]);
   }
 
+  // Mesmos dados da tabela detalhada, mas em lista — uma linha por Empresa+Área+Competência+
+  // Indicador+Valor, em vez de uma coluna por indicador. Melhor pra jogar num Excel dinâmico depois.
+  const csvListaHeaders = ["Empresa", "Área", "Competência", "Indicador", "Valor"];
+  const csvListaLinhas = dadosTabela.flatMap((l) => [
+    ...CAMPOS_TABELA.map((c) => [l.empresaNome, labelSetor(l.setor), l.competencia, CAMPO_LABEL[c], l[c]]),
+    [l.empresaNome, labelSetor(l.setor), l.competencia, "IRRF do mês (R$)", l.irrf],
+    [l.empresaNome, labelSetor(l.setor), l.competencia, "% Encargos", l.percentualEncargos],
+    [l.empresaNome, labelSetor(l.setor), l.competencia, "Rotatividade %", l.taxaRotatividade],
+  ]);
+
   const queryString = new URLSearchParams({
     ...(empresaId !== TODOS ? { empresaId } : {}),
     ...(setor !== TODOS ? { setor } : {}),
@@ -827,6 +837,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
             arquivo="indicadores-detalhado"
             pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
             csv={{ headers: csvHeaders, linhas: csvLinhas }}
+            csvLista={{ headers: csvListaHeaders, linhas: csvListaLinhas }}
           >
             <div className="mb-3 flex flex-col gap-2">
               <Label>Competência</Label>
