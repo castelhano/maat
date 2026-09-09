@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CompetenciaSelect } from "@/components/competencia-select";
-import { competenciaPadrao } from "@/lib/competencia";
+import { competenciaPadrao, competenciaEstaFechada } from "@/lib/competencia";
 import { carregarApuracao, processarApuracao, type ApuracaoResumo, type DimensaoApuracao } from "./actions";
 import { BeneficioPainel } from "./beneficio-painel";
 
@@ -89,9 +89,10 @@ export function BeneficiosCentral() {
   const geradoEmAba = aba === "cesta" ? apuracao?.geradoCestaEm : apuracao?.geradoVrEm;
   const empresaSelecionadaId = filtroEmpresa === TODAS ? undefined : empresaIdPorNome.get(filtroEmpresa);
   const escopoProcessar = filtroEmpresa === TODAS ? "todas as empresas" : filtroEmpresa;
+  const competenciaFechada = mes && ano ? competenciaEstaFechada({ ano: Number(ano), mes: Number(mes) }) : false;
 
   function handleProcessar() {
-    if (!competencia) return;
+    if (!competencia || competenciaFechada) return;
     if (
       geradoEmAba &&
       !confirm(`Já existe uma apuração de ${rotuloAba[aba]} salva para ${competencia}. Reprocessar (${escopoProcessar}) vai atualizá-la com os dados atuais, sem mexer nas demais empresas nem na outra aba. Continuar?`)
@@ -118,11 +119,16 @@ export function BeneficiosCentral() {
           <CompetenciaSelect mes={mes} ano={ano} onMesChange={handleMesChange} onAnoChange={handleAnoChange} />
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <Button onClick={handleProcessar} disabled={isPending || !competencia}>
+          <Button onClick={handleProcessar} disabled={isPending || !competencia || competenciaFechada}>
             <RefreshCw />
             {processando ? "Processando..." : `Processar ${rotuloAba[aba]}${filtroEmpresa === TODAS ? "" : ` — ${filtroEmpresa}`}`}
           </Button>
-          {geradoEmAba && (
+          {competenciaFechada && (
+            <span className="font-mono text-[10px] text-warning">
+              competência fechada pra reprocessamento (prazo era até o dia 7 do mês seguinte)
+            </span>
+          )}
+          {!competenciaFechada && geradoEmAba && (
             <span className="font-mono text-[10px] text-text-3">
               última apuração de {rotuloAba[aba]}: {formatarDataHora(geradoEmAba)}
             </span>

@@ -95,8 +95,8 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
           `data de retorno: ${funcionario.dataRetorno ? funcionario.dataRetorno.toLocaleDateString("pt-BR") : "—"} → ${linha.dataRetorno!.toLocaleDateString("pt-BR")}`
         );
       }
-      if (funcionario.motivoAfastamento) {
-        mudancas.push(`motivo: ${funcionario.motivoAfastamento} → —`);
+      if ((funcionario.motivoAfastamento ?? "") !== linha.motivo) {
+        mudancas.push(`motivo: ${funcionario.motivoAfastamento ?? "—"} → ${linha.motivo}`);
       }
     } else {
       if (funcionario.status !== "afastado") {
@@ -215,11 +215,15 @@ export async function confirmarAfastamentos(
         data: retornou
           ? {
               status: "ativo",
-              // Mantém a data de afastamento desse mesmo evento (em vez de apagar): se ela caiu
-              // no mesmo mês do retorno, a apuração de benefícios usa as duas datas juntas pra
-              // saber que só essa janela ficou de fora, não o mês inteiro até o retorno.
+              // Mantém a data E o motivo do afastamento desse mesmo evento (em vez de apagar): se
+              // a data caiu no mesmo mês do retorno, a apuração de benefícios usa as duas juntas
+              // pra saber que só essa janela ficou de fora, não o mês inteiro até o retorno — e o
+              // motivo continua necessário depois do retorno pra regra de "licença sem
+              // remuneração com menos de 28 dias trabalhados", inclusive em competências
+              // seguintes que olham pra trás (ex.: crédito de cesta convertida em VR do mês
+              // seguinte, que depende da elegibilidade do mês anterior).
               dataAfastamento: linha.dataAfastamento,
-              motivoAfastamento: null,
+              motivoAfastamento: linha.motivo,
               dataRetorno: linha.dataRetorno,
             }
           : { status: "afastado", dataAfastamento: linha.dataAfastamento, motivoAfastamento: linha.motivo, dataRetorno: null },

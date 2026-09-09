@@ -80,6 +80,7 @@ export function calcularElegibilidadeCesta(funcionario: {
   status: string;
   dataAdmissao: Date;
   dataAfastamento: Date | null;
+  dataRetorno?: Date | null;
   motivoAfastamento: string | null;
   faltasNoMes: number;
   recebeCestaBasicaResolvido: boolean;
@@ -98,7 +99,15 @@ export function calcularElegibilidadeCesta(funcionario: {
     return { elegivel: false, motivo: "Desligado" };
   }
 
-  if (funcionario.status === "afastado" && funcionario.dataAfastamento) {
+  // Considera o afastamento mesmo se o status já voltou pra "ativo" (retornou dentro do próprio
+  // mês da competência) — senão a regra de licença sem remuneração nunca seria avaliada nesse
+  // mês, já que o cadastro só guarda o status ATUAL.
+  const afastamentoNestaCompetencia =
+    funcionario.dataAfastamento !== null &&
+    funcionario.dataAfastamento.getUTCFullYear() === competencia.ano &&
+    funcionario.dataAfastamento.getUTCMonth() + 1 === competencia.mes;
+
+  if ((funcionario.status === "afastado" || afastamentoNestaCompetencia) && funcionario.dataAfastamento) {
     const afastamento = funcionario.dataAfastamento;
     const mesesDesdeAfastamento =
       competencia.ano * 12 + competencia.mes - (afastamento.getUTCFullYear() * 12 + (afastamento.getUTCMonth() + 1));
@@ -106,8 +115,21 @@ export function calcularElegibilidadeCesta(funcionario: {
     if (mesesDesdeAfastamento >= MESES_CESTA_APOS_AFASTAMENTO) {
       return { elegivel: false, motivo: `Afastado +${MESES_CESTA_APOS_AFASTAMENTO} meses` };
     }
-    if (mesesDesdeAfastamento === 0 && ehLicencaSemRemuneracao(funcionario.motivoAfastamento)) {
-      const dias = diasTrabalhadosAte(afastamento);
+    // Licença sem remuneração: perde a cesta em qualquer competência (não só a do início do
+    // afastamento) em que não completar os 28 dias trabalhados — no mês em que a licença começa
+    // conta os dias antes do afastamento (e depois do retorno, se ele também caiu nesse mesmo
+    // mês); nos meses seguintes, ainda dentro da licença sem ter retornado, é 0 dia trabalhado o
+    // mês inteiro.
+    if (ehLicencaSemRemuneracao(funcionario.motivoAfastamento)) {
+      let dias = mesesDesdeAfastamento === 0 ? diasTrabalhadosAte(afastamento) : 0;
+      const retorno = funcionario.dataRetorno ?? null;
+      if (
+        retorno &&
+        retorno.getUTCFullYear() === competencia.ano &&
+        retorno.getUTCMonth() + 1 === competencia.mes
+      ) {
+        dias += diasTrabalhadosDesde(retorno, competencia.ano, competencia.mes);
+      }
       if (dias < DIAS_MINIMOS_NO_MES) {
         return {
           elegivel: false,

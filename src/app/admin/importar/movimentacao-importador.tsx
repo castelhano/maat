@@ -165,8 +165,16 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 <StatCard label="Funcionários a marcar como desligado" value={preview.syncFuncionarios.paraAtualizar.length} cor="green" />
                 <StatCard label="Já estavam desligados" value={preview.syncFuncionarios.jaDesligados} cor="neutral" />
-                <StatCard label="Matrícula não encontrada" value={preview.syncFuncionarios.naoEncontrados.length} cor="red" />
+                <StatCard label="Matrícula/nome não encontrado" value={preview.syncFuncionarios.naoEncontrados.length} cor="red" />
               </div>
+
+              {preview.syncFuncionarios.paraAtualizar.some((p) => p.diaAproximado) && (
+                <p className="font-mono text-[10px] text-warning">
+                  Esse arquivo (TXT) não traz o dia exato do desligamento — vai ser gravado como dia 1 do mês. Confira e
+                  ajuste o dia certo depois em Funcionários, principalmente pra quem saiu perto do fim do mês (isso muda
+                  o cálculo do vale-alimentação daquele mês).
+                </p>
+              )}
 
               {preview.syncFuncionarios.naoEncontrados.length > 0 && (
                 <div className="flex flex-col gap-2">

@@ -15,7 +15,14 @@ async function resolverSetorAprendiz(): Promise<string | null> {
 
 export type PreviewMovimentacaoLinha = { competencia: string; quantidade: number; indicadorExiste: boolean };
 
-export type PreviewFuncionarioSync = { matricula: string; nome: string };
+export type PreviewFuncionarioSync = {
+  matricula: string;
+  nome: string;
+  diaAproximado?: boolean;
+  // Só preenchido junto com diaAproximado — usado na confirmação pra reconstruir a data (mês/ano)
+  // já que o TXT não traz o dia.
+  competencia?: string;
+};
 
 export type PreviewMovimentacaoResult = {
   empresaId: string;
@@ -23,14 +30,22 @@ export type PreviewMovimentacaoResult = {
   tipo: "admitidos" | "desligados";
   totalLinhasArquivo: number;
   linhas: PreviewMovimentacaoLinha[];
-  // Só preenchido quando o arquivo tem matrícula confiável (formato CSV) e é o relatório de
-  // desligados — sincroniza o status "desligado" no cadastro de Funcionário.
+  // Preenchido pro relatório de desligados, em qualquer formato — sincroniza o status
+  // "desligado" no cadastro de Funcionário. No CSV casa por matrícula (confiável); no TXT casa
+  // por nome (a matrícula sai cortada nesse formato) e a data vem só com mês/ano — nesse caso
+  // usa o dia 1 como aproximação (`diaAproximado: true`) até o dia exato ser confirmado no
+  // cadastro, o que pode mudar o resultado da regra "desligado depois do dia 25 mantém o VR".
   syncFuncionarios: {
     paraAtualizar: PreviewFuncionarioSync[];
     jaDesligados: number;
     naoEncontrados: PreviewFuncionarioSync[];
   } | null;
 };
+
+function competenciaParaData(competencia: string): Date {
+  const [mes, ano] = competencia.split("/").map(Number);
+  return new Date(Date.UTC(ano, mes - 1, 1));
+}
 
 async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimentacaoResult | null; error: string | null }> {
   let parsed;
@@ -77,22 +92,27 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
       indicadorExiste: existentes.has(competencia),
     }));
 
-  // Sincronização do cadastro de Funcionário: só entra quando a matrícula veio confiável (CSV) e o
-  // relatório é o de desligados — para admitidos, quem cria/atualiza o cadastro é a folha de
-  // salários (que já traz cargo e salário, que esse relatório não tem).
+  // Sincronização do cadastro de Funcionário — pro relatório de desligados (admitidos quem
+  // cria/atualiza é a folha de salários, que já traz cargo e salário, que esse relatório não
+  // tem). No CSV casa por matrícula, que é confiável. No TXT a matrícula sai cortada e não é
+  // confiável, então casa por nome dentro da mesma empresa.
   let syncFuncionarios: PreviewMovimentacaoResult["syncFuncionarios"] = null;
   if (parsed.tipo === "desligados") {
     const comMatricula = parsed.linhas.filter((l): l is EventoLinha & { matricula: string } => l.matricula !== null);
-    if (comMatricula.length > 0) {
+    const semMatricula = parsed.linhas.filter((l) => l.matricula === null);
+
+    if (comMatricula.length > 0 || semMatricula.length > 0) {
       const funcionarios = await prisma.funcionario.findMany({
-        where: { empresaId: empresa.id, matricula: { in: comMatricula.map((l) => l.matricula) } },
-        select: { matricula: true, status: true },
+        where: { empresaId: empresa.id },
+        select: { matricula: true, nome: true, status: true },
       });
       const porMatricula = new Map(funcionarios.map((f) => [f.matricula, f]));
+      const normalizar = (s: string) => s.trim().toUpperCase().replace(/\s+/g, " ");
 
       const paraAtualizar: PreviewFuncionarioSync[] = [];
       const naoEncontrados: PreviewFuncionarioSync[] = [];
       let jaDesligados = 0;
+
       for (const linha of comMatricula) {
         const funcionario = porMatricula.get(linha.matricula);
         if (!funcionario) {
@@ -103,6 +123,34 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
           paraAtualizar.push({ matricula: linha.matricula, nome: linha.nome });
         }
       }
+
+      for (const linha of semMatricula) {
+        const alvo = normalizar(linha.nome);
+        // Nome no TXT vem cortado em até 23 caracteres — compara nos dois sentidos.
+        const candidatos = funcionarios.filter((f) => {
+          const nomeF = normalizar(f.nome);
+          return nomeF === alvo || nomeF.startsWith(alvo) || alvo.startsWith(nomeF);
+        });
+        if (candidatos.length !== 1) {
+          naoEncontrados.push({
+            matricula: "—",
+            nome: candidatos.length > 1 ? `${linha.nome} (nome ambíguo, ${candidatos.length} cadastros parecidos)` : linha.nome,
+          });
+          continue;
+        }
+        const funcionario = candidatos[0];
+        if (funcionario.status === "desligado") {
+          jaDesligados++;
+        } else {
+          paraAtualizar.push({
+            matricula: funcionario.matricula,
+            nome: linha.nome,
+            diaAproximado: true,
+            competencia: linha.competencia,
+          });
+        }
+      }
+
       syncFuncionarios = { paraAtualizar, jaDesligados, naoEncontrados };
     }
   }
@@ -175,11 +223,18 @@ export async function confirmarMovimentacaoAprendiz(
         (l): l is EventoLinha & { matricula: string; dataEvento: Date } => l.matricula !== null && l.dataEvento !== null
       );
       for (const alvo of syncFuncionarios.paraAtualizar) {
-        const evento = eventosComData.find((e) => e.matricula === alvo.matricula);
-        if (!evento) continue;
+        // Casado por nome (TXT) — a data exata não veio no arquivo, usa o dia 1 do mês/ano como
+        // aproximação (o dia certo precisa ser confirmado depois no cadastro, principalmente se
+        // o desligamento foi perto do fim do mês, que muda a regra do VR proporcional).
+        const dataDesligamento = alvo.diaAproximado
+          ? alvo.competencia
+            ? competenciaParaData(alvo.competencia)
+            : null
+          : (eventosComData.find((e) => e.matricula === alvo.matricula)?.dataEvento ?? null);
+        if (!dataDesligamento) continue;
         await tx.funcionario.updateMany({
           where: { empresaId, matricula: alvo.matricula },
-          data: { status: "desligado", dataDesligamento: evento.dataEvento },
+          data: { status: "desligado", dataDesligamento },
         });
       }
     }

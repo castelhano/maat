@@ -77,7 +77,7 @@ function StatTile({ label, value, cor }: { label: string; value: string; cor?: s
 }
 
 export function BeneficioPainel({
-  itens,
+  itens: itensOriginais,
   dimensao,
   competencia,
   filtroEmpresa,
@@ -91,6 +91,19 @@ export function BeneficioPainel({
 }) {
   const [buscaNome, setBuscaNome] = useState("");
   const [buscaMatricula, setBuscaMatricula] = useState("");
+
+  // Terceiro só entra na planilha da dimensão que ele efetivamente recebe — quem recebe só
+  // cesta não aparece na aba de vale-alimentação, e vice-versa. Funcionário continua igual nas
+  // duas abas, já que a elegibilidade dele é calculada (não uma opção simples de sim/não).
+  const itens = useMemo(
+    () =>
+      itensOriginais.filter((i) => {
+        if (i.tipo !== "terceiro") return true;
+        if (dimensao === "cesta") return i.motivoPerdaCesta !== "Terceiro sem cesta (manual)";
+        return i.motivoPerdaVR !== "Terceiro sem alimentação";
+      }),
+    [itensOriginais, dimensao]
+  );
 
   const elegivel = (i: ApuracaoItemDTO) =>
     dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;

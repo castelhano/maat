@@ -36,6 +36,12 @@ export default async function DetalhamentoPdfPage({
   let itens = apuracao.itens;
   if (empresa) itens = itens.filter((i) => i.empresaNome === empresa);
   if (area) itens = itens.filter((i) => (i.area ?? "Sem área") === area);
+  // Terceiro só entra no relatório da dimensão que ele efetivamente recebe.
+  itens = itens.filter((i) => {
+    if (i.tipo !== "terceiro") return true;
+    if (dimensao === "cesta") return i.motivoPerdaCesta !== "Terceiro sem cesta (manual)";
+    return i.motivoPerdaVR !== "Terceiro sem alimentação";
+  });
 
   const elegivel = (i: ApuracaoItemDTO) =>
     dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;

@@ -4,6 +4,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
+import { competenciaEstaFechada } from "@/lib/competencia";
 import {
   calcularElegibilidadeCesta,
   calcularVR,
@@ -113,6 +114,13 @@ export async function processarApuracao(
   if (!competencia.trim()) return { error: "Selecione a competência." };
 
   const { ano, mes } = parseCompetencia(competencia);
+
+  if (competenciaEstaFechada({ ano, mes })) {
+    return {
+      error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 7 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
+    };
+  }
+
   const inicio = new Date(Date.UTC(ano, mes - 1, 1));
   const fim = new Date(Date.UTC(ano, mes, 0, 23, 59, 59, 999));
 
@@ -130,9 +138,16 @@ export async function processarApuracao(
   let itensTotal = 0;
 
   for (const empresa of empresas) {
-    const funcionarios = await prisma.funcionario.findMany({
+    const todosFuncionarios = await prisma.funcionario.findMany({
       where: { empresaId: empresa.id },
       include: { cargo: true },
+    });
+    // Desligado só entra na apuração da competência em que o desligamento aconteceu — a partir
+    // do mês seguinte ele já saiu da folha de verdade, então não faz sentido continuar
+    // aparecendo indefinidamente como "Desligado" em toda competência processada depois.
+    const funcionarios = todosFuncionarios.filter((f) => {
+      if (f.status !== "desligado" || !f.dataDesligamento) return true;
+      return f.dataDesligamento.getUTCFullYear() === ano && f.dataDesligamento.getUTCMonth() + 1 === mes;
     });
     const terceiros = await prisma.terceiro.findMany({ where: { empresaId: empresa.id, ativo: true } });
 
@@ -177,6 +192,7 @@ export async function processarApuracao(
           status: f.status,
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,
+          dataRetorno: f.dataRetorno,
           motivoAfastamento: f.motivoAfastamento,
           faltasNoMes: faltasPorFuncionario.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
@@ -207,6 +223,7 @@ export async function processarApuracao(
           status: statusNaCompetencia(f, { ano: anoAnterior, mes: mesAnterior }),
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,
+          dataRetorno: f.dataRetorno,
           motivoAfastamento: f.motivoAfastamento,
           faltasNoMes: faltasPorFuncionarioAnterior.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
@@ -323,6 +340,20 @@ export async function processarApuracao(
         (await tx.apuracao.create({
           data: { empresaId: empresa.id, competencia, geradoPorId: admin.id },
         }));
+
+      // Remove linhas de funcionário que ficaram nessa competência de um processamento antigo
+      // mas que não pertencem mais a ela (ex.: desligado num mês anterior — foi corrigido pra
+      // não entrar mais em competências seguintes, então a linha velha precisa sair também).
+      if (apuracaoExistente) {
+        const idsRelevantes = itens.map((i) => i.chave.funcionarioId).filter((id): id is string => id !== null);
+        await tx.apuracaoItem.deleteMany({
+          where: {
+            apuracaoId: apuracao.id,
+            tipo: "funcionario",
+            funcionarioId: { not: null, notIn: idsRelevantes },
+          },
+        });
+      }
 
       for (const { chave, base } of itens) {
         const dataAtualizar: Prisma.ApuracaoItemUpdateInput = {};
