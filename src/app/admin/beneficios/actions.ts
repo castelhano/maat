@@ -16,6 +16,7 @@ import {
 export type ApuracaoItemDTO = {
   tipo: string;
   matricula: string | null;
+  documento: string | null;
   nome: string;
   cargo: string | null;
   area: string | null;
@@ -72,10 +73,30 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
   const cargos = await prisma.cargo.findMany({ select: { nome: true, setor: true } });
   const setorPorCargo = new Map(cargos.map((c) => [c.nome, c.setor]));
 
+  // CPF/documento também não fica salvo no snapshot — busca no cadastro atual (via
+  // funcionarioId/terceiroId) pra gerar o arquivo bancário sem precisar reprocessar.
+  const funcionarioIds = apuracoes.flatMap((a) => a.itens.map((i) => i.funcionarioId).filter((id) => id !== null));
+  const terceiroIds = apuracoes.flatMap((a) => a.itens.map((i) => i.terceiroId).filter((id) => id !== null));
+  const funcionariosCpf = await prisma.funcionario.findMany({
+    where: { id: { in: funcionarioIds } },
+    select: { id: true, cpf: true },
+  });
+  const terceirosDoc = await prisma.terceiro.findMany({
+    where: { id: { in: terceiroIds } },
+    select: { id: true, documento: true },
+  });
+  const cpfPorFuncionarioId = new Map(funcionariosCpf.map((f) => [f.id, f.cpf]));
+  const docPorTerceiroId = new Map(terceirosDoc.map((t) => [t.id, t.documento]));
+
   const itens: ApuracaoItemDTO[] = apuracoes.flatMap((a) =>
     a.itens.map((i) => ({
       tipo: i.tipo,
       matricula: i.matricula,
+      documento: i.funcionarioId
+        ? (cpfPorFuncionarioId.get(i.funcionarioId) ?? null)
+        : i.terceiroId
+          ? (docPorTerceiroId.get(i.terceiroId) ?? null)
+          : null,
       nome: i.nome,
       cargo: i.cargo,
       area: i.cargo ? (setorPorCargo.get(i.cargo) ?? null) : null,
@@ -200,12 +221,19 @@ export async function processarApuracao(
         { ano, mes }
       );
 
+      // Valor individual do funcionário tem prioridade; senão usa o valor fixo do cargo (ex.:
+      // motorista = 520) — mas só quando ele não tem gratificação, porque aí o cálculo tem que
+      // ser o percentual sobre salário+40% (que pode passar do valor fixo do cargo), não o valor
+      // fixo. Só cai pro cálculo percentual normal se nenhum dos dois existir.
+      const valorValeRefeicaoResolvido =
+        f.valorValeRefeicao?.toNumber() ?? (f.temGratificacao ? null : f.cargo.valorValeRefeicaoFixo?.toNumber() ?? null);
+
       const vr = calcularVR(
         {
           status: f.status,
           salario: f.salario.toNumber(),
           temGratificacao: f.temGratificacao,
-          valorValeRefeicao: f.valorValeRefeicao?.toNumber() ?? null,
+          valorValeRefeicao: valorValeRefeicaoResolvido,
           recebeValeRefeicaoResolvido: recebeVRResolvido,
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,

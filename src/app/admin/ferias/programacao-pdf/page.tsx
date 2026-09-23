@@ -20,11 +20,12 @@ export default async function ProgramacaoPdfPage({
     area?: string;
     departamento?: string;
     mes?: string;
+    ano?: string;
     status?: string;
   }>;
 }) {
   await requireAdmin();
-  const { busca, empresa, area, departamento, mes, status } = await searchParams;
+  const { busca, empresa, area, departamento, mes, ano, status } = await searchParams;
 
   const periodos = await prisma.ferias.findMany({
     include: { funcionario: { include: { empresa: true, cargo: true } } },
@@ -32,6 +33,7 @@ export default async function ProgramacaoPdfPage({
 
   const termo = busca?.trim().toLowerCase() ?? "";
   const mesFiltro = mes ? Number(mes) : null;
+  const anoFiltro = ano ? Number(ano) : null;
 
   let linhas = periodos
     .filter(
@@ -66,6 +68,7 @@ export default async function ProgramacaoPdfPage({
   if (area) linhas = linhas.filter((l) => (l.setor ?? "Não classificado") === area);
   if (departamento) linhas = linhas.filter((l) => (l.departamento ?? "Não classificado") === departamento);
   if (mesFiltro) linhas = linhas.filter((l) => l.mes === mesFiltro);
+  if (anoFiltro) linhas = linhas.filter((l) => l.ano === anoFiltro);
   if (status === "programados") linhas = linhas.filter((l) => !!l.gozoInicio);
   if (status === "nao-programados") linhas = linhas.filter((l) => !l.gozoInicio);
 
@@ -84,6 +87,7 @@ export default async function ProgramacaoPdfPage({
     area,
     departamento,
     mesFiltro && MESES[mesFiltro - 1],
+    anoFiltro && String(anoFiltro),
     status === "programados" && "programados",
     status === "nao-programados" && "não programados",
   ].filter(Boolean);

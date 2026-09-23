@@ -45,15 +45,19 @@ export default async function RelatorioPdfPage({
 
   const elegivel = (i: ApuracaoItemDTO) =>
     dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
-  const motivo = (i: ApuracaoItemDTO) =>
-    dimensao === "cesta"
-      ? i.motivoPerdaCesta
-      : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+  const motivo = (i: ApuracaoItemDTO) => {
+    if (dimensao === "cesta") return i.motivoPerdaCesta;
+    const base = i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+    const cestaNoVa = (i.valorCestaConvertida ?? 0) > 0 ? "Cesta no VA" : null;
+    if (base && cestaNoVa) return `${base} + ${cestaNoVa}`;
+    return base ?? cestaNoVa;
+  };
 
   const comDireito = itens.filter(elegivel);
   const semDireito = itens.filter((i) => !elegivel(i));
   const terceiros = itens.filter((i) => i.tipo === "terceiro");
   const valorTotal = comDireito.reduce((acc, i) => acc + i.valorVR, 0);
+  const valorVaSemCestaTotal = comDireito.reduce((acc, i) => acc + (i.valorVR - (i.valorCestaConvertida ?? 0)), 0);
 
   const motivosMap = new Map<string, number>();
   for (const i of semDireito) {
@@ -76,6 +80,11 @@ export default async function RelatorioPdfPage({
   const porEmpresa = [...empresaMap.entries()]
     .map(([nome, v]) => ({ nome, ...v, total: v.elegiveis + v.naoElegiveis }))
     .sort((a, b) => b.total - a.total);
+
+  const cestaConvertida = itens
+    .filter((i) => (i.valorCestaConvertida ?? 0) > 0)
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+  const valorConvertidoTotal = cestaConvertida.reduce((acc, i) => acc + (i.valorCestaConvertida ?? 0), 0);
 
   const rotulo = dimensao === "cesta" ? "Cesta Básica" : "Vale-Alimentação";
   const filtrosAtivos = [empresa, area].filter(Boolean);
@@ -182,6 +191,41 @@ export default async function RelatorioPdfPage({
         </table>
       </div>
 
+      {dimensao === "vr" && cestaConvertida.length > 0 && (
+        <div className="mb-8">
+          <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
+            Cesta básica convertida em VA — {cestaConvertida.length} colaborador(es), {formatarMoeda(valorConvertidoTotal)}
+          </p>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b-2 border-neutral-800 text-left text-[11px] tracking-wide text-neutral-500 uppercase">
+                <th className="py-2 pr-2">Matrícula</th>
+                <th className="px-2 py-2">Nome</th>
+                <th className="px-2 py-2">Empresa</th>
+                <th className="px-2 py-2">Cargo</th>
+                <th className="py-2 pl-2 text-right">Cesta no VA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cestaConvertida.map((i, idx) => (
+                <tr key={`${i.matricula ?? "terceiro"}-${idx}`} className="border-b border-neutral-200">
+                  <td className="py-2 pr-2 tabular-nums text-neutral-600">{i.matricula ?? "—"}</td>
+                  <td className="px-2 py-2 font-medium text-neutral-900">
+                    {i.nome}
+                    {i.tipo === "terceiro" && <span className="ml-1.5 text-[10px] font-normal text-neutral-400">terceiro</span>}
+                  </td>
+                  <td className="px-2 py-2 text-neutral-600">{i.empresaAbbr}</td>
+                  <td className="px-2 py-2 text-neutral-600">{i.cargo ?? "—"}</td>
+                  <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">
+                    {formatarMoeda(i.valorCestaConvertida ?? 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="mb-2 break-before-page">
         <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">Detalhamento</p>
         <table className="w-full border-collapse text-sm">
@@ -194,13 +238,19 @@ export default async function RelatorioPdfPage({
               <th className="px-2 py-2">Admissão</th>
               <th className="px-2 py-2">Situação</th>
               <th className="px-2 py-2">Motivo</th>
-              {dimensao === "vr" && <th className="py-2 pl-2 text-right">Valor</th>}
+              {dimensao === "vr" && (
+                <>
+                  <th className="py-2 pl-2 text-right">Valor VA</th>
+                  <th className="py-2 pl-2 text-right">Total</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {itens.map((i, idx) => {
               const eleg = elegivel(i);
               const mot = motivo(i);
+              const cestaNoVa = i.valorCestaConvertida ?? 0;
               return (
                 <tr key={`${i.matricula ?? "terceiro"}-${idx}`} className="border-b border-neutral-200">
                   <td className="py-2 pr-2 tabular-nums text-neutral-600">{i.matricula ?? "—"}</td>
@@ -216,18 +266,34 @@ export default async function RelatorioPdfPage({
                   </td>
                   <td className="px-2 py-2 text-neutral-600">{mot ?? "—"}</td>
                   {dimensao === "vr" && (
-                    <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">{formatarMoeda(i.valorVR)}</td>
+                    <>
+                      <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">{formatarMoeda(i.valorVR - cestaNoVa)}</td>
+                      <td className="py-2 pl-2 text-right tabular-nums font-medium text-neutral-900">{formatarMoeda(i.valorVR)}</td>
+                    </>
                   )}
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
+            {dimensao === "vr" && (
+              <tr className="border-t-2 border-neutral-800 text-[11px] font-medium text-neutral-500 uppercase">
+                <td className="pt-2" colSpan={7}>
+                  Total do VA (sem cesta)
+                </td>
+                <td className="pt-2 text-right tabular-nums">{formatarMoeda(valorVaSemCestaTotal)}</td>
+                <td className="pt-2 text-right tabular-nums" />
+              </tr>
+            )}
             <tr className="border-t-2 border-neutral-800 text-[11px] font-medium text-neutral-500 uppercase">
               <td className="pt-2" colSpan={dimensao === "vr" ? 7 : 8}>
                 Total — {itens.length} avaliado(s), {comDireito.length} com direito
               </td>
-              {dimensao === "vr" && <td className="pt-2 text-right tabular-nums">{formatarMoeda(valorTotal)}</td>}
+              {dimensao === "vr" && (
+                <td className="pt-2 text-right tabular-nums" colSpan={2}>
+                  {formatarMoeda(valorTotal)}
+                </td>
+              )}
             </tr>
           </tfoot>
         </table>

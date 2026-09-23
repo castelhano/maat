@@ -4,10 +4,14 @@ import { CargosTable } from "./cargos-table";
 
 export default async function CargosPage() {
   await requireAdmin();
-  const cargos = await prisma.cargo.findMany({
+  const cargosRaw = await prisma.cargo.findMany({
     orderBy: { nome: "asc" },
     include: { _count: { select: { funcionarios: true } } },
   });
+  const cargos = cargosRaw.map((c) => ({
+    ...c,
+    valorValeRefeicaoFixo: c.valorValeRefeicaoFixo?.toNumber() ?? null,
+  }));
 
   return (
     <>

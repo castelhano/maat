@@ -4,8 +4,13 @@
 // nesse formato o desligamento só vem com mês/ano, sem o dia).
 //
 // Usado pra: (1) contar quantos "APRENDIZ" foram admitidos/desligados por mês (indicador de
-// turnover) e (2) no CSV, que traz matrícula confiável, também sincronizar o status "desligado" no
-// cadastro de Funcionário (ver src/app/admin/importar/movimentacao-actions.ts).
+// turnover), (2) no CSV, que traz matrícula confiável, também sincronizar o status "desligado" no
+// cadastro de Funcionário, e (3) contar desligados por transferência com ônus (também excluídos do
+// turnover) — ver src/app/admin/importar/movimentacao-actions.ts.
+
+// "TRANSFERENCIA ( COM ONUS )" — exige "COM" entre os dois termos pra não pegar "TRANSFERENCIA
+// SEM ONUS" (motivo diferente, que ENTRA no turnover normalmente).
+export const MOTIVO_TRANSFERENCIA_COM_ONUS = /TRANSFERENCIA.*\bCOM\b.*ONUS/i;
 
 export type EventoLinha = {
   // Só vem preenchido no formato CSV — no TXT de desligados a matrícula sai cortada e não é
@@ -16,6 +21,9 @@ export type EventoLinha = {
   competencia: string; // "mm/yyyy" do evento (admissão, ou desligamento no relatório de desligados)
   // Data completa do evento — só no CSV. No TXT de desligados o relatório não traz o dia.
   dataEvento: Date | null;
+  // Coluna Motivo do relatório de desligados (só no CSV) — ex. "TRANSFERENCIA ( COM ONUS )". Null
+  // no relatório de admitidos e no formato TXT (não tem essa coluna nesses casos).
+  motivo: string | null;
 };
 
 export type AdmitidosDesligadosParseResult = {
@@ -87,7 +95,7 @@ function parseCsvAdmitidos(linhas: string[]): EventoLinha[] {
     const dataMatch = DATA.exec(campos[idx + 4]);
     if (!nome || !funcao || !dataMatch) continue;
     const [, dia, mes, ano] = dataMatch;
-    resultado.push({ matricula, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano) });
+    resultado.push({ matricula, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano), motivo: null });
   }
   return resultado;
 }
@@ -104,7 +112,8 @@ function parseCsvDesligados(linhas: string[]): EventoLinha[] {
     const dataMatch = DATA.exec(campos[idx + 5]); // campos[idx+4] é admissão, +5 é desligamento
     if (!nome || !funcao || !dataMatch) continue;
     const [, dia, mes, ano] = dataMatch;
-    resultado.push({ matricula, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano) });
+    const motivo = (campos[idx + 6] ?? "").trim() || null;
+    resultado.push({ matricula, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano), motivo });
   }
   return resultado;
 }
@@ -121,7 +130,7 @@ function parseTxtAdmitidos(conteudo: string): EventoLinha[] {
     const dataMatch = DATA.exec(linha.slice(78));
     if (!nome || !funcao || !dataMatch) continue;
     const [, dia, mes, ano] = dataMatch;
-    linhas.push({ matricula: null, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano) });
+    linhas.push({ matricula: null, nome, funcao, competencia: `${mes}/${ano}`, dataEvento: paraData(dia, mes, ano), motivo: null });
   }
   return linhas;
 }
@@ -141,7 +150,7 @@ function parseTxtDesligados(conteudo: string): EventoLinha[] {
     const funcao = linha.slice(41, 52).trim();
     if (!nome || !funcao) continue;
     const [, , , mesDeslig, anoDeslig] = m;
-    linhas.push({ matricula: null, nome, funcao, competencia: `${mesDeslig}/${anoDeslig}`, dataEvento: null });
+    linhas.push({ matricula: null, nome, funcao, competencia: `${mesDeslig}/${anoDeslig}`, dataEvento: null, motivo: null });
   }
   return linhas;
 }

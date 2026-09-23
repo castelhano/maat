@@ -618,12 +618,12 @@ type Filtro = {
   quinzena: number;
 };
 
-function useFiltro(base: FeriasLinha[]) {
+function useFiltro(base: FeriasLinha[], anoInicial = 0) {
   const [empresa, setEmpresa] = useState("");
   const [area, setArea] = useState("");
   const [departamento, setDepartamento] = useState("");
   const [mes, setMes] = useState(0);
-  const [ano, setAno] = useState(0);
+  const [ano, setAno] = useState(anoInicial);
   const [quinzena, setQuinzena] = useState(0);
   const filtrados = useMemo(
     () =>
@@ -796,7 +796,7 @@ export function FeriasTable({
   );
 
   const autorizadosMural = useMemo(() => programados.filter((p) => p.exibirMural), [programados]);
-  const filtroMural = useFiltro(autorizadosMural);
+  const filtroMural = useFiltro(autorizadosMural, new Date().getFullYear());
   const muralOrdenado = useMemo(
     () => [...filtroMural.filtrados].sort((a, b) => a.matricula.localeCompare(b.matricula, "pt-BR", { numeric: true })),
     [filtroMural.filtrados]
@@ -808,10 +808,21 @@ export function FeriasTable({
     return "Todas as empresas";
   }, [filtroMural.empresa, filtroMural.filtrados]);
   const filtroResumo = useFiltro(periodos);
+  const [resumoMesInicio, setResumoMesInicio] = useState(0);
+  const [resumoMesFim, setResumoMesFim] = useState(0);
+
+  // Faixa de meses (ex.: janeiro a junho) só se aplica quando o filtro de mês único
+  // acima estiver em "Todos os meses" — evita as duas opções brigarem entre si.
+  const filtroResumoRange = useMemo(() => {
+    if (filtroResumo.mes || (!resumoMesInicio && !resumoMesFim)) return filtroResumo.filtrados;
+    const inicio = resumoMesInicio || 1;
+    const fim = resumoMesFim || 12;
+    return filtroResumo.filtrados.filter((p) => !!p.mes && p.mes >= inicio && p.mes <= fim);
+  }, [filtroResumo.filtrados, filtroResumo.mes, resumoMesInicio, resumoMesFim]);
 
   const porArea = useMemo(() => {
     const mapa = new Map<string, { programados: number; total: number }>();
-    for (const p of filtroResumo.filtrados) {
+    for (const p of filtroResumoRange) {
       const chave = p.setor ?? "Não classificado";
       const atual = mapa.get(chave) ?? { programados: 0, total: 0 };
       atual.total++;
@@ -819,19 +830,22 @@ export function FeriasTable({
       mapa.set(chave, atual);
     }
     return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filtroResumo.filtrados]);
+  }, [filtroResumoRange]);
 
   const porMesQuinzena = useMemo(() => {
     const mapa = new Map<
       string,
-      { mes: number; ano: number; quinzena: number; qtd: number; valor: number }
+      { mes: number; ano: number; quinzena: number; qtd: number; valor: number; pagamentos: Map<string, number> }
     >();
-    for (const p of filtroResumo.filtrados) {
+    for (const p of filtroResumoRange) {
       if (!p.mes || !p.ano || !p.quinzena || !p.gozoInicio) continue;
       const chave = `${p.ano}-${p.mes}-${p.quinzena}`;
-      const atual = mapa.get(chave) ?? { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0 };
+      const atual = mapa.get(chave) ?? { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, pagamentos: new Map() };
       atual.qtd++;
       atual.valor += calcularValorAproximado(p.salario, p.diasDireito - p.diasAbono);
+      // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
+      // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
+      if (p.dataPagamento) atual.pagamentos.set(p.dataPagamento, (atual.pagamentos.get(p.dataPagamento) ?? 0) + 1);
       mapa.set(chave, atual);
     }
     return [...mapa.values()]
@@ -841,9 +855,12 @@ export function FeriasTable({
         const gozoInicio = custom
           ? new Date(custom.dataInicio)
           : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
-        return { ...v, gozoInicio, dataPagamento: dataPagamentoFerias(gozoInicio) };
+        const maisFrequente = [...v.pagamentos.entries()].sort((a, b) => b[1] - a[1])[0];
+        const dataPagamento = maisFrequente ? new Date(maisFrequente[0]) : dataPagamentoFerias(gozoInicio);
+        const { pagamentos: _pagamentos, ...resto } = v;
+        return { ...resto, gozoInicio, dataPagamento };
       });
-  }, [filtroResumo.filtrados, quinzenas]);
+  }, [filtroResumoRange, quinzenas]);
 
   const porMes = useMemo(() => {
     const mapa = new Map<string, { qtd: number; valor: number }>();
@@ -860,14 +877,14 @@ export function FeriasTable({
   const valorPorQuinzena = useMemo(() => {
     let quinzena1 = 0;
     let quinzena2 = 0;
-    for (const p of filtroResumo.filtrados) {
+    for (const p of filtroResumoRange) {
       if (!p.gozoInicio || !p.quinzena) continue;
       const valor = calcularValorAproximado(p.salario, p.diasDireito - p.diasAbono);
       if (p.quinzena === 1) quinzena1 += valor;
       else quinzena2 += valor;
     }
     return { quinzena1, quinzena2, total: quinzena1 + quinzena2 };
-  }, [filtroResumo.filtrados]);
+  }, [filtroResumoRange]);
 
   function exportarEnvioGestores() {
     baixarCsv(
@@ -982,6 +999,7 @@ export function FeriasTable({
                   departamentos={departamentos}
                   filtro={filtroProgramacao}
                   mostrarDepartamento
+                  mostrarAno
                 />
               </div>
               <div className="flex gap-2">
@@ -992,6 +1010,7 @@ export function FeriasTable({
                     ...(filtroProgramacao.area && { area: filtroProgramacao.area }),
                     ...(filtroProgramacao.departamento && { departamento: filtroProgramacao.departamento }),
                     ...(filtroProgramacao.mes && { mes: String(filtroProgramacao.mes) }),
+                    ...(filtroProgramacao.ano && { ano: String(filtroProgramacao.ano) }),
                     ...(filtroStatus !== "todos" && { status: filtroStatus }),
                   }).toString()}`}
                   target="_blank"
@@ -1080,7 +1099,50 @@ export function FeriasTable({
       </TabsPanel>
 
       <TabsPanel value="resumo" className="flex flex-col gap-6">
-        <FiltroBar empresas={empresas} areas={areas} filtro={filtroResumo} mostrarAno />
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <FiltroBar empresas={empresas} areas={areas} filtro={filtroResumo} mostrarAno />
+          <span className="font-mono text-[11px] text-text-3">·</span>
+          <span className="font-mono text-[11px] text-text-3">Período:</span>
+          <select
+            className="h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground outline-none focus-visible:border-primary disabled:opacity-40"
+            value={resumoMesInicio}
+            disabled={!!filtroResumo.mes}
+            onChange={(e) => setResumoMesInicio(Number(e.target.value))}
+          >
+            <option value={0}>De (início)</option>
+            {MESES.map((m, i) => (
+              <option key={m} value={i + 1}>{m}</option>
+            ))}
+          </select>
+          <select
+            className="h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground outline-none focus-visible:border-primary disabled:opacity-40"
+            value={resumoMesFim}
+            disabled={!!filtroResumo.mes}
+            onChange={(e) => setResumoMesFim(Number(e.target.value))}
+          >
+            <option value={0}>Até (fim)</option>
+            {MESES.map((m, i) => (
+              <option key={m} value={i + 1}>{m}</option>
+            ))}
+          </select>
+          {(resumoMesInicio > 0 || resumoMesFim > 0) && !filtroResumo.mes && (
+            <Button
+              size="xs"
+              variant="secondary"
+              onClick={() => {
+                setResumoMesInicio(0);
+                setResumoMesFim(0);
+              }}
+            >
+              Limpar período
+            </Button>
+          )}
+        </div>
+        {filtroResumo.mes > 0 && (resumoMesInicio > 0 || resumoMesFim > 0) && (
+          <p className="-mt-4 font-mono text-[10px] text-warning">
+            O filtro de período (De/Até) fica desativado enquanto um mês específico estiver selecionado acima.
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
           <div className="flex flex-col gap-1 rounded-sm border border-border bg-secondary px-4 py-3">
@@ -1186,6 +1248,8 @@ export function FeriasTable({
                   ...(filtroResumo.area && { area: filtroResumo.area }),
                   ...(filtroResumo.mes && { mes: String(filtroResumo.mes) }),
                   ...(filtroResumo.ano && { ano: String(filtroResumo.ano) }),
+                  ...(!filtroResumo.mes && resumoMesInicio && { mesInicio: String(resumoMesInicio) }),
+                  ...(!filtroResumo.mes && resumoMesFim && { mesFim: String(resumoMesFim) }),
                 }).toString()}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -1238,7 +1302,7 @@ export function FeriasTable({
 
       <TabsPanel value="mural" className="flex flex-col gap-3">
         <div className="flex items-center justify-between print:hidden">
-          <FiltroBar empresas={empresas} areas={areas} filtro={filtroMural} mostrarQuinzena />
+          <FiltroBar empresas={empresas} areas={areas} filtro={filtroMural} mostrarAno mostrarQuinzena />
           <Button size="sm" variant="secondary" onClick={() => window.print()}>
             <Printer className="size-3.5" />
             Imprimir
@@ -1254,6 +1318,7 @@ export function FeriasTable({
           </h2>
           <p className="text-center font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase print:text-sm">
             Mês de referência: {filtroMural.mes ? MESES[filtroMural.mes - 1] : "todos os períodos programados"}
+            {filtroMural.ano > 0 && `/${filtroMural.ano}`}
             {filtroMural.area && ` · ${filtroMural.area}`}
             {filtroMural.quinzena > 0 && ` · ${filtroMural.quinzena}ª quinzena`}
           </p>

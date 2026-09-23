@@ -10,6 +10,7 @@ const cargoSchema = z.object({
   nome: z.string().min(1, "Informe o nome do cargo"),
   recebeCestaBasica: z.boolean(),
   recebeValeRefeicao: z.boolean(),
+  valorValeRefeicaoFixo: z.number().nullable(),
   departamento: z.string().nullable(),
   setor: z.string().nullable(),
 });

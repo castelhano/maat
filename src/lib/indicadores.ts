@@ -14,6 +14,7 @@ export const CAMPOS_INDICADOR = [
   "aprendizesAtivos",
   "aprendizesAdmitidos",
   "aprendizesDesligados",
+  "desligadosTransferencia",
   "folhaBruta",
   "liquidoPagar",
   "horaExtra",
@@ -59,6 +60,7 @@ export const CAMPO_LABEL: Record<CampoIndicador, string> = {
   aprendizesAtivos: "Aprend. ativos",
   aprendizesAdmitidos: "Aprend. admit.",
   aprendizesDesligados: "Aprend. deslig.",
+  desligadosTransferencia: "Deslig. transf.",
   folhaBruta: "Folha bruta (R$)",
   liquidoPagar: "Líq. a pagar (R$)",
   horaExtra: "Hora extra 50% (R$)",
@@ -192,10 +194,12 @@ export function diasUteisNoMes(competencia: string): number {
 
 // Turnover = (Admitidos + Desligados) / 2 / Total de colaboradores × 100 — meta da empresa é 1,5%
 // ao mês (ver META_TURNOVER em indicadores-painel.tsx). Aprendiz não entra nessa conta — descontado
-// dos 3 totais antes de calcular.
+// dos 3 totais antes de calcular. Desligados por "TRANSFERENCIA ( COM ONUS )" também não contam
+// como desligamento (descontado só do lado dos desligados — a pessoa continua sendo desconto de
+// ativos normalmente, só não entra como rotatividade).
 function taxaTurnover(l: Record<CampoIndicador, number>): number {
   const ativos = l.ativos - l.aprendizesAtivos;
   const admitidos = l.admitidos - l.aprendizesAdmitidos;
-  const desligados = l.desligados - l.aprendizesDesligados;
+  const desligados = l.desligados - l.aprendizesDesligados - l.desligadosTransferencia;
   return ativos > 0 ? ((admitidos + desligados) / 2 / ativos) * 100 : 0;
 }

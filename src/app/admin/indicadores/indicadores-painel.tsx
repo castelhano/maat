@@ -48,7 +48,11 @@ const TODOS = "__todos__";
 // Admitidos/desligados de aprendiz são preenchidos sozinhos pela importação "Admitidos/Desligados
 // (aprendiz)" — tirados da tabela detalhada pra não poluir visualmente com colunas que não
 // precisam de conferência manual no dia a dia (continuam gravados e usados nos cálculos).
-const CAMPOS_OCULTOS_TABELA = new Set<CampoIndicador>(["aprendizesAdmitidos", "aprendizesDesligados"]);
+const CAMPOS_OCULTOS_TABELA = new Set<CampoIndicador>([
+  "aprendizesAdmitidos",
+  "aprendizesDesligados",
+  "desligadosTransferencia",
+]);
 const CAMPOS_TABELA = CAMPOS_INDICADOR.filter((c) => !CAMPOS_OCULTOS_TABELA.has(c));
 
 // Mesmas cores já usadas em outras telas do app (teal/azul/âmbar/violeta) — mantém consistência
@@ -113,6 +117,8 @@ function pivotPorArea(linhas: LinhaComDerivados[], campo: keyof LinhaComDerivado
 // totais somados do período/filtro (não a média das % de cada área).
 // Aprendiz não entra em NADA desse indicador — nem nas barras de Admitidos/Desligados/Total
 // Colab., nem no % de Turnover — por isso já desconta na soma, não só no cálculo do percentual.
+// Desligados por "TRANSFERENCIA ( COM ONUS )" também saem da barra/% de Desligados (mas não de
+// Ativos — a pessoa realmente saiu do quadro, só não conta como rotatividade).
 function pivotTurnover(linhas: LinhaComDerivados[]) {
   type Bucket = { admitidos: number; desligados: number; ativos: number };
   const vazio = (): Bucket => ({ admitidos: 0, desligados: 0, ativos: 0 });
@@ -120,7 +126,7 @@ function pivotTurnover(linhas: LinhaComDerivados[]) {
   for (const l of linhas) {
     const bucket = porCompetencia.get(l.competencia) ?? vazio();
     bucket.admitidos += l.admitidos - l.aprendizesAdmitidos;
-    bucket.desligados += l.desligados - l.aprendizesDesligados;
+    bucket.desligados += l.desligados - l.aprendizesDesligados - l.desligadosTransferencia;
     bucket.ativos += l.ativos - l.aprendizesAtivos;
     porCompetencia.set(l.competencia, bucket);
   }

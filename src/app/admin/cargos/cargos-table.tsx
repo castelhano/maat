@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ type Cargo = {
   nome: string;
   recebeCestaBasica: boolean;
   recebeValeRefeicao: boolean;
+  valorValeRefeicaoFixo: number | null;
   departamento: string | null;
   setor: string | null;
   _count: { funcionarios: number };
@@ -51,6 +53,7 @@ const cargoFormSchema = z.object({
   nome: z.string().min(1, "Informe o nome do cargo"),
   recebeCestaBasica: z.enum(["true", "false"]),
   recebeValeRefeicao: z.enum(["true", "false"]),
+  valorValeRefeicaoFixo: z.string(),
   departamento: z.string(),
   setor: z.string(),
 });
@@ -81,9 +84,21 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
     return cargos.filter((c) => c.nome.toLowerCase().includes(termo));
   }, [cargos, busca]);
 
+  const cargosIncompletos = useMemo(
+    () => cargos.filter((c) => !c.departamento?.trim() || !c.setor?.trim()),
+    [cargos]
+  );
+
   function abrirCriar() {
     setEditando(null);
-    reset({ nome: "", recebeCestaBasica: "true", recebeValeRefeicao: "true", departamento: "", setor: "" });
+    reset({
+      nome: "",
+      recebeCestaBasica: "true",
+      recebeValeRefeicao: "true",
+      valorValeRefeicaoFixo: "",
+      departamento: "",
+      setor: "",
+    });
     setDialogOpen(true);
   }
 
@@ -93,6 +108,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
       nome: cargo.nome,
       recebeCestaBasica: cargo.recebeCestaBasica ? "true" : "false",
       recebeValeRefeicao: cargo.recebeValeRefeicao ? "true" : "false",
+      valorValeRefeicaoFixo: cargo.valorValeRefeicaoFixo !== null ? String(cargo.valorValeRefeicaoFixo) : "",
       departamento: cargo.departamento ?? "",
       setor: cargo.setor ?? "",
     });
@@ -100,10 +116,12 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
   }
 
   function onSubmit(values: CargoFormValues) {
+    const valorFixo = values.valorValeRefeicaoFixo.trim();
     const payload = {
       nome: values.nome,
       recebeCestaBasica: values.recebeCestaBasica === "true",
       recebeValeRefeicao: values.recebeValeRefeicao === "true",
+      valorValeRefeicaoFixo: valorFixo ? Number(valorFixo.replace(",", ".")) : null,
       departamento: values.departamento.trim() || null,
       setor: values.setor.trim() || null,
     };
@@ -136,6 +154,23 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {cargosIncompletos.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-sm border border-warning/40 bg-warning/10 px-3.5 py-2.5">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+          <div className="flex flex-col gap-1">
+            <p className="font-mono text-[11px] font-bold tracking-[.04em] text-warning uppercase">
+              {cargosIncompletos.length} cargo(s) sem departamento e/ou setor definido
+            </p>
+            <p className="font-mono text-[10px] text-text-2">
+              {cargosIncompletos.map((c) => c.nome).join(" · ")}
+            </p>
+            <p className="font-mono text-[10px] text-text-3">
+              Cargos sem essas informações aparecem como &quot;Não classificado&quot; nos filtros de área/departamento (ex.: Programação de Férias). Edite cada cargo abaixo para completar.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-end justify-between gap-3">
         <div className="flex flex-col gap-1">
           <Label htmlFor="busca">Buscar</Label>
@@ -212,6 +247,15 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
                 </div>
               </div>
 
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="valorValeRefeicaoFixo">Valor fixo de VR (opcional)</Label>
+                <Input
+                  id="valorValeRefeicaoFixo"
+                  {...register("valorValeRefeicaoFixo")}
+                  placeholder="ex: 520,00 — deixe vazio pra calcular % do salário"
+                />
+              </div>
+
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Salvando..." : editando ? "Salvar" : "Criar cargo"}
@@ -231,16 +275,23 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
             <TableHead>Setor</TableHead>
             <TableHead>Cesta básica</TableHead>
             <TableHead>Vale-alimentação</TableHead>
+            <TableHead>Valor fixo VR</TableHead>
             <TableHead>Funcionários</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {cargosFiltrados.map((cargo) => (
-            <TableRow key={cargo.id}>
+          {cargosFiltrados.map((cargo) => {
+            const incompleto = !cargo.departamento?.trim() || !cargo.setor?.trim();
+            return (
+            <TableRow key={cargo.id} className={incompleto ? "bg-warning/10" : undefined}>
               <TableCell className="font-medium text-foreground">{cargo.nome}</TableCell>
-              <TableCell>{cargo.departamento ?? "—"}</TableCell>
-              <TableCell>{cargo.setor ?? "—"}</TableCell>
+              <TableCell className={!cargo.departamento?.trim() ? "text-warning" : undefined}>
+                {cargo.departamento?.trim() || "— pendente"}
+              </TableCell>
+              <TableCell className={!cargo.setor?.trim() ? "text-warning" : undefined}>
+                {cargo.setor?.trim() || "— pendente"}
+              </TableCell>
               <TableCell>
                 <Badge variant={cargo.recebeCestaBasica ? "success" : "secondary"}>
                   {cargo.recebeCestaBasica ? "Recebe" : "Não recebe"}
@@ -250,6 +301,11 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
                 <Badge variant={cargo.recebeValeRefeicao ? "success" : "secondary"}>
                   {cargo.recebeValeRefeicao ? "Recebe" : "Não recebe"}
                 </Badge>
+              </TableCell>
+              <TableCell>
+                {cargo.valorValeRefeicaoFixo !== null
+                  ? cargo.valorValeRefeicaoFixo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                  : "—"}
               </TableCell>
               <TableCell>{cargo._count.funcionarios}</TableCell>
               <TableCell className="text-right">
@@ -273,7 +329,8 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
                 </div>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
     </div>

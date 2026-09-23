@@ -23,10 +23,17 @@ function calcularValorAproximado(salario: number, diasGozo: number) {
 export default async function ResumoPdfPage({
   searchParams,
 }: {
-  searchParams: Promise<{ empresa?: string; area?: string; mes?: string; ano?: string }>;
+  searchParams: Promise<{
+    empresa?: string;
+    area?: string;
+    mes?: string;
+    ano?: string;
+    mesInicio?: string;
+    mesFim?: string;
+  }>;
 }) {
   await requireAdmin();
-  const { empresa, area, mes, ano } = await searchParams;
+  const { empresa, area, mes, ano, mesInicio, mesFim } = await searchParams;
 
   const [periodos, quinzenas] = await Promise.all([
     prisma.ferias.findMany({
@@ -38,29 +45,48 @@ export default async function ResumoPdfPage({
 
   const mesFiltro = mes ? Number(mes) : null;
   const anoFiltro = ano ? Number(ano) : null;
+  const mesInicioFiltro = !mesFiltro && mesInicio ? Number(mesInicio) : null;
+  const mesFimFiltro = !mesFiltro && mesFim ? Number(mesFim) : null;
 
   let linhas = periodos.map((p) => ({
     empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
     setor: p.funcionario.cargo.setor,
-    salario: p.funcionario.salario.toNumber(),
+    salario: p.funcionario.temGratificacao
+      ? p.funcionario.salario.toNumber() * 1.4
+      : p.funcionario.salario.toNumber(),
     mes: p.mes!,
     ano: p.ano!,
     quinzena: p.quinzena!,
     diasDireito: p.diasDireito,
     diasAbono: p.diasAbono,
+    dataPagamento: p.dataPagamento,
   }));
 
   if (empresa) linhas = linhas.filter((l) => l.empresa === empresa);
   if (area) linhas = linhas.filter((l) => (l.setor ?? "Não classificado") === area);
   if (mesFiltro) linhas = linhas.filter((l) => l.mes === mesFiltro);
   if (anoFiltro) linhas = linhas.filter((l) => l.ano === anoFiltro);
+  if (mesInicioFiltro || mesFimFiltro) {
+    const inicio = mesInicioFiltro ?? 1;
+    const fim = mesFimFiltro ?? 12;
+    linhas = linhas.filter((l) => l.mes >= inicio && l.mes <= fim);
+  }
 
-  const mapa = new Map<string, { mes: number; ano: number; quinzena: number; qtd: number; valor: number }>();
+  const mapa = new Map<
+    string,
+    { mes: number; ano: number; quinzena: number; qtd: number; valor: number; pagamentos: Map<string, number> }
+  >();
   for (const l of linhas) {
     const chave = `${l.ano}-${l.mes}-${l.quinzena}`;
-    const atual = mapa.get(chave) ?? { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0 };
+    const atual = mapa.get(chave) ?? { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, pagamentos: new Map() };
     atual.qtd++;
     atual.valor += calcularValorAproximado(l.salario, l.diasDireito - l.diasAbono);
+    // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
+    // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
+    if (l.dataPagamento) {
+      const chaveData = l.dataPagamento.toISOString();
+      atual.pagamentos.set(chaveData, (atual.pagamentos.get(chaveData) ?? 0) + 1);
+    }
     mapa.set(chave, atual);
   }
 
@@ -71,13 +97,21 @@ export default async function ResumoPdfPage({
       const gozoInicio = custom
         ? custom.dataInicio
         : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
-      return { ...v, gozoInicio, dataPagamento: dataPagamentoFerias(gozoInicio) };
+      const maisFrequente = [...v.pagamentos.entries()].sort((a, b) => b[1] - a[1])[0];
+      const dataPagamento = maisFrequente ? new Date(maisFrequente[0]) : dataPagamentoFerias(gozoInicio);
+      const { pagamentos: _pagamentos, ...resto } = v;
+      return { ...resto, gozoInicio, dataPagamento };
     });
 
   const valorTotal = linhasResumo.reduce((acc, v) => acc + v.valor, 0);
-  const filtrosAtivos = [empresa, area, mesFiltro && MESES[mesFiltro - 1], anoFiltro && String(anoFiltro)].filter(
-    Boolean
-  );
+  const filtrosAtivos = [
+    empresa,
+    area,
+    mesFiltro && MESES[mesFiltro - 1],
+    anoFiltro && String(anoFiltro),
+    (mesInicioFiltro || mesFimFiltro) &&
+      `${MESES[(mesInicioFiltro ?? 1) - 1]} a ${MESES[(mesFimFiltro ?? 12) - 1]}`,
+  ].filter(Boolean);
   const emitidoEm = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
   return (

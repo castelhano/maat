@@ -17,6 +17,9 @@ export type ResumoGerencialLinha = {
   aprendizesAtivos: number | null;
   aprendizesAdmitidos: number | null;
   aprendizesDesligados: number | null;
+  // Idem — vem só pela importação do relatório de Admitidos/Desligados (motivo "TRANSFERENCIA (
+  // COM ONUS )"), nunca do PDF.
+  desligadosTransferencia: number | null;
   folhaBruta: number | null;
   liquidoPagar: number | null;
   horaExtra: number | null;
@@ -150,6 +153,7 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const aprendizesAtivos = null;
   const aprendizesAdmitidos = null;
   const aprendizesDesligados = null;
+  const desligadosTransferencia = null;
 
   const folhaBruta = ultimoNumeroAposRotulo(texto, /TOTAIS PROVENTOS/, /TOTAIS DESCONTOS/);
   const liquidoPagar = ultimoNumeroAposRotulo(texto, /Liquido a Pagar/);
@@ -209,6 +213,7 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     aprendizesAtivos,
     aprendizesAdmitidos,
     aprendizesDesligados,
+    desligadosTransferencia,
     folhaBruta,
     liquidoPagar,
     horaExtra,

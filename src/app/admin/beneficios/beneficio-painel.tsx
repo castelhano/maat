@@ -15,6 +15,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -22,8 +23,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileText } from "lucide-react";
+import { FileText, Landmark } from "lucide-react";
 import { ExportCard } from "./export-card";
+import { paraCsv, baixarCsv } from "@/lib/csv";
 import type { ApuracaoItemDTO } from "./actions";
 
 // Par validado (contraste + separação CVD) contra o fundo escuro dos cards deste app.
@@ -107,10 +109,13 @@ export function BeneficioPainel({
 
   const elegivel = (i: ApuracaoItemDTO) =>
     dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
-  const motivo = (i: ApuracaoItemDTO) =>
-    dimensao === "cesta"
-      ? i.motivoPerdaCesta
-      : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+  const motivo = (i: ApuracaoItemDTO) => {
+    if (dimensao === "cesta") return i.motivoPerdaCesta;
+    const base = i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+    const cestaNoVa = (i.valorCestaConvertida ?? 0) > 0 ? "Cesta no VA" : null;
+    if (base && cestaNoVa) return `${base} + ${cestaNoVa}`;
+    return base ?? cestaNoVa;
+  };
 
   const dados = useMemo(() => {
     const elegiveis = itens.filter(elegivel);
@@ -118,6 +123,7 @@ export function BeneficioPainel({
     const terceiros = itens.filter((i) => i.tipo === "terceiro");
     const valorTotal = elegiveis.reduce((acc, i) => acc + i.valorVR, 0);
     const valorConvertidoTotal = itens.reduce((acc, i) => acc + (i.valorCestaConvertida ?? 0), 0);
+    const valorVaSemCestaTotal = elegiveis.reduce((acc, i) => acc + (i.valorVR - (i.valorCestaConvertida ?? 0)), 0);
 
     const motivosMap = new Map<string, number>();
     for (const i of naoElegiveis) {
@@ -165,7 +171,22 @@ export function BeneficioPainel({
       porArea = [...porArea.slice(0, 10), { area: "Outras áreas", areaCompleta: "Outras áreas", ...resto }];
     }
 
-    return { elegiveis, naoElegiveis, terceiros, valorTotal, valorConvertidoTotal, motivos, porEmpresa, porArea };
+    const cestaConvertida = itens
+      .filter((i) => (i.valorCestaConvertida ?? 0) > 0)
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+
+    return {
+      elegiveis,
+      naoElegiveis,
+      terceiros,
+      valorTotal,
+      valorConvertidoTotal,
+      valorVaSemCestaTotal,
+      motivos,
+      porEmpresa,
+      porArea,
+      cestaConvertida,
+    };
   }, [itens, dimensao]);
 
   const itensDetalhamento = useMemo(() => {
@@ -179,17 +200,26 @@ export function BeneficioPainel({
     });
   }, [itens, buscaNome, buscaMatricula]);
 
-  const csvHeaders = ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Valor VR"];
-  const csvLinhas = itensDetalhamento.map((i) => [
-    i.matricula ?? "",
-    i.nome,
-    i.empresaNome,
-    i.cargo ?? "",
-    formatarData(i.dataAdmissao),
-    elegivel(i) ? "Com direito" : "Sem direito",
-    motivo(i) ?? "",
-    i.valorVR.toFixed(2),
-  ]);
+  const csvHeaders =
+    dimensao === "vr"
+      ? ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Valor VA", "Total"]
+      : ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Valor VR"];
+  const csvLinhas = itensDetalhamento.map((i) => {
+    const linhaBase = [
+      i.matricula ?? "",
+      i.nome,
+      i.empresaNome,
+      i.cargo ?? "",
+      formatarData(i.dataAdmissao),
+      elegivel(i) ? "Com direito" : "Sem direito",
+      motivo(i) ?? "",
+    ];
+    if (dimensao === "vr") {
+      const cestaNoVa = i.valorCestaConvertida ?? 0;
+      return [...linhaBase, (i.valorVR - cestaNoVa).toFixed(2), i.valorVR.toFixed(2)];
+    }
+    return [...linhaBase, i.valorVR.toFixed(2)];
+  });
 
   const rotuloBeneficio = dimensao === "cesta" ? "cesta básica" : "vale-alimentação";
   const arquivoBase = `${dimensao === "cesta" ? "cesta-basica" : "vale-alimentacao"}-${competencia.replace("/", "-")}`;
@@ -200,9 +230,23 @@ export function BeneficioPainel({
   const pdfHref = `/admin/beneficios/detalhamento-pdf?${pdfParams.toString()}`;
   const relatorioPdfHref = `/admin/beneficios/relatorio-pdf?${pdfParams.toString()}`;
 
+  // Arquivo pro sistema bancário — só quem tem direito ao VA nesta competência, no layout do
+  // banco: Nome;Documento;  Valor R$  ;Benefício (benefício sempre "ALIMENTAÇÃO").
+  function gerarArquivoBancario() {
+    const beneficiarios = itens.filter((i) => i.elegivelVR && i.valorVR > 0);
+    const linhas = beneficiarios.map((i) => [i.nome, i.documento ?? "", i.valorVR, "ALIMENTAÇÃO"]);
+    baixarCsv(`arquivo-bancario-va-${competencia.replace("/", "-")}`, paraCsv(["Nome", "Documento", "  Valor R$  ", "Benefício"], linhas));
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2.5">
+        {dimensao === "vr" && (
+          <Button variant="secondary" size="sm" onClick={gerarArquivoBancario}>
+            <Landmark />
+            Gerar arquivo bancário
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={() => window.open(relatorioPdfHref, "_blank")}>
           <FileText />
           Emitir relatório completo (PDF)
@@ -243,6 +287,67 @@ export function BeneficioPainel({
           {formatarMoeda(dados.valorConvertidoTotal)} em cesta convertida em crédito de alimentação (colaboradores que
           optaram por não receber a cesta física) — já somado ao valor total na aba de vale-alimentação.
         </p>
+      )}
+
+      {dimensao === "vr" && dados.cestaConvertida.length > 0 && (
+        <p className="font-mono text-[10px] text-text-3">
+          {dados.cestaConvertida.length} colaborador(es) com {formatarMoeda(dados.valorConvertidoTotal)} em crédito de
+          cesta básica convertida somado ao valor do vale-alimentação — lista completa no card abaixo.
+        </p>
+      )}
+
+      {dimensao === "vr" && (
+        <ExportCard
+          titulo="Cesta básica convertida em vale-alimentação"
+          descricao="quem está recebendo o crédito da cesta somado ao VA nesta competência"
+          arquivo={`${arquivoBase}-cesta-convertida`}
+          csv={{
+            headers: ["Matrícula", "Nome", "Empresa", "Cargo", "Valor da cesta convertida"],
+            linhas: dados.cestaConvertida.map((i) => [
+              i.matricula ?? "",
+              i.nome,
+              i.empresaNome,
+              i.cargo ?? "",
+              (i.valorCestaConvertida ?? 0).toFixed(2),
+            ]),
+          }}
+        >
+          {dados.cestaConvertida.length === 0 ? (
+            <p className="py-6 text-center font-mono text-[11px] text-text-3">
+              Ninguém está recebendo cesta convertida em VA nesta competência.
+            </p>
+          ) : (
+            <Table containerClassName="max-h-[50vh] overflow-y-auto">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Matrícula</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Empresa</TableHead>
+                  <TableHead>Cargo</TableHead>
+                  <TableHead className="text-right">Valor da cesta convertida</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {dados.cestaConvertida.map((i, idx) => (
+                  <TableRow key={`${i.matricula ?? "terceiro"}-${idx}`}>
+                    <TableCell>{i.matricula ?? "—"}</TableCell>
+                    <TableCell className="font-medium text-foreground">
+                      {i.nome}
+                      {i.tipo === "terceiro" && (
+                        <Badge variant="secondary" className="ml-2">
+                          terceiro
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>{i.empresaNome}</TableCell>
+                    <TableCell>{i.cargo ?? "—"}</TableCell>
+                    <TableCell className="text-right">{formatarMoeda(i.valorCestaConvertida ?? 0)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </ExportCard>
       )}
 
       <ExportCard
@@ -366,16 +471,19 @@ export function BeneficioPainel({
               <TableHead>Admissão</TableHead>
               <TableHead>Situação</TableHead>
               <TableHead>Motivo</TableHead>
-              {dimensao === "vr" && <TableHead className="text-right">Valor</TableHead>}
+              {dimensao === "vr" && (
+                <>
+                  <TableHead className="text-right">Valor VA</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
             {itensDetalhamento.map((i, idx) => {
-              const eleg = dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
-              const mot =
-                dimensao === "cesta"
-                  ? i.motivoPerdaCesta
-                  : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+              const eleg = elegivel(i);
+              const mot = motivo(i);
+              const cestaNoVa = i.valorCestaConvertida ?? 0;
               return (
                 <TableRow key={`${i.matricula ?? "terceiro"}-${idx}`}>
                   <TableCell>{i.matricula ?? "—"}</TableCell>
@@ -394,11 +502,29 @@ export function BeneficioPainel({
                     <Badge variant={eleg ? "success" : "destructive"}>{eleg ? "Com direito" : "Sem direito"}</Badge>
                   </TableCell>
                   <TableCell className="whitespace-normal">{mot ?? "—"}</TableCell>
-                  {dimensao === "vr" && <TableCell className="text-right">{formatarMoeda(i.valorVR)}</TableCell>}
+                  {dimensao === "vr" && (
+                    <>
+                      <TableCell className="text-right">{formatarMoeda(i.valorVR - cestaNoVa)}</TableCell>
+                      <TableCell className="text-right font-medium text-foreground">{formatarMoeda(i.valorVR)}</TableCell>
+                    </>
+                  )}
                 </TableRow>
               );
             })}
           </TableBody>
+          {dimensao === "vr" && (
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={7} className="font-mono text-[10px] tracking-[.06em] text-text-3 uppercase">
+                  Total do VA (sem cesta)
+                </TableCell>
+                <TableCell className="text-right font-medium text-foreground">
+                  {formatarMoeda(dados.valorVaSemCestaTotal)}
+                </TableCell>
+                <TableCell className="text-right font-medium text-foreground">{formatarMoeda(dados.valorTotal)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
         )}
       </ExportCard>

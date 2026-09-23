@@ -42,7 +42,9 @@ export default async function FeriasPage() {
     departamento: p.funcionario.cargo.departamento,
     setor: p.funcionario.cargo.setor,
     empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
-    salario: p.funcionario.salario.toNumber(),
+    salario: p.funcionario.temGratificacao
+      ? p.funcionario.salario.toNumber() * 1.4
+      : p.funcionario.salario.toNumber(),
     periodoAquisitivoInicio: p.periodoAquisitivoInicio.toISOString(),
     periodoAquisitivoFim: p.periodoAquisitivoFim.toISOString(),
     dataLimite: p.dataLimite.toISOString(),

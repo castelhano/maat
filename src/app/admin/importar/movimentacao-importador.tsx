@@ -12,6 +12,7 @@ import {
 } from "./movimentacao-actions";
 import { StatCard } from "./stat-card";
 import { lerArquivoTexto } from "./ler-arquivo";
+import { labelSetor } from "@/lib/indicadores";
 
 const TIPO_LABEL = { admitidos: "Admitidos", desligados: "Desligados" } as const;
 
@@ -48,12 +49,18 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
         toast.error(result.error);
         return;
       }
-      const { competenciasAtualizadas, competenciasSemIndicador, funcionariosDesligados, funcionariosNaoEncontrados } =
-        result.resumo!;
+      const {
+        competenciasAtualizadas,
+        competenciasSemIndicador,
+        funcionariosDesligados,
+        funcionariosNaoEncontrados,
+        transferenciaComOnus,
+      } = result.resumo!;
       const partes = [`${competenciasAtualizadas} competência(s) atualizada(s)`];
       if (competenciasSemIndicador > 0) partes.push(`${competenciasSemIndicador} sem indicador importado ainda`);
       if (funcionariosDesligados > 0) partes.push(`${funcionariosDesligados} funcionário(s) marcado(s) como desligado`);
       if (funcionariosNaoEncontrados > 0) partes.push(`${funcionariosNaoEncontrados} matrícula(s) não encontrada(s)`);
+      if (transferenciaComOnus > 0) partes.push(`${transferenciaComOnus} desligado(s) por transferência (com ônus) excluído(s) do turnover`);
       toast.success(partes.join(" — ") + ".");
       handleCancelar();
       onImportado?.();
@@ -69,6 +76,7 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
 
   const semIndicador = preview?.linhas.filter((l) => !l.indicadorExiste).length ?? 0;
   const totalAprendizes = preview?.linhas.reduce((soma, l) => soma + l.quantidade, 0) ?? 0;
+  const totalTransferencia = preview?.transferenciaComOnus.reduce((soma, t) => soma + t.quantidade, 0) ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -160,6 +168,35 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
             </Table>
           )}
 
+          {preview.tipo === "desligados" && totalTransferencia > 0 && (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                <StatCard label="Desligados por transferência (com ônus)" value={totalTransferencia} cor="yellow" />
+              </div>
+              <p className="font-mono text-[10px] text-text-3">
+                Esses desligamentos não entram no cálculo de turnover (excluídos automaticamente).
+              </p>
+              <Table containerClassName="max-h-[30vh] overflow-y-auto">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Competência</TableHead>
+                    <TableHead>Área</TableHead>
+                    <TableHead>Quantidade</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.transferenciaComOnus.map((t) => (
+                    <TableRow key={`${t.competencia}-${t.setor}`}>
+                      <TableCell>{t.competencia}</TableCell>
+                      <TableCell className="font-medium text-foreground">{labelSetor(t.setor)}</TableCell>
+                      <TableCell>{t.quantidade}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
           {preview.syncFuncionarios && (
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
@@ -220,7 +257,10 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
               <Button
                 onClick={handleConfirmar}
                 disabled={
-                  isPending || (preview.linhas.length === 0 && (preview.syncFuncionarios?.paraAtualizar.length ?? 0) === 0)
+                  isPending ||
+                  (preview.linhas.length === 0 &&
+                    (preview.syncFuncionarios?.paraAtualizar.length ?? 0) === 0 &&
+                    totalTransferencia === 0)
                 }
               >
                 <FileText />

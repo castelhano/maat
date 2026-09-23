@@ -274,6 +274,8 @@ export function calcularVR(
     return { elegivel: true, motivo: motivoProporcional, baseCalculo: null, valor: funcionario.valorValeRefeicao * proporcao };
   }
 
+  // Piso de VR_MINIMO e teto de VR_MAXIMO valem pra todo mundo, com ou sem gratificação — a
+  // gratificação só soma 40% ao salário ANTES de aplicar o percentual, não muda o piso/teto.
   const base = funcionario.temGratificacao ? funcionario.salario * (1 + GRATIFICACAO_PERCENTUAL) : funcionario.salario;
   const bruto = base * VR_PERCENTUAL;
   const valorIntegral = Math.min(Math.max(bruto, VR_MINIMO), VR_MAXIMO);

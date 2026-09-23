@@ -45,14 +45,18 @@ export default async function DetalhamentoPdfPage({
 
   const elegivel = (i: ApuracaoItemDTO) =>
     dimensao === "cesta" ? i.elegivelCestaBasica : i.elegivelVR && i.valorVR > 0;
-  const motivo = (i: ApuracaoItemDTO) =>
-    dimensao === "cesta"
-      ? i.motivoPerdaCesta
-      : i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+  const motivo = (i: ApuracaoItemDTO) => {
+    if (dimensao === "cesta") return i.motivoPerdaCesta;
+    const base = i.motivoPerdaVR ?? (i.elegivelVR && i.valorVR <= 0 ? "Valor zerado no período" : null);
+    const cestaNoVa = (i.valorCestaConvertida ?? 0) > 0 ? "Cesta no VA" : null;
+    if (base && cestaNoVa) return `${base} + ${cestaNoVa}`;
+    return base ?? cestaNoVa;
+  };
 
   const comDireito = itens.filter(elegivel);
   const semDireito = itens.filter((i) => !elegivel(i));
   const valorTotal = comDireito.reduce((acc, i) => acc + i.valorVR, 0);
+  const valorVaSemCestaTotal = comDireito.reduce((acc, i) => acc + (i.valorVR - (i.valorCestaConvertida ?? 0)), 0);
 
   const rotulo = dimensao === "cesta" ? "Cesta Básica" : "Vale-Alimentação";
   const filtrosAtivos = [empresa, area].filter(Boolean);
@@ -104,13 +108,19 @@ export default async function DetalhamentoPdfPage({
             <th className="px-2 py-2">Admissão</th>
             <th className="px-2 py-2">Situação</th>
             <th className="px-2 py-2">Motivo</th>
-            {dimensao === "vr" && <th className="py-2 pl-2 text-right">Valor</th>}
+            {dimensao === "vr" && (
+              <>
+                <th className="py-2 pl-2 text-right">Valor VA</th>
+                <th className="py-2 pl-2 text-right">Total</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
           {itens.map((i, idx) => {
             const eleg = elegivel(i);
             const mot = motivo(i);
+            const cestaNoVa = i.valorCestaConvertida ?? 0;
             return (
               <tr key={`${i.matricula ?? "terceiro"}-${idx}`} className="border-b border-neutral-200">
                 <td className="py-2 pr-2 tabular-nums text-neutral-600">{i.matricula ?? "—"}</td>
@@ -126,18 +136,34 @@ export default async function DetalhamentoPdfPage({
                 </td>
                 <td className="px-2 py-2 text-neutral-600">{mot ?? "—"}</td>
                 {dimensao === "vr" && (
-                  <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">{formatarMoeda(i.valorVR)}</td>
+                  <>
+                    <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">{formatarMoeda(i.valorVR - cestaNoVa)}</td>
+                    <td className="py-2 pl-2 text-right tabular-nums font-medium text-neutral-900">{formatarMoeda(i.valorVR)}</td>
+                  </>
                 )}
               </tr>
             );
           })}
         </tbody>
         <tfoot>
+          {dimensao === "vr" && (
+            <tr className="border-t-2 border-neutral-800 text-[11px] font-medium text-neutral-500 uppercase">
+              <td className="pt-2" colSpan={7}>
+                Total do VA (sem cesta)
+              </td>
+              <td className="pt-2 text-right tabular-nums">{formatarMoeda(valorVaSemCestaTotal)}</td>
+              <td className="pt-2 text-right tabular-nums" />
+            </tr>
+          )}
           <tr className="border-t-2 border-neutral-800 text-[11px] font-medium text-neutral-500 uppercase">
             <td className="pt-2" colSpan={dimensao === "vr" ? 7 : 8}>
               Total — {itens.length} avaliado(s), {comDireito.length} com direito
             </td>
-            {dimensao === "vr" && <td className="pt-2 text-right tabular-nums">{formatarMoeda(valorTotal)}</td>}
+            {dimensao === "vr" && (
+              <td className="pt-2 text-right tabular-nums" colSpan={2}>
+                {formatarMoeda(valorTotal)}
+              </td>
+            )}
           </tr>
         </tfoot>
       </table>

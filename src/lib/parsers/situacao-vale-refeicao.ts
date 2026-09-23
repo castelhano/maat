@@ -23,12 +23,31 @@ export type SituacaoValeRefeicaoParseResult = {
 // O relatório às vezes traz duas colunas extras que este import ignora: data de admissão (logo
 // após a situação) e salário base (logo após o vale-refeição) — ambas opcionais aqui pra aceitar
 // tanto essa variante quanto a mais enxuta (sem essas colunas).
+// O grupo de salário exige vírgula de centavos (formato "3.710,00") pra nunca confundir com um
+// telefone em dígitos puros que apareça logo depois do S/N nas variantes onde o telefone vem
+// antes do nome.
 const LINHA_DADOS =
-  /^\s*(\d{6})\s+([AFD])\s+(?:\d{2}\/\d{2}\/\d{4}\s+)?(\d{11})\s+(.+?)\s+([SN])\s+(?:[\d.,]+\s+)?(.+)$/;
+  /^\s*(\d{6})\s+([AFD])\s+(?:\d{2}\/\d{2}\/\d{4}\s+)?(\d{11})\s+(.+?)\s+([SN])\s+(?:[\d.]+,\d{2}\s+)?(.+)$/;
 const LINHA_TOTAL = /^\s*(\d+)\s*$/;
 // Nome e telefone vêm colados no resto da linha, separados só por espaços de preenchimento de
-// largura fixa; o telefone (quando existe) é sempre o último "bloco" após o maior espaçamento.
-const NOME_TELEFONE = /^(.*\S)\s{2,}(\S.*)$/;
+// largura fixa — mas a ordem das colunas varia entre exportações do relatório (telefone antes
+// ou depois do nome), então identificamos o telefone pelo formato (só dígitos/parênteses/traço/
+// espaço, com pelo menos um dígito), não pela posição.
+const FONE_CHARSET = String.raw`[\d()+\-\s]*\d[\d()+\-\s]*`;
+const TELEFONE_NO_FIM = new RegExp(`^(.*\\S)\\s{2,}(${FONE_CHARSET})$`);
+const TELEFONE_NO_INICIO = new RegExp(`^(${FONE_CHARSET})\\s{2,}(.*\\S)$`);
+
+function separarNomeTelefone(resto: string): { nomeCompleto: string; telefone: string | null } {
+  const normalizar = (s: string) => s.trim().replace(/\s+/g, " ");
+
+  const noFim = TELEFONE_NO_FIM.exec(resto);
+  if (noFim) return { nomeCompleto: normalizar(noFim[1]), telefone: noFim[2].trim() };
+
+  const noInicio = TELEFONE_NO_INICIO.exec(resto);
+  if (noInicio) return { nomeCompleto: normalizar(noInicio[2]), telefone: noInicio[1].trim() };
+
+  return { nomeCompleto: normalizar(resto), telefone: null };
+}
 
 const STATUS_MAP: Record<string, SituacaoStatus> = { A: "ativo", F: "afastado", D: "desligado" };
 
@@ -42,12 +61,12 @@ export function parseSituacaoValeRefeicao(conteudo: string): SituacaoValeRefeica
     const dadosMatch = LINHA_DADOS.exec(linha);
     if (dadosMatch) {
       const [, matricula, situacao, cpf, funcao, valeRefeicao, resto] = dadosMatch;
-      const nomeTelefoneMatch = NOME_TELEFONE.exec(resto);
+      const { nomeCompleto, telefone } = separarNomeTelefone(resto);
       linhas.push({
         matricula,
-        nomeCompleto: (nomeTelefoneMatch ? nomeTelefoneMatch[1] : resto).trim().replace(/\s+/g, " "),
+        nomeCompleto,
         cpf,
-        telefone: nomeTelefoneMatch ? nomeTelefoneMatch[2].trim() : null,
+        telefone,
         status: STATUS_MAP[situacao],
         funcao: funcao.trim().replace(/\s+/g, " "),
         recebeValeRefeicao: valeRefeicao === "S",

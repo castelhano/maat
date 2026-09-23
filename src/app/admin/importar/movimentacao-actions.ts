@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { parseAdmitidosDesligados, type EventoLinha } from "@/lib/parsers/admitidos-desligados";
+import { parseAdmitidosDesligados, MOTIVO_TRANSFERENCIA_COM_ONUS, type EventoLinha } from "@/lib/parsers/admitidos-desligados";
 
 const FUNCAO_APRENDIZ = "APRENDIZ";
 
@@ -40,6 +40,10 @@ export type PreviewMovimentacaoResult = {
     jaDesligados: number;
     naoEncontrados: PreviewFuncionarioSync[];
   } | null;
+  // Desligados por "TRANSFERENCIA ( COM ONUS )" (só no CSV, que traz matrícula pra achar o setor
+  // da pessoa via cadastro) — excluídos do turnover, gravados em IndicadorMensal.desligadosTransferencia
+  // por competência+setor. Não inclui quem já é aprendiz (esses já saem via aprendizesDesligados).
+  transferenciaComOnus: { competencia: string; setor: string; quantidade: number }[];
 };
 
 function competenciaParaData(competencia: string): Date {
@@ -97,6 +101,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
   // tem). No CSV casa por matrícula, que é confiável. No TXT a matrícula sai cortada e não é
   // confiável, então casa por nome dentro da mesma empresa.
   let syncFuncionarios: PreviewMovimentacaoResult["syncFuncionarios"] = null;
+  const transferenciaComOnus: PreviewMovimentacaoResult["transferenciaComOnus"] = [];
   if (parsed.tipo === "desligados") {
     const comMatricula = parsed.linhas.filter((l): l is EventoLinha & { matricula: string } => l.matricula !== null);
     const semMatricula = parsed.linhas.filter((l) => l.matricula === null);
@@ -104,9 +109,26 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
     if (comMatricula.length > 0 || semMatricula.length > 0) {
       const funcionarios = await prisma.funcionario.findMany({
         where: { empresaId: empresa.id },
-        select: { matricula: true, nome: true, status: true },
+        select: { matricula: true, nome: true, status: true, cargo: { select: { setor: true } } },
       });
       const porMatricula = new Map(funcionarios.map((f) => [f.matricula, f]));
+
+      // Transferência com ônus: conta por competência+setor (do cadastro da pessoa), excluindo
+      // quem é aprendiz (já contado à parte em aprendizesDesligados, pra não descontar 2x).
+      const porCompetenciaSetor = new Map<string, number>();
+      for (const linha of comMatricula) {
+        if (!linha.motivo || !MOTIVO_TRANSFERENCIA_COM_ONUS.test(linha.motivo)) continue;
+        if (linha.funcao.toUpperCase() === FUNCAO_APRENDIZ) continue;
+        const funcionario = porMatricula.get(linha.matricula);
+        const setorPessoa = funcionario?.cargo.setor;
+        if (!setorPessoa) continue;
+        const chave = `${linha.competencia}|${setorPessoa}`;
+        porCompetenciaSetor.set(chave, (porCompetenciaSetor.get(chave) ?? 0) + 1);
+      }
+      for (const [chave, quantidade] of porCompetenciaSetor) {
+        const [competencia, setorPessoa] = chave.split("|");
+        transferenciaComOnus.push({ competencia, setor: setorPessoa, quantidade });
+      }
       const normalizar = (s: string) => s.trim().toUpperCase().replace(/\s+/g, " ");
 
       const paraAtualizar: PreviewFuncionarioSync[] = [];
@@ -163,6 +185,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
       totalLinhasArquivo: parsed.linhas.length,
       linhas,
       syncFuncionarios,
+      transferenciaComOnus,
     },
     error: null,
   };
@@ -185,6 +208,7 @@ export async function confirmarMovimentacaoAprendiz(
     competenciasSemIndicador: number;
     funcionariosDesligados: number;
     funcionariosNaoEncontrados: number;
+    transferenciaComOnus: number;
   };
 }> {
   const admin = await requireAdmin();
@@ -199,7 +223,7 @@ export async function confirmarMovimentacaoAprendiz(
   const preview = await montarPreview(conteudo);
   if (preview.error || !preview.data) return { error: preview.error ?? "Erro ao processar o arquivo." };
 
-  const { empresaId, tipo, linhas, syncFuncionarios } = preview.data;
+  const { empresaId, tipo, linhas, syncFuncionarios, transferenciaComOnus } = preview.data;
   const setor = await resolverSetorAprendiz();
   if (!setor) return { error: 'Não encontrei o cargo "Aprendiz" cadastrado.' };
 
@@ -207,6 +231,7 @@ export async function confirmarMovimentacaoAprendiz(
 
   let competenciasAtualizadas = 0;
   let competenciasSemIndicador = 0;
+  let transferenciaAtualizada = 0;
 
   await prisma.$transaction(async (tx) => {
     for (const linha of linhas) {
@@ -216,6 +241,14 @@ export async function confirmarMovimentacaoAprendiz(
       });
       if (resultado.count > 0) competenciasAtualizadas++;
       else competenciasSemIndicador++;
+    }
+
+    for (const t of transferenciaComOnus) {
+      const resultado = await tx.indicadorMensal.updateMany({
+        where: { empresaId, setor: t.setor, competencia: t.competencia },
+        data: { desligadosTransferencia: t.quantidade },
+      });
+      if (resultado.count > 0) transferenciaAtualizada += t.quantidade;
     }
 
     if (syncFuncionarios) {
@@ -263,6 +296,7 @@ export async function confirmarMovimentacaoAprendiz(
       competenciasSemIndicador,
       funcionariosDesligados: syncFuncionarios?.paraAtualizar.length ?? 0,
       funcionariosNaoEncontrados: syncFuncionarios?.naoEncontrados.length ?? 0,
+      transferenciaComOnus: transferenciaAtualizada,
     },
   };
 }

@@ -131,6 +131,10 @@ model Cargo {
   // Elegibilidade padrão do cargo; Funcionario pode sobrescrever individualmente.
   recebeCestaBasica  Boolean @default(true)
   recebeValeRefeicao Boolean @default(true)
+  // Valor fixo de VR do cargo (ex.: motorista = 520) — usado quando o funcionário não tem um
+  // valor individual definido (Funcionario.valorValeRefeicao). Se nenhum dos dois estiver
+  // definido, o VR é calculado como percentual do salário.
+  valorValeRefeicaoFixo Decimal?
 
   // Sincronizados manualmente via botão na tela de cargos (relatório "Relação Funcionários" do
   // ERP); nunca sobrescritos automaticamente — divergência do arquivo só é reportada.
@@ -273,6 +277,11 @@ model IndicadorMensal {
   aprendizesAtivos     Int @default(0)
   aprendizesAdmitidos  Int @default(0)
   aprendizesDesligados Int @default(0)
+  // Desligados por "TRANSFERENCIA ( COM ONUS )" (relatório de Admitidos/Desligados, coluna Motivo)
+  // — não entram no cálculo de turnover (descontado de `desligados`, mesmo padrão de aprendiz).
+  // Não inclui quem já foi contado em aprendizesDesligados (evita descontar duas vezes a mesma
+  // pessoa).
+  desligadosTransferencia Int @default(0)
 
   folhaBruta     Decimal
   liquidoPagar   Decimal
