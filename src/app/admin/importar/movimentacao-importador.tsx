@@ -114,7 +114,7 @@ export function MovimentacaoImportador({ onImportado }: { onImportado?: () => vo
           />
           {file ? <CheckCircle2 className="size-[22px] text-success" /> : <Upload className="size-[22px] text-text-3" />}
           <strong className="text-xs font-medium text-foreground">
-            {file ? "Arquivo carregado" : "Clique para selecionar o relatório (.TXT)"}
+            {file ? "Arquivo carregado" : "Clique para selecionar a listagem de demitidos (.CSV ou .TXT)"}
           </strong>
           {file && <span className="font-mono text-[10px] text-success">{file.name}</span>}
         </label>

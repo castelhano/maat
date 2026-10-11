@@ -68,6 +68,7 @@ export function ResumoMensal() {
   const [resultado, setResultado] = useState<ResumoMensalResult | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, startCarregando] = useTransition();
+  const [rescisao, setRescisao] = useState(false);
 
   const competencia = mes && ano ? `${mes}/${ano}` : "";
 
@@ -129,16 +130,21 @@ export function ResumoMensal() {
     if (!resultado) return;
     const fmt = formato === "decimal" ? fmtDecimalCsv : fmtHorasCsv;
     const headers = ["Matrícula", "Nome", "Empresa", "Crédito", "Débito", "A Pagar", "Saldo Final", "Alerta"];
-    const linhas = resultado.linhas.map((l) => [
-      l.matricula,
-      l.nome,
-      l.empresa,
-      fmt(l.creditoBruto),
-      fmt(l.debitoBruto),
-      fmt(l.pagoNoMes),
-      fmt(l.saldoFinal),
-      l.alertaCredito ? "crédito indevido" : "",
-    ]);
+    if (rescisao) headers.push("A Pagar (Rescisão)");
+    const linhas = resultado.linhas.map((l) => {
+      const linha = [
+        l.matricula,
+        l.nome,
+        l.empresa,
+        fmt(l.creditoBruto),
+        fmt(l.debitoBruto),
+        fmt(l.pagoNoMes),
+        fmt(l.saldoFinal),
+        l.alertaCredito ? "crédito indevido" : "",
+      ];
+      if (rescisao) linha.push(fmt(l.pagoRescisao));
+      return linha;
+    });
     const sufixo = formato === "decimal" ? "-decimal" : "";
     baixarCsv(`banco-horas-resumo-${resultado.competencia.replace("/", "-")}${sufixo}`, paraCsv(headers, linhas));
   }
@@ -164,6 +170,7 @@ export function ResumoMensal() {
     if (f.empresaId) params.set("empresaId", f.empresaId);
     if (f.departamento) params.set("departamento", f.departamento);
     if (f.setor) params.set("setor", f.setor);
+    if (rescisao) params.set("rescisao", "1");
     window.open(`/admin/banco-horas/resumo-pdf?${params.toString()}`, "_blank");
   }
 
@@ -223,6 +230,16 @@ export function ResumoMensal() {
               </SelectContent>
             </Select>
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2 pb-2 font-mono text-[11px] text-text-2 select-none">
+            <input
+              type="checkbox"
+              checked={rescisao}
+              onChange={(e) => setRescisao(e.target.checked)}
+              className="size-3.5 accent-primary"
+            />
+            Calcular rescisão
+          </label>
         </div>
 
         {resultado && (
@@ -289,6 +306,12 @@ export function ResumoMensal() {
                 <span className="text-warning">{fmtHoras(resultado.totais.pagoReferenteSaldoAnterior)}</span>
               </span>
             </div>
+            {rescisao && (
+              <div className="flex flex-col gap-1 rounded-sm border border-border bg-secondary px-4 py-3">
+                <span className="font-mono text-[10px] tracking-[.06em] text-text-3 uppercase">A pagar em rescisão</span>
+                <span className="font-mono text-[20px] leading-none font-bold">{fmtHoras(resultado.totais.pagoRescisao)}</span>
+              </div>
+            )}
           </div>
 
           {alertas.length > 0 && (
@@ -326,6 +349,7 @@ export function ResumoMensal() {
                 <TableHead className="text-right">Débito</TableHead>
                 <TableHead className="text-right">A Pagar</TableHead>
                 <TableHead className="text-right">Saldo Final</TableHead>
+                {rescisao && <TableHead className="text-right">A Pagar (Rescisão)</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -354,6 +378,11 @@ export function ResumoMensal() {
                   >
                     {fmtHoras(l.saldoFinal)}
                   </TableCell>
+                  {rescisao && (
+                    <TableCell className="text-right font-mono font-bold text-foreground">
+                      {fmtHoras(l.pagoRescisao)}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

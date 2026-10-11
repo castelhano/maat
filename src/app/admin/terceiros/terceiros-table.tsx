@@ -48,8 +48,22 @@ type Terceiro = {
   recebeValeRefeicao: boolean;
   valorValeRefeicao: number | null;
   recebeCestaComoVR: boolean;
+  recebeValeGas: boolean | null;
+  valeGasPecunia: boolean;
   empresa: { nome: string };
 };
+
+const HERANCA = ["herda", "sim", "nao"] as const;
+
+function heredaToForm(valor: boolean | null): (typeof HERANCA)[number] {
+  if (valor === null) return "herda";
+  return valor ? "sim" : "nao";
+}
+
+function formToHeranca(valor: (typeof HERANCA)[number]): boolean | null {
+  if (valor === "herda") return null;
+  return valor === "sim";
+}
 
 const NUMERO_DECIMAL = /^\d+([.,]\d{1,2})?$/;
 const BOOL = ["true", "false"] as const;
@@ -65,6 +79,8 @@ const terceiroFormSchema = z.object({
     .string()
     .refine((v) => v === "" || NUMERO_DECIMAL.test(v), "Informe um valor numérico válido"),
   recebeCestaComoVR: z.enum(BOOL),
+  recebeValeGas: z.enum(HERANCA),
+  valeGasPecunia: z.enum(BOOL),
 });
 
 type TerceiroFormValues = z.infer<typeof terceiroFormSchema>;
@@ -93,6 +109,8 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
   const recebeCestaBasica = useWatch({ control, name: "recebeCestaBasica" });
   const recebeValeRefeicao = useWatch({ control, name: "recebeValeRefeicao" });
   const recebeCestaComoVR = useWatch({ control, name: "recebeCestaComoVR" });
+  const recebeValeGas = useWatch({ control, name: "recebeValeGas" });
+  const valeGasPecunia = useWatch({ control, name: "valeGasPecunia" });
 
   const terceirosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -113,6 +131,8 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
       recebeValeRefeicao: "false",
       valorValeRefeicao: "",
       recebeCestaComoVR: "false",
+      recebeValeGas: "herda",
+      valeGasPecunia: "false",
     });
     setDialogOpen(true);
   }
@@ -128,6 +148,8 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
       recebeValeRefeicao: terceiro.recebeValeRefeicao ? "true" : "false",
       valorValeRefeicao: terceiro.valorValeRefeicao !== null ? String(terceiro.valorValeRefeicao) : "",
       recebeCestaComoVR: terceiro.recebeCestaComoVR ? "true" : "false",
+      recebeValeGas: heredaToForm(terceiro.recebeValeGas),
+      valeGasPecunia: terceiro.valeGasPecunia ? "true" : "false",
     });
     setDialogOpen(true);
   }
@@ -142,6 +164,8 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
       recebeValeRefeicao: values.recebeValeRefeicao === "true",
       valorValeRefeicao: values.valorValeRefeicao ? paraNumero(values.valorValeRefeicao) : null,
       recebeCestaComoVR: values.recebeCestaComoVR === "true",
+      recebeValeGas: formToHeranca(values.recebeValeGas),
+      valeGasPecunia: values.valeGasPecunia === "true",
     };
     startTransition(async () => {
       const result = editando
@@ -305,6 +329,40 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
                 </Select>
               </div>
 
+              <div className="grid min-w-0 grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2">
+                  <Label>Vale gás</Label>
+                  <Select
+                    value={recebeValeGas}
+                    onValueChange={(value) => setValue("recebeValeGas", value as (typeof HERANCA)[number])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="herda">Padrão da cesta básica</SelectItem>
+                      <SelectItem value="sim">Recebe</SelectItem>
+                      <SelectItem value="nao">Não recebe</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Vale gás em pecúnia</Label>
+                  <Select
+                    value={valeGasPecunia}
+                    onValueChange={(value) => setValue("valeGasPecunia", value as (typeof BOOL)[number])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">Recebe o vale normalmente</SelectItem>
+                      <SelectItem value="true">Recebe em dinheiro (pecúnia)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>
                   {isPending ? "Salvando..." : editando ? "Salvar" : "Criar terceiro"}
@@ -324,6 +382,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
             <TableHead>Situação</TableHead>
             <TableHead>Cesta básica</TableHead>
             <TableHead>Vale-alimentação</TableHead>
+            <TableHead>Vale gás</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
         </TableHeader>
@@ -346,6 +405,11 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
               <TableCell>
                 <Badge variant={terceiro.recebeValeRefeicao ? "success" : "secondary"}>
                   {terceiro.recebeValeRefeicao ? "Recebe" : "Não recebe"}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <Badge variant={(terceiro.recebeValeGas ?? terceiro.recebeCestaBasica) ? "success" : "secondary"}>
+                  {(terceiro.recebeValeGas ?? terceiro.recebeCestaBasica) ? "Recebe" : "Não recebe"}
                 </Badge>
               </TableCell>
               <TableCell className="text-right">

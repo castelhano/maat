@@ -210,8 +210,44 @@ export async function confirmarAfastamentos(
     async function aplicar(empresaId: string, matricula: string) {
       const linha = parsed.linhas.find((l) => l.matricula === matricula)!;
       const retornou = linha.dataRetorno !== null;
-      await tx.funcionario.updateMany({
-        where: { empresaId, matricula },
+      const funcionario = await tx.funcionario.findUnique({ where: { empresaId_matricula: { empresaId, matricula } } });
+      if (!funcionario) return;
+
+      // Histórico completo (pode ter mais de um ciclo no mesmo mês) — os campos dataAfastamento/
+      // dataRetorno do Funcionario abaixo continuam existindo só como atalho do ciclo mais
+      // recente; quem apura benefício usa este histórico pra contar os dias certos.
+      const cicloAberto = await tx.afastamentoHistorico.findFirst({
+        where: { funcionarioId: funcionario.id, dataFim: null },
+        orderBy: { dataInicio: "desc" },
+      });
+
+      if (retornou) {
+        if (cicloAberto) {
+          await tx.afastamentoHistorico.update({ where: { id: cicloAberto.id }, data: { dataFim: linha.dataRetorno! } });
+        } else {
+          // Não tinha ciclo em aberto registrado (ex.: primeira importação) — reconstrói com o
+          // que o próprio arquivo trouxe.
+          await tx.afastamentoHistorico.create({
+            data: { funcionarioId: funcionario.id, dataInicio: linha.dataAfastamento, dataFim: linha.dataRetorno!, motivo: linha.motivo },
+          });
+        }
+      } else if (cicloAberto && cicloAberto.dataInicio.getTime() === linha.dataAfastamento.getTime()) {
+        // Mesmo ciclo já registrado (ex.: reimportação só corrigindo o motivo) — atualiza em vez
+        // de duplicar.
+        await tx.afastamentoHistorico.update({ where: { id: cicloAberto.id }, data: { motivo: linha.motivo } });
+      } else {
+        // Novo ciclo de afastamento — se já havia um aberto com data diferente (não deveria
+        // acontecer, mas por segurança), fecha ele na data desse novo antes de abrir o próximo.
+        if (cicloAberto) {
+          await tx.afastamentoHistorico.update({ where: { id: cicloAberto.id }, data: { dataFim: linha.dataAfastamento } });
+        }
+        await tx.afastamentoHistorico.create({
+          data: { funcionarioId: funcionario.id, dataInicio: linha.dataAfastamento, dataFim: null, motivo: linha.motivo },
+        });
+      }
+
+      await tx.funcionario.update({
+        where: { id: funcionario.id },
         data: retornou
           ? {
               status: "ativo",

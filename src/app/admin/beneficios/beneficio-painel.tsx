@@ -234,7 +234,14 @@ export function BeneficioPainel({
   // banco: Nome;Documento;  Valor R$  ;Benefício (benefício sempre "ALIMENTAÇÃO").
   function gerarArquivoBancario() {
     const beneficiarios = itens.filter((i) => i.elegivelVR && i.valorVR > 0);
-    const linhas = beneficiarios.map((i) => [i.nome, i.documento ?? "", i.valorVR, "ALIMENTAÇÃO"]);
+    // ="..." força o Excel a tratar o CPF como texto — sem isso ele converte números longos pra
+    // notação científica (8,3E+10) e perde os dígitos.
+    const linhas = beneficiarios.map((i) => [
+      i.nomeCompleto ?? i.nome,
+      i.documento ? `="${i.documento}"` : "",
+      i.valorVR,
+      "ALIMENTAÇÃO",
+    ]);
     baixarCsv(`arquivo-bancario-va-${competencia.replace("/", "-")}`, paraCsv(["Nome", "Documento", "  Valor R$  ", "Benefício"], linhas));
   }
 

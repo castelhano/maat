@@ -169,7 +169,7 @@ export function Importador({ onImportado }: { onImportado?: () => void } = {}) {
           {!preview.empresa.existente && (
             <p className="font-mono text-[11px] text-danger">
               Empresa {preview.empresa.nome} (código {preview.empresa.codigo}) ainda não está
-              cadastrada — importe a folha de salários dela antes.
+              cadastrada — importe o cadastro dela antes.
             </p>
           )}
 
@@ -201,8 +201,8 @@ export function Importador({ onImportado }: { onImportado?: () => void } = {}) {
           {preview.naoEncontrados.length > 0 && (
             <div className="flex flex-col gap-2">
               <p className="font-mono text-[10px] tracking-[.06em] text-warning uppercase">
-                Matrículas do arquivo que não têm cadastro de funcionário (importe a folha de
-                salários primeiro)
+                Matrículas do arquivo que não têm cadastro de funcionário (importe o cadastro
+                primeiro)
               </p>
               <Table containerClassName="max-h-[40vh] overflow-y-auto">
                 <TableHeader>

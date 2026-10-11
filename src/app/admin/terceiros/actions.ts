@@ -15,6 +15,8 @@ const terceiroSchema = z.object({
   recebeValeRefeicao: z.boolean(),
   valorValeRefeicao: z.coerce.number().nonnegative().nullable().optional(),
   recebeCestaComoVR: z.boolean(),
+  recebeValeGas: z.boolean().nullable(),
+  valeGasPecunia: z.boolean(),
 });
 
 type TerceiroInput = z.infer<typeof terceiroSchema>;
@@ -29,6 +31,8 @@ function montarDados(data: TerceiroInput) {
     recebeValeRefeicao: data.recebeValeRefeicao,
     valorValeRefeicao: data.valorValeRefeicao ?? null,
     recebeCestaComoVR: data.recebeCestaComoVR,
+    recebeValeGas: data.recebeValeGas,
+    valeGasPecunia: data.valeGasPecunia,
   };
 }
 

@@ -63,7 +63,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
   if (!empresa) {
     return {
       data: null,
-      error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe a folha de salários dela antes.`,
+      error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
 
@@ -71,7 +71,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
   if (!setor) {
     return {
       data: null,
-      error: 'Não encontrei o cargo "Aprendiz" cadastrado — sincronize os cargos (folha de salários) antes de importar este relatório.',
+      error: 'Não encontrei o cargo "Aprendiz" cadastrado — importe o cadastro antes de importar este relatório.',
     };
   }
 
@@ -259,15 +259,25 @@ export async function confirmarMovimentacaoAprendiz(
         // Casado por nome (TXT) — a data exata não veio no arquivo, usa o dia 1 do mês/ano como
         // aproximação (o dia certo precisa ser confirmado depois no cadastro, principalmente se
         // o desligamento foi perto do fim do mês, que muda a regra do VR proporcional).
+        const evento = alvo.diaAproximado ? null : eventosComData.find((e) => e.matricula === alvo.matricula);
         const dataDesligamento = alvo.diaAproximado
           ? alvo.competencia
             ? competenciaParaData(alvo.competencia)
             : null
-          : (eventosComData.find((e) => e.matricula === alvo.matricula)?.dataEvento ?? null);
+          : (evento?.dataEvento ?? null);
         if (!dataDesligamento) continue;
         await tx.funcionario.updateMany({
           where: { empresaId, matricula: alvo.matricula },
-          data: { status: "desligado", dataDesligamento },
+          data: { status: "desligado", dataDesligamento, ...(evento?.motivo ? { motivoDesligamento: evento.motivo } : {}) },
+        });
+      }
+      // Quem já estava desligado no sistema (ex.: marcado pelo cadastro) também recebe o motivo —
+      // é ele que os indicadores usam pra identificar transferência com ônus.
+      for (const e of eventosComData) {
+        if (!e.motivo) continue;
+        await tx.funcionario.updateMany({
+          where: { empresaId, matricula: e.matricula, status: "desligado", motivoDesligamento: null },
+          data: { motivoDesligamento: e.motivo },
         });
       }
     }

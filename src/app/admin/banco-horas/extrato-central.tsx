@@ -57,6 +57,7 @@ export function ExtratoCentral() {
   const [resultado, setResultado] = useState<ExtratoResult | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, startCarregando] = useTransition();
+  const [rescisao, setRescisao] = useState(false);
 
   useEffect(() => {
     listarFuncionariosComBancoHoras().then(setFuncionarios);
@@ -65,7 +66,7 @@ export function ExtratoCentral() {
   function handleImportado() {
     listarFuncionariosComBancoHoras().then(setFuncionarios);
     if (funcionarioSelecionado) {
-      carregar(funcionarioSelecionado.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`);
+      carregar(funcionarioSelecionado.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`, rescisao);
     }
   }
 
@@ -77,9 +78,9 @@ export function ExtratoCentral() {
       .slice(0, 8);
   }, [busca, funcionarios]);
 
-  function carregar(funcionarioId: string, inicio: string, fim: string) {
+  function carregar(funcionarioId: string, inicio: string, fim: string, completo: boolean) {
     startCarregando(async () => {
-      const result = await buscarExtratoColaborador(funcionarioId, inicio, fim);
+      const result = await buscarExtratoColaborador(funcionarioId, inicio, fim, { completo });
       setResultado(result.data);
       setErro(result.error);
     });
@@ -89,7 +90,14 @@ export function ExtratoCentral() {
     setFuncionarioSelecionado(f);
     setBusca("");
     setBuscaFoco(false);
-    carregar(f.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`);
+    carregar(f.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`, rescisao);
+  }
+
+  function handleRescisaoChange(valor: boolean) {
+    setRescisao(valor);
+    if (funcionarioSelecionado) {
+      carregar(funcionarioSelecionado.id, `${mesInicio}/${anoInicio}`, `${mesFim}/${anoFim}`, valor);
+    }
   }
 
   function handleTrocarFuncionario() {
@@ -111,7 +119,7 @@ export function ExtratoCentral() {
     if (campo === "anoFim") setAnoFim(valor);
 
     if (funcionarioSelecionado) {
-      carregar(funcionarioSelecionado.id, `${novo.mesInicio}/${novo.anoInicio}`, `${novo.mesFim}/${novo.anoFim}`);
+      carregar(funcionarioSelecionado.id, `${novo.mesInicio}/${novo.anoInicio}`, `${novo.mesFim}/${novo.anoFim}`, rescisao);
     }
   }
 
@@ -139,6 +147,7 @@ export function ExtratoCentral() {
       inicio: `${mesInicio}/${anoInicio}`,
       fim: `${mesFim}/${anoFim}`,
     });
+    if (rescisao) params.set("rescisao", "1");
     window.open(`/admin/banco-horas/extrato-pdf?${params.toString()}`, "_blank");
   }
 
@@ -194,7 +203,7 @@ export function ExtratoCentral() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className={`flex flex-col gap-2 ${rescisao ? "opacity-40" : ""}`}>
           <CompetenciaSelect
             mes={mesInicio}
             ano={anoInicio}
@@ -210,8 +219,20 @@ export function ExtratoCentral() {
             onMesChange={(v) => handlePeriodoChange("mesFim", v)}
             onAnoChange={(v) => handlePeriodoChange("anoFim", v)}
           />
-          <span className="font-mono text-[9px] tracking-[.06em] text-text-3 uppercase">até</span>
+          <span className="font-mono text-[9px] tracking-[.06em] text-text-3 uppercase">
+            {rescisao ? "competência da rescisão" : "até"}
+          </span>
         </div>
+
+        <label className="mb-[9px] flex cursor-pointer items-center gap-2 font-mono text-[11px] text-text-2 select-none">
+          <input
+            type="checkbox"
+            checked={rescisao}
+            onChange={(e) => handleRescisaoChange(e.target.checked)}
+            className="size-3.5 accent-primary"
+          />
+          Rescisão (extrato completo)
+        </label>
 
         {resultado && (
           <div className="mb-[1px] flex gap-2">
@@ -284,6 +305,20 @@ export function ExtratoCentral() {
               ))}
             </TableBody>
           </Table>
+
+          {rescisao && (
+            <div className="flex items-center justify-between rounded-md border border-primary/30 bg-secondary px-4 py-3">
+              <span className="font-mono text-[11px] tracking-[.04em] text-text-2 uppercase">
+                Valor a pagar em rescisão
+              </span>
+              <span className="font-mono text-[18px] font-bold text-foreground">
+                {fmtHoras(
+                  resultado.linhas[resultado.linhas.length - 1].aPagar +
+                    Math.max(resultado.linhas[resultado.linhas.length - 1].saldoAtual, 0)
+                )}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

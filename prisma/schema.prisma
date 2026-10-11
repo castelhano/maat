@@ -112,6 +112,7 @@ model Empresa {
   terceiros            Terceiro[]
   importacoes          Importacao[]
   apuracoes            Apuracao[]
+  apuracoesValeGas     ApuracaoValeGas[]
   bancoHorasImportacoes BancoHorasImportacao[]
   indicadoresMensais   IndicadorMensal[]
   rateiosTotais        RateioTotalCampo[]
@@ -183,11 +184,22 @@ model Funcionario {
   // Relatório 2 (afastamentos): motivo do afastamento, ex. "Licença sem Remuneração" — usado
   // na regra de perda de cesta básica quando não completa 28 dias trabalhados no mês.
   motivoAfastamento String?
+  // Motivo do desligamento vindo do ERP (ex. "TRANSFERENCIA ( COM ONUS )") — usado pra tirar
+  // transferências com ônus do turnover ao montar os indicadores do mês.
+  motivoDesligamento String?
   // Opção manual: para cálculo do VR, soma 40% ao salário base antes de aplicar o percentual
   // (colaboradores com gratificação).
   temGratificacao   Boolean @default(false)
   // Opção do colaborador: converter o valor da cesta básica em crédito no VR em vez de receber a cesta física.
   recebeCestaComoVR Boolean @default(false)
+
+  // null = usa o mesmo padrão da cesta básica (recebeCestaBasicaResolvido); true/false sobrescreve
+  // só o vale gás — existe pra quem tem cesta mas não tem vale gás (ou vice-versa).
+  recebeValeGas  Boolean?
+  // Opção manual: recebe o valor da entrega em dinheiro (pecúnia) em vez da quantidade de vale —
+  // poucos casos. O valor pago é o mesmo "valor da entrega" lançado por empresa/competência em
+  // ApuracaoValeGas, não um valor individual.
+  valeGasPecunia Boolean  @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -201,9 +213,30 @@ model Funcionario {
 
   feriasPeriodos Ferias[]
 
+  afastamentos AfastamentoHistorico[]
+
   @@unique([empresaId, matricula])
   @@index([cargoId])
   @@map("funcionario")
+}
+
+// Histórico completo de afastamentos (pode ter mais de um ciclo no mesmo mês — ex.: voltou dia 7
+// e se afastou de novo dia 23). dataAfastamento/dataRetorno em Funcionario guardam só o ciclo mais
+// recente (pra telas simples de cadastro); a apuração de benefícios usa esta tabela pra contar os
+// dias trabalhados no mês corretamente quando há mais de um ciclo.
+model AfastamentoHistorico {
+  id            String      @id @default(cuid())
+  funcionarioId String
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  dataInicio    DateTime
+  // null = ainda afastado (ciclo em aberto)
+  dataFim       DateTime?
+  motivo        String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([funcionarioId])
+  @@map("afastamento_historico")
 }
 
 // Relatório 3 (faltas): uma linha por data de falta, não um contador do mês — a data exata é
@@ -272,8 +305,9 @@ model IndicadorMensal {
   admitidos  Int
   desligados Int
   afastados  Int
-  // Sem código/linha própria no relatório — sempre lançado manualmente. Descontado de
-  // ativos/admitidos/desligados só na hora de calcular turnover (aprendiz não entra nessa conta).
+  // Sem código/linha própria no relatório — preenchidos na importação do Resumo Gerencial a partir
+  // do cadastro (admissão/desligamento de quem tem cargo APRENDIZ), editáveis na conferência.
+  // Descontado de ativos/admitidos/desligados só na hora de calcular turnover.
   aprendizesAtivos     Int @default(0)
   aprendizesAdmitidos  Int @default(0)
   aprendizesDesligados Int @default(0)
@@ -377,6 +411,12 @@ model Terceiro {
   valorValeRefeicao  Decimal?
   recebeCestaComoVR  Boolean  @default(false)
 
+  // null = usa o mesmo padrão da cesta básica (recebeCestaBasica); true/false sobrescreve só o
+  // vale gás — existe pra terceiro que tem cesta mas não tem vale gás (ou vice-versa).
+  recebeValeGas  Boolean?
+  // Opção manual: recebe o valor da entrega em dinheiro (pecúnia) em vez da quantidade de vale.
+  valeGasPecunia Boolean  @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -444,6 +484,59 @@ model ApuracaoItem {
   @@map("apuracao_item")
 }
 
+// Vale Gás: benefício com período aquisitivo próprio (~60 dias, de 15 de um mês a 14 do mês
+// dois meses depois), entregue sempre num mês par. Não tem valor fixo por pessoa — o valor de
+// cada entrega varia conforme orçamento, então fica um campo livre preenchido manualmente por
+// competência (em vez de por colaborador).
+model ApuracaoValeGas {
+  id          String   @id @default(cuid())
+  empresaId   String
+  empresa     Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  // Mês de entrega ("mm/yyyy"), sempre um mês par — representa o período aquisitivo de ~60 dias
+  // que termina no dia 14 do mês anterior.
+  competencia String
+  geradoPorId String
+  geradoEm    DateTime?
+  // Valor total dessa entrega (orçamento), opcional — preenchido manualmente depois de apurar
+  // quantos colaboradores têm direito.
+  valorEntrega Decimal?
+  createdAt   DateTime @default(now())
+
+  itens ApuracaoValeGasItem[]
+
+  @@unique([empresaId, competencia])
+  @@index([empresaId])
+  @@map("apuracao_vale_gas")
+}
+
+model ApuracaoValeGasItem {
+  id         String          @id @default(cuid())
+  apuracaoId String
+  apuracao   ApuracaoValeGas @relation(fields: [apuracaoId], references: [id], onDelete: Cascade)
+
+  tipo          String
+  funcionarioId String?
+  terceiroId    String?
+  matricula     String?
+  nome          String
+  cargo         String?
+  dataAdmissao  DateTime?
+
+  elegivel     Boolean
+  motivoPerda  String?
+  // Snapshot da opção de receber em pecúnia no momento do processamento — usado pra montar o
+  // arquivo bancário (o valor pago é o "valor da entrega" da empresa/competência, não um valor
+  // individual).
+  pecunia      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([apuracaoId, funcionarioId])
+  @@unique([apuracaoId, terceiroId])
+  @@index([apuracaoId])
+  @@map("apuracao_vale_gas_item")
+}
+
 // Log de cada importação de arquivo (rastreabilidade + auditoria dos dados de RH). Também é a
 // fonte da checklist "o que já foi importado nesta competência" — um arquivo que cobre várias
 // empresas de uma vez (ex.: situação/vale-refeição) gera uma linha por empresa afetada.
@@ -451,8 +544,8 @@ model Importacao {
   id             String   @id @default(cuid())
   empresaId      String
   empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
-  // "folha_salarios" | "situacao_vale_refeicao" | "faltas" | "afastamentos" | "ferias" | "cat"
-  // | "indicadores_mensais"
+  // "cadastro" | "faltas" | "afastamentos" | "movimentacao_aprendiz_desligados" | "ferias" | "cat"
+  // | "indicadores_mensais" — e, de importações antigas, "folha_salarios" | "situacao_vale_refeicao"
   tipo           String   @default("folha_salarios")
   importadoPorId String
   nomeArquivo    String

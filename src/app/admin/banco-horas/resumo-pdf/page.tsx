@@ -23,11 +23,18 @@ function nomeCompetencia(competencia: string): string {
 export default async function ResumoPdfPage({
   searchParams,
 }: {
-  searchParams: Promise<{ competencia?: string; empresaId?: string; departamento?: string; setor?: string }>;
+  searchParams: Promise<{
+    competencia?: string;
+    empresaId?: string;
+    departamento?: string;
+    setor?: string;
+    rescisao?: string;
+  }>;
 }) {
   await requireAdmin();
-  const { competencia, empresaId, departamento, setor } = await searchParams;
+  const { competencia, empresaId, departamento, setor, rescisao } = await searchParams;
   if (!competencia) notFound();
+  const mostrarRescisao = rescisao === "1";
 
   const { data, error } = await buscarResumoMensal(competencia, { empresaId, departamento, setor });
 
@@ -62,7 +69,11 @@ export default async function ResumoPdfPage({
         <p className="text-right text-xs text-neutral-400">Emitido em {emitidoEm}</p>
       </div>
 
-      <div className="mb-8 grid grid-cols-5 gap-3 rounded-md bg-neutral-50 p-5 text-sm print:border print:border-neutral-300">
+      <div
+        className={`mb-8 grid gap-3 rounded-md bg-neutral-50 p-5 text-sm print:border print:border-neutral-300 ${
+          mostrarRescisao ? "grid-cols-6" : "grid-cols-5"
+        }`}
+      >
         <div>
           <p className="text-[10px] tracking-wide text-neutral-400 uppercase">Funcionários</p>
           <p className="font-semibold text-neutral-900">{data.linhas.length}</p>
@@ -87,6 +98,12 @@ export default async function ResumoPdfPage({
             <span className="text-amber-600">{fmtHoras(data.totais.pagoReferenteSaldoAnterior)}</span>
           </p>
         </div>
+        {mostrarRescisao && (
+          <div>
+            <p className="text-[10px] tracking-wide text-neutral-400 uppercase">Valor a pagar em rescisão</p>
+            <p className="font-semibold text-neutral-900">{fmtHoras(data.totais.pagoRescisao)}</p>
+          </div>
+        )}
       </div>
 
       <table className="mb-2 w-full border-collapse text-sm">
@@ -99,6 +116,7 @@ export default async function ResumoPdfPage({
             <th className="px-2 py-2 text-right">Débito</th>
             <th className="px-2 py-2 text-right">A Pagar</th>
             <th className="py-2 pl-2 text-right">Saldo Final</th>
+            {mostrarRescisao && <th className="py-2 pl-2 text-right">A Pagar (Rescisão)</th>}
           </tr>
         </thead>
         <tbody>
@@ -121,6 +139,11 @@ export default async function ResumoPdfPage({
               >
                 {fmtHoras(l.saldoFinal)}
               </td>
+              {mostrarRescisao && (
+                <td className="py-2 pl-2 text-right font-semibold tabular-nums text-neutral-900">
+                  {fmtHoras(l.pagoRescisao)}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -135,6 +158,9 @@ export default async function ResumoPdfPage({
             <td className="pt-2 text-right tabular-nums">
               {fmtHoras(data.totais.saldoPositivo + data.totais.saldoNegativo)}
             </td>
+            {mostrarRescisao && (
+              <td className="pt-2 text-right tabular-nums">{fmtHoras(data.totais.pagoRescisao)}</td>
+            )}
           </tr>
         </tfoot>
       </table>

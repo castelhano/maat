@@ -5,6 +5,9 @@ import { requireAdmin } from "@/lib/session";
 import { extrairTextoPdf } from "@/lib/pdf";
 import { parseResumoGerencial } from "@/lib/parsers/resumo-gerencial";
 import { CAMPOS_INDICADOR, type CampoIndicador } from "@/lib/indicadores";
+import { MOTIVO_TRANSFERENCIA_COM_ONUS } from "@/lib/parsers/admitidos-desligados";
+
+const FUNCAO_APRENDIZ = "APRENDIZ";
 
 export type PreviewIndicadorLinha = { setor: string } & Record<CampoIndicador, number | null>;
 
@@ -33,14 +36,84 @@ export async function previewIndicadores(
   if (!empresa) {
     return {
       data: null,
-      error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe a folha de salários dela antes.`,
+      error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
 
+  // O PDF não traz aprendizes nem transferências com ônus — em vez de deixar zerado, preenche com
+  // o que o cadastro já sabe (admissão, desligamento e motivo), ainda editável na conferência.
+  const movimentacao = await movimentacaoDoCadastro(empresa.id, parsed.competencia);
+  const linhas = parsed.linhas.map((l) => {
+    const calc = movimentacao.get(l.setor);
+    const preenchida = { ...l };
+    for (const campo of CAMPOS_DO_CADASTRO) {
+      if (preenchida[campo] === null) preenchida[campo] = calc?.[campo] ?? 0;
+    }
+    return preenchida;
+  });
+
   return {
-    data: { empresaId: empresa.id, empresaNome: empresa.nome, competencia: parsed.competencia, linhas: parsed.linhas },
+    data: { empresaId: empresa.id, empresaNome: empresa.nome, competencia: parsed.competencia, linhas },
     error: null,
   };
+}
+
+const CAMPOS_DO_CADASTRO = [
+  "aprendizesAtivos",
+  "aprendizesAdmitidos",
+  "aprendizesDesligados",
+  "desligadosTransferencia",
+] as const satisfies readonly CampoIndicador[];
+
+type MovimentacaoSetor = Record<(typeof CAMPOS_DO_CADASTRO)[number], number>;
+
+// Conta, por setor (do cargo), quem é aprendiz ativo no fim do mês, aprendiz admitido/desligado no
+// mês e desligado no mês por transferência com ônus (este último sem contar aprendiz, que já sai
+// da conta do turnover por aprendizesDesligados).
+async function movimentacaoDoCadastro(empresaId: string, competencia: string): Promise<Map<string, MovimentacaoSetor>> {
+  const [mes, ano] = competencia.split("/").map(Number);
+  const inicio = new Date(Date.UTC(ano, mes - 1, 1));
+  const fim = new Date(Date.UTC(ano, mes, 1));
+  const noMes = (d: Date | null) => d !== null && d >= inicio && d < fim;
+
+  const funcionarios = await prisma.funcionario.findMany({
+    where: { empresaId },
+    select: {
+      dataAdmissao: true,
+      dataDesligamento: true,
+      status: true,
+      motivoDesligamento: true,
+      cargo: { select: { nome: true, setor: true } },
+    },
+  });
+
+  const resultado = new Map<string, MovimentacaoSetor>();
+  const somar = (setor: string | null, campo: keyof MovimentacaoSetor) => {
+    if (!setor) return;
+    const atual = resultado.get(setor) ?? {
+      aprendizesAtivos: 0,
+      aprendizesAdmitidos: 0,
+      aprendizesDesligados: 0,
+      desligadosTransferencia: 0,
+    };
+    atual[campo]++;
+    resultado.set(setor, atual);
+  };
+
+  for (const f of funcionarios) {
+    const setor = f.cargo.setor;
+    const aprendiz = f.cargo.nome.toUpperCase() === FUNCAO_APRENDIZ;
+    if (aprendiz) {
+      if (noMes(f.dataAdmissao)) somar(setor, "aprendizesAdmitidos");
+      if (noMes(f.dataDesligamento)) somar(setor, "aprendizesDesligados");
+      const saiuAteOFim = f.dataDesligamento ? f.dataDesligamento < fim : f.status === "desligado";
+      if (f.dataAdmissao < fim && !saiuAteOFim) somar(setor, "aprendizesAtivos");
+    } else if (noMes(f.dataDesligamento) && f.motivoDesligamento && MOTIVO_TRANSFERENCIA_COM_ONUS.test(f.motivoDesligamento)) {
+      somar(setor, "desligadosTransferencia");
+    }
+  }
+
+  return resultado;
 }
 
 export type IndicadorLinhaEditada = { setor: string; camposManuais: CampoIndicador[] } & Record<

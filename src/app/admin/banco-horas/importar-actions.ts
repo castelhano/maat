@@ -91,7 +91,7 @@ export async function previewExtratoBancoHoras(
   if (!empresa) {
     return {
       data: null,
-      error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe a folha de salários dela antes.`,
+      error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
 
@@ -134,7 +134,7 @@ export async function confirmarExtratoBancoHoras(
   const empresa = await prisma.empresa.findUnique({ where: { codigo: parsed.empresa.codigo } });
   if (!empresa) {
     return {
-      error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe a folha de salários dela antes.`,
+      error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
 

@@ -19,6 +19,8 @@ export default async function TerceirosPage() {
     recebeValeRefeicao: t.recebeValeRefeicao,
     valorValeRefeicao: t.valorValeRefeicao?.toNumber() ?? null,
     recebeCestaComoVR: t.recebeCestaComoVR,
+    recebeValeGas: t.recebeValeGas,
+    valeGasPecunia: t.valeGasPecunia,
     empresa: { nome: t.empresa.nome },
   }));
 

@@ -51,6 +51,10 @@ export type ResumoMensalLinha = {
   alertaCredito: boolean;
   // Funcionário afastado há mais de 30 dias nesta competência: saldo intacto, nada foi pago.
   congelado: boolean;
+  // Valor a pagar em caso de rescisão nesta competência: o que já seria pago no mês, somado ao
+  // saldo positivo remanescente (que também vira dinheiro na rescisão). Saldo negativo não desconta
+  // nada aqui — é dívida do funcionário com a empresa, não abate o valor da rescisão.
+  pagoRescisao: number;
 };
 
 export type ResumoMensalResult = {
@@ -64,6 +68,7 @@ export type ResumoMensalResult = {
     pagoReferenteSaldoAnterior: number;
     saldoPositivo: number;
     saldoNegativo: number;
+    pagoRescisao: number;
   };
 };
 
@@ -177,6 +182,8 @@ export async function buscarResumoMensal(
           ? Math.max(0, saldoAnterior - debitoBruto)
           : 0;
       const pagoReferenteCreditoMes = a.congelado ? 0 : pagoNoMes - pagoReferenteSaldoAnterior;
+      const saldoFinal = Number(a.saldoFinal);
+      const pagoRescisao = pagoNoMes + Math.max(saldoFinal, 0);
       return {
         matricula: a.funcionario.matricula,
         nome: a.funcionario.nome,
@@ -187,9 +194,10 @@ export async function buscarResumoMensal(
         pagoNoMes,
         pagoReferenteCreditoMes,
         pagoReferenteSaldoAnterior,
-        saldoFinal: Number(a.saldoFinal),
+        saldoFinal,
         alertaCredito: creditoBruto > 0.001 && funcaoNaoPodeCredito(a.funcionario.cargo.nome, a.funcionario.temGratificacao),
         congelado: a.congelado,
+        pagoRescisao,
       };
     })
     .sort((a, b) => a.matricula.localeCompare(b.matricula));
@@ -203,6 +211,7 @@ export async function buscarResumoMensal(
       pagoReferenteSaldoAnterior: acc.pagoReferenteSaldoAnterior + l.pagoReferenteSaldoAnterior,
       saldoPositivo: acc.saldoPositivo + Math.max(l.saldoFinal, 0),
       saldoNegativo: acc.saldoNegativo + Math.min(l.saldoFinal, 0),
+      pagoRescisao: acc.pagoRescisao + l.pagoRescisao,
     }),
     {
       creditoBruto: 0,
@@ -212,6 +221,7 @@ export async function buscarResumoMensal(
       pagoReferenteSaldoAnterior: 0,
       saldoPositivo: 0,
       saldoNegativo: 0,
+      pagoRescisao: 0,
     }
   );
 
@@ -336,7 +346,8 @@ export async function buscarEvolucao(
 export async function buscarExtratoColaborador(
   funcionarioId: string,
   competenciaInicio: string,
-  competenciaFim: string
+  competenciaFim: string,
+  opcoes?: { completo?: boolean }
 ): Promise<{ data: ExtratoResult | null; error: string | null }> {
   await requireAdmin();
 
@@ -346,7 +357,9 @@ export async function buscarExtratoColaborador(
   });
   if (!funcionario) return { data: null, error: "Funcionário não encontrado." };
 
-  if (compararCompetencias(competenciaInicio, competenciaFim) > 0) {
+  // Rescisão: precisamos do extrato completo, desde o início do banco de horas do colaborador,
+  // pra apresentar o histórico todo que embasa o saldo final — ignora a competência inicial pedida.
+  if (!opcoes?.completo && compararCompetencias(competenciaInicio, competenciaFim) > 0) {
     return { data: null, error: "A competência inicial não pode ser depois da final." };
   }
 
@@ -373,7 +386,7 @@ export async function buscarExtratoColaborador(
 
   const linhas = todasLinhas.filter(
     (l) =>
-      compararCompetencias(l.competencia, competenciaInicio) >= 0 &&
+      (opcoes?.completo || compararCompetencias(l.competencia, competenciaInicio) >= 0) &&
       compararCompetencias(l.competencia, competenciaFim) <= 0
   );
 

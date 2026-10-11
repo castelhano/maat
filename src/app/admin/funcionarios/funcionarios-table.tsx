@@ -59,6 +59,8 @@ type Funcionario = {
   valorValeRefeicao: number | null;
   temGratificacao: boolean;
   recebeCestaComoVR: boolean;
+  recebeValeGas: boolean | null;
+  valeGasPecunia: boolean;
   empresa: { nome: string };
   cargo: { nome: string; recebeCestaBasica: boolean; recebeValeRefeicao: boolean };
 };
@@ -94,6 +96,8 @@ const funcionarioFormSchema = z
       .refine((v) => v === "" || NUMERO_DECIMAL.test(v), "Informe um valor numérico válido"),
     temGratificacao: z.enum(BOOL),
     recebeCestaComoVR: z.enum(BOOL),
+    recebeValeGas: z.enum(HERANCA),
+    valeGasPecunia: z.enum(BOOL),
   })
   .superRefine((data, ctx) => {
     if (data.status === "afastado" && !data.dataAfastamento) {
@@ -161,6 +165,8 @@ export function FuncionariosTable({
   const recebeValeRefeicao = useWatch({ control, name: "recebeValeRefeicao" });
   const temGratificacao = useWatch({ control, name: "temGratificacao" });
   const recebeCestaComoVR = useWatch({ control, name: "recebeCestaComoVR" });
+  const recebeValeGas = useWatch({ control, name: "recebeValeGas" });
+  const valeGasPecunia = useWatch({ control, name: "valeGasPecunia" });
 
   const funcionariosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -193,6 +199,8 @@ export function FuncionariosTable({
       valorValeRefeicao: "",
       temGratificacao: "false",
       recebeCestaComoVR: "false",
+      recebeValeGas: "herda",
+      valeGasPecunia: "false",
     });
     setDialogOpen(true);
   }
@@ -217,6 +225,8 @@ export function FuncionariosTable({
       valorValeRefeicao: funcionario.valorValeRefeicao !== null ? String(funcionario.valorValeRefeicao) : "",
       temGratificacao: funcionario.temGratificacao ? "true" : "false",
       recebeCestaComoVR: funcionario.recebeCestaComoVR ? "true" : "false",
+      recebeValeGas: heredaToForm(funcionario.recebeValeGas),
+      valeGasPecunia: funcionario.valeGasPecunia ? "true" : "false",
     });
     setDialogOpen(true);
   }
@@ -240,6 +250,8 @@ export function FuncionariosTable({
       valorValeRefeicao: values.valorValeRefeicao ? paraNumero(values.valorValeRefeicao) : null,
       temGratificacao: values.temGratificacao === "true",
       recebeCestaComoVR: values.recebeCestaComoVR === "true",
+      recebeValeGas: formToHeranca(values.recebeValeGas),
+      valeGasPecunia: values.valeGasPecunia === "true",
     };
     startTransition(async () => {
       const result = editando
@@ -505,6 +517,40 @@ export function FuncionariosTable({
                     <SelectItem value="true">Converter valor da cesta em VR</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="grid min-w-0 grid-cols-2 gap-3">
+                <div className="flex flex-col gap-2">
+                  <Label>Vale gás</Label>
+                  <Select
+                    value={recebeValeGas}
+                    onValueChange={(value) => setValue("recebeValeGas", value as (typeof HERANCA)[number])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="herda">Padrão da cesta básica</SelectItem>
+                      <SelectItem value="sim">Recebe</SelectItem>
+                      <SelectItem value="nao">Não recebe</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label>Vale gás em pecúnia</Label>
+                  <Select
+                    value={valeGasPecunia}
+                    onValueChange={(value) => setValue("valeGasPecunia", value as (typeof BOOL)[number])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">Recebe o vale normalmente</SelectItem>
+                      <SelectItem value="true">Recebe em dinheiro (pecúnia)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <DialogFooter>

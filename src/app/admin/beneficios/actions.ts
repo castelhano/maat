@@ -18,6 +18,7 @@ export type ApuracaoItemDTO = {
   matricula: string | null;
   documento: string | null;
   nome: string;
+  nomeCompleto: string | null;
   cargo: string | null;
   area: string | null;
   salario: number | null;
@@ -79,13 +80,14 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
   const terceiroIds = apuracoes.flatMap((a) => a.itens.map((i) => i.terceiroId).filter((id) => id !== null));
   const funcionariosCpf = await prisma.funcionario.findMany({
     where: { id: { in: funcionarioIds } },
-    select: { id: true, cpf: true },
+    select: { id: true, cpf: true, nomeCompleto: true },
   });
   const terceirosDoc = await prisma.terceiro.findMany({
     where: { id: { in: terceiroIds } },
     select: { id: true, documento: true },
   });
   const cpfPorFuncionarioId = new Map(funcionariosCpf.map((f) => [f.id, f.cpf]));
+  const nomeCompletoPorFuncionarioId = new Map(funcionariosCpf.map((f) => [f.id, f.nomeCompleto]));
   const docPorTerceiroId = new Map(terceirosDoc.map((t) => [t.id, t.documento]));
 
   const itens: ApuracaoItemDTO[] = apuracoes.flatMap((a) =>
@@ -98,6 +100,7 @@ export async function carregarApuracao(competencia: string): Promise<ApuracaoRes
           ? (docPorTerceiroId.get(i.terceiroId) ?? null)
           : null,
       nome: i.nome,
+      nomeCompleto: i.funcionarioId ? (nomeCompletoPorFuncionarioId.get(i.funcionarioId) ?? null) : null,
       cargo: i.cargo,
       area: i.cargo ? (setorPorCargo.get(i.cargo) ?? null) : null,
       salario: i.salario?.toNumber() ?? null,
@@ -197,6 +200,20 @@ export async function processarApuracao(
     });
     const faltasPorFuncionarioAnterior = new Map(faltasAgrupadasAnterior.map((f) => [f.funcionarioId, f._count._all]));
 
+    // Histórico completo de afastamentos (pode ter mais de um ciclo no mesmo mês, ex.: voltou
+    // dia 7 e se afastou de novo dia 23) — usado pra contar os dias trabalhados corretamente, em
+    // vez de só o par dataAfastamento/dataRetorno (que guarda só o ciclo mais recente).
+    const historicoAfastamentos = await prisma.afastamentoHistorico.findMany({
+      where: { funcionarioId: { in: funcionarios.map((f) => f.id) } },
+      select: { funcionarioId: true, dataInicio: true, dataFim: true, motivo: true },
+    });
+    const periodosPorFuncionario = new Map<string, { inicio: Date; fim: Date | null; motivo: string | null }[]>();
+    for (const h of historicoAfastamentos) {
+      const lista = periodosPorFuncionario.get(h.funcionarioId) ?? [];
+      lista.push({ inicio: h.dataInicio, fim: h.dataFim, motivo: h.motivo });
+      periodosPorFuncionario.set(h.funcionarioId, lista);
+    }
+
     const valorCestaBasicaEmpresa = empresa.valorCestaBasica?.toNumber() ?? null;
     // Cesta básica e vale-alimentação são fechados em datas diferentes — cada um só grava os
     // campos da sua própria dimensão, pra reprocessar um não sobrescrever o outro (ex.: apurar
@@ -207,6 +224,7 @@ export async function processarApuracao(
     for (const f of funcionarios) {
       const recebeCestaResolvido = resolverHeranca(f.recebeCestaBasica, f.cargo.recebeCestaBasica);
       const recebeVRResolvido = resolverHeranca(f.recebeValeRefeicao, f.cargo.recebeValeRefeicao);
+      const periodosAfastamento = periodosPorFuncionario.get(f.id) ?? [];
 
       const cesta = calcularElegibilidadeCesta(
         {
@@ -215,6 +233,7 @@ export async function processarApuracao(
           dataAfastamento: f.dataAfastamento,
           dataRetorno: f.dataRetorno,
           motivoAfastamento: f.motivoAfastamento,
+          periodosAfastamento,
           faltasNoMes: faltasPorFuncionario.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
         },
@@ -239,6 +258,7 @@ export async function processarApuracao(
           dataAfastamento: f.dataAfastamento,
           dataRetorno: f.dataRetorno,
           dataDesligamento: f.dataDesligamento,
+          periodosAfastamento,
         },
         { ano, mes }
       );
@@ -253,6 +273,7 @@ export async function processarApuracao(
           dataAfastamento: f.dataAfastamento,
           dataRetorno: f.dataRetorno,
           motivoAfastamento: f.motivoAfastamento,
+          periodosAfastamento,
           faltasNoMes: faltasPorFuncionarioAnterior.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
         },

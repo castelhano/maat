@@ -1324,58 +1324,64 @@ export function FeriasTable({
           </p>
         </div>
         <Table
-          className="print:text-2xl print:[border-collapse:collapse]"
+          className={
+            filtroMural.mes > 0
+              ? "print:text-3xl print:[border-collapse:collapse]"
+              : "print:text-2xl print:[border-collapse:collapse]"
+          }
           containerClassName="print:overflow-visible print:border-0"
         >
           <TableHeader>
             <TableRow>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                <span className="print:hidden">Matrícula</span>
-                <span className="hidden print:inline">Matr</span>
-              </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                Nome
-              </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                <span className="print:hidden">Departamento</span>
-                <span className="hidden print:inline">Depart</span>
-              </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                Mês
-              </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                <span className="print:hidden">Gozo Inicial</span>
-                <span className="hidden print:inline">Início</span>
-              </TableHead>
-              <TableHead className="print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-normal print:normal-case">
-                <span className="print:hidden">Gozo Final</span>
-                <span className="hidden print:inline">Final</span>
-              </TableHead>
+              {(() => {
+                const headCls =
+                  filtroMural.mes > 0
+                    ? "print:border print:border-neutral-500 print:py-2 print:text-3xl print:font-bold print:text-black print:normal-case"
+                    : "print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-bold print:text-black print:normal-case";
+                return (
+                  <>
+                    <TableHead className={headCls}>
+                      <span className="print:hidden">Matrícula</span>
+                      <span className="hidden print:inline">Matr</span>
+                    </TableHead>
+                    <TableHead className={headCls}>Nome</TableHead>
+                    <TableHead className={headCls}>
+                      <span className="print:hidden">Departamento</span>
+                      <span className="hidden print:inline">Depart</span>
+                    </TableHead>
+                    <TableHead className={headCls}>Mês</TableHead>
+                    <TableHead className={headCls}>
+                      <span className="print:hidden">Gozo Inicial</span>
+                      <span className="hidden print:inline">Início</span>
+                    </TableHead>
+                    <TableHead className={headCls}>
+                      <span className="print:hidden">Gozo Final</span>
+                      <span className="hidden print:inline">Final</span>
+                    </TableHead>
+                  </>
+                );
+              })()}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {muralOrdenado.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="print:border print:border-neutral-400 print:py-1">
-                  {p.matricula}
-                </TableCell>
-                <TableCell className="font-medium text-foreground print:border print:border-neutral-400 print:py-1">
-                  {p.nome}
-                </TableCell>
-                <TableCell className="print:border print:border-neutral-400 print:py-1">
-                  {p.departamento ?? "—"}
-                </TableCell>
-                <TableCell className="print:border print:border-neutral-400 print:py-1">
-                  {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
-                </TableCell>
-                <TableCell className="print:border print:border-neutral-400 print:py-1">
-                  {formatarData(p.gozoInicio)}
-                </TableCell>
-                <TableCell className="print:border print:border-neutral-400 print:py-1">
-                  {formatarData(p.gozoFim)}
-                </TableCell>
-              </TableRow>
-            ))}
+            {muralOrdenado.map((p) => {
+              const celCls =
+                filtroMural.mes > 0
+                  ? "print:border print:border-neutral-400 print:py-1.5 print:font-bold print:text-black"
+                  : "print:border print:border-neutral-400 print:py-1 print:font-bold print:text-black";
+              return (
+                <TableRow key={p.id}>
+                  <TableCell className={celCls}>{p.matricula}</TableCell>
+                  <TableCell className={`font-medium text-foreground ${celCls}`}>{p.nome}</TableCell>
+                  <TableCell className={celCls}>{p.departamento ?? "—"}</TableCell>
+                  <TableCell className={celCls}>
+                    {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
+                  </TableCell>
+                  <TableCell className={celCls}>{formatarData(p.gozoInicio)}</TableCell>
+                  <TableCell className={celCls}>{formatarData(p.gozoFim)}</TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </TabsPanel>

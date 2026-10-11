@@ -24,14 +24,15 @@ function nomeCompetencia(competencia: string): string {
 export default async function ExtratoPdfPage({
   searchParams,
 }: {
-  searchParams: Promise<{ funcionarioId?: string; inicio?: string; fim?: string }>;
+  searchParams: Promise<{ funcionarioId?: string; inicio?: string; fim?: string; rescisao?: string }>;
 }) {
   await requireAdmin();
-  const { funcionarioId, inicio, fim } = await searchParams;
+  const { funcionarioId, inicio, fim, rescisao } = await searchParams;
   if (!funcionarioId || !inicio || !fim) notFound();
+  const ehRescisao = rescisao === "1";
 
   const [{ data, error }, empresaInfo] = await Promise.all([
-    buscarExtratoColaborador(funcionarioId, inicio, fim),
+    buscarExtratoColaborador(funcionarioId, inicio, fim, { completo: ehRescisao }),
     prisma.funcionario.findUnique({
       where: { id: funcionarioId },
       select: { empresa: { select: { nome: true } }, cargo: { select: { nome: true } } },
@@ -46,7 +47,9 @@ export default async function ExtratoPdfPage({
     );
   }
 
-  const saldoFinalGeral = data.linhas[data.linhas.length - 1].saldoAtual;
+  const ultimaLinha = data.linhas[data.linhas.length - 1];
+  const saldoFinalGeral = ultimaLinha.saldoAtual;
+  const valorRescisao = ultimaLinha.aPagar + Math.max(ultimaLinha.saldoAtual, 0);
   const totalCredito = data.linhas.reduce((acc, l) => acc + l.creditoBruto, 0);
   const totalDebito = data.linhas.reduce((acc, l) => acc + l.debitoBruto, 0);
   const totalPago = data.linhas.reduce((acc, l) => acc + l.aPagar, 0);
@@ -61,7 +64,9 @@ export default async function ExtratoPdfPage({
           <p className="text-lg font-bold tracking-tight text-neutral-900">
             {empresaInfo?.empresa.nome ?? "Empresa"}
           </p>
-          <p className="text-sm text-neutral-500">Extrato do Banco de Horas</p>
+          <p className="text-sm text-neutral-500">
+            Extrato do Banco de Horas{ehRescisao && " — Rescisão"}
+          </p>
         </div>
         <p className="text-right text-xs text-neutral-400">Emitido em {emitidoEm}</p>
       </div>
@@ -134,6 +139,13 @@ export default async function ExtratoPdfPage({
           {fmtHoras(saldoFinalGeral)}
         </span>
       </div>
+
+      {ehRescisao && (
+        <div className="mt-3 flex items-center justify-between rounded-md border-2 border-neutral-800 bg-neutral-50 px-5 py-4">
+          <span className="text-sm font-medium text-neutral-600">Valor a pagar em rescisão</span>
+          <span className="text-2xl font-bold tabular-nums text-neutral-900">{fmtHoras(valorRescisao)}</span>
+        </div>
+      )}
 
       <div className="mt-8 space-y-2 text-xs leading-relaxed text-neutral-500">
         <p className="font-semibold text-neutral-600">Como ler este extrato:</p>

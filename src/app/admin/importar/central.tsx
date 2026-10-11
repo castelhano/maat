@@ -4,14 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
 import { CompetenciaSelect } from "@/components/competencia-select";
 import { competenciaPadrao } from "@/lib/competencia";
-import { Importador as FolhaImportador } from "../importar-folha/importador";
-import { SituacaoImportador } from "./situacao-importador";
+import { CadastroImportador } from "./cadastro-importador";
 import { FaltasImportador } from "./faltas-importador";
 import { AfastamentosImportador } from "./afastamentos-importador";
 import { CatImportador } from "./cat-importador";
 import { IndicadoresImportador } from "./indicadores-importador";
 import { MovimentacaoImportador } from "./movimentacao-importador";
-import { statusImportacoes, type StatusImportacoes } from "./status-actions";
+import { statusImportacoes, type StatusImportacoes, type StatusImportacaoTipo } from "./status-actions";
 
 type Empresa = { id: string; nome: string };
 
@@ -20,50 +19,45 @@ type TipoDef = {
   titulo: string;
   caminhoErp: string;
   descricao: string;
+  // Tipos de Importacao gravados por essa importação (a de afastados e desligados grava dois).
+  tiposStatus: string[];
 };
 
 const TIPOS: TipoDef[] = [
   {
-    key: "folha_salarios",
-    titulo: "Folha de salários",
-    caminhoErp: "Folha > Relatórios > Listagem Auxiliares Funcionários > Relação Salario II",
-    descricao: "cadastra e sincroniza cargo, salário e admissão",
+    key: "cadastro",
+    titulo: "Cadastro",
+    caminhoErp: "Folha > Relatórios > Listagem Generica > 992",
+    descricao: "cadastra e atualiza funcionários — nome, CPF, telefone, admissão, função, salário, situação e VR da função",
+    tiposStatus: ["cadastro"],
   },
   {
-    key: "situacao_vale_refeicao",
-    titulo: "Situação & vale-refeição",
-    caminhoErp: "Folha > Listagem Genérica > [ 996 ] > Campos (Cod;Sit;CPF;Func;ValeR;NomeC;Fone)",
-    descricao: "atualiza status e elegibilidade de VR de quem já existe",
+    key: "afastados_desligados",
+    titulo: "Afastados e Desligados",
+    caminhoErp: "Folha > Relatórios > Controle de datas",
+    descricao: "datas e motivos de afastamento/retorno e de desligamento (inclui aprendizes e transferência com ônus)",
+    tiposStatus: ["afastamentos", "movimentacao_aprendiz_desligados"],
   },
   {
-    key: "afastamentos",
-    titulo: "Afastamentos",
-    caminhoErp: "Folha > Listagem generica > [ 003 ]",
-    descricao: "atualiza status, data e motivo de quem está afastado",
+    key: "faltas",
+    titulo: "Ocorrência",
+    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > (8;11;12;21;30;36;37;59)",
+    descricao: "registra as datas de falta do período",
+    tiposStatus: ["faltas"],
   },
   {
     key: "indicadores_mensais",
     titulo: "Indicadores mensais (Resumo Gerencial)",
     caminhoErp: "Folha > Relatórios > Resumo Gerencial Analítico",
     descricao: "alimenta o dashboard de indicadores por área — headcount, folha, encargos e benefícios",
-  },
-  {
-    key: "movimentacao_aprendiz",
-    titulo: "Admitidos/Desligados (aprendiz)",
-    caminhoErp: "Folha > Relatórios > Controle de datas > Admitidos/Desligados",
-    descricao: "conta aprendiz admitido/desligado por mês, pra excluir do cálculo de turnover",
-  },
-  {
-    key: "faltas",
-    titulo: "Faltas",
-    caminhoErp: "Frequencia > Listagem > Analise de Ocorrencia > (8;11;12;21;30;36;37;59)",
-    descricao: "registra as datas de falta do período",
+    tiposStatus: ["indicadores_mensais"],
   },
   {
     key: "cat",
     titulo: "CAT (acidentes de trabalho)",
     caminhoErp: "Folha > Relatórios > Listagem Genérica > 7",
     descricao: "guarda os acidentes reportados — ainda sem indicador montado em cima",
+    tiposStatus: ["cat"],
   },
 ];
 
@@ -71,11 +65,23 @@ function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
+// Junta as empresas importadas nos tipos do card, ficando com a importação mais recente de cada.
+function empresasDoTipo(status: StatusImportacoes, tipos: string[]): StatusImportacaoTipo["empresasImportadas"] {
+  const porEmpresa = new Map<string, StatusImportacaoTipo["empresasImportadas"][number]>();
+  for (const t of tipos) {
+    for (const e of status[t]?.empresasImportadas ?? []) {
+      const atual = porEmpresa.get(e.id);
+      if (!atual || e.importadoEm > atual.importadoEm) porEmpresa.set(e.id, e);
+    }
+  }
+  return [...porEmpresa.values()];
+}
+
 export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
   const padrao = competenciaPadrao();
   const [mes, setMes] = useState(padrao.mes);
   const [ano, setAno] = useState(padrao.ano);
-  const [aberto, setAberto] = useState<string | null>("folha_salarios");
+  const [aberto, setAberto] = useState<string | null>("cadastro");
   const [status, setStatus] = useState<StatusImportacoes>({});
   const [isPending, startTransition] = useTransition();
 
@@ -92,6 +98,10 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
     if (competencia) recarregarStatus(competencia);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function recarregar() {
+    if (competencia) recarregarStatus(competencia);
+  }
 
   function handleMesChange(valor: string) {
     setMes(valor);
@@ -116,7 +126,7 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
 
       <div className="flex flex-col gap-3">
         {TIPOS.map((tipo) => {
-          const empresasImportadas = status[tipo.key]?.empresasImportadas ?? [];
+          const empresasImportadas = empresasDoTipo(status, tipo.tiposStatus);
           const pendentes = empresas.filter((e) => !empresasImportadas.some((i) => i.id === e.id));
           const estaAberto = aberto === tipo.key;
 
@@ -145,10 +155,7 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
 
               {estaAberto && (
                 <div className="border-t border-border px-4 py-5">
-                  {!competencia &&
-                    tipo.key !== "cat" &&
-                    tipo.key !== "indicadores_mensais" &&
-                    tipo.key !== "movimentacao_aprendiz" && (
+                  {!competencia && tipo.key !== "cat" && tipo.key !== "indicadores_mensais" && (
                     <p className="mb-4 font-mono text-[10px] text-warning">
                       Selecione a competência acima antes de importar.
                     </p>
@@ -178,36 +185,28 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
                     </div>
                   )}
 
-                  {tipo.key === "folha_salarios" && (
-                    <FolhaImportador onImportado={() => competencia && recarregarStatus(competencia)} />
+                  {tipo.key === "cadastro" && (
+                    <CadastroImportador competencia={competencia} onImportado={recarregar} />
                   )}
-                  {tipo.key === "situacao_vale_refeicao" && (
-                    <SituacaoImportador
-                      competencia={competencia}
-                      onImportado={() => competencia && recarregarStatus(competencia)}
-                    />
+                  {tipo.key === "afastados_desligados" && (
+                    <div className="flex flex-col gap-8">
+                      <div className="flex flex-col gap-3">
+                        <p className="font-mono text-[11px] font-bold tracking-[.08em] text-foreground uppercase">
+                          Afastados <span className="font-normal text-text-3">· afastaram ou retornaram (.CSV) ou situação atual (.TXT)</span>
+                        </p>
+                        <AfastamentosImportador competencia={competencia} onImportado={recarregar} />
+                      </div>
+                      <div className="flex flex-col gap-3 border-t border-border pt-6">
+                        <p className="font-mono text-[11px] font-bold tracking-[.08em] text-foreground uppercase">
+                          Desligados <span className="font-normal text-text-3">· listagem de demitidos (.CSV ou .TXT)</span>
+                        </p>
+                        <MovimentacaoImportador onImportado={recarregar} />
+                      </div>
+                    </div>
                   )}
-                  {tipo.key === "faltas" && (
-                    <FaltasImportador
-                      competencia={competencia}
-                      onImportado={() => competencia && recarregarStatus(competencia)}
-                    />
-                  )}
-                  {tipo.key === "afastamentos" && (
-                    <AfastamentosImportador
-                      competencia={competencia}
-                      onImportado={() => competencia && recarregarStatus(competencia)}
-                    />
-                  )}
-                  {tipo.key === "cat" && (
-                    <CatImportador onImportado={() => competencia && recarregarStatus(competencia)} />
-                  )}
-                  {tipo.key === "indicadores_mensais" && (
-                    <IndicadoresImportador onImportado={() => competencia && recarregarStatus(competencia)} />
-                  )}
-                  {tipo.key === "movimentacao_aprendiz" && (
-                    <MovimentacaoImportador onImportado={() => competencia && recarregarStatus(competencia)} />
-                  )}
+                  {tipo.key === "faltas" && <FaltasImportador competencia={competencia} onImportado={recarregar} />}
+                  {tipo.key === "indicadores_mensais" && <IndicadoresImportador onImportado={recarregar} />}
+                  {tipo.key === "cat" && <CatImportador onImportado={recarregar} />}
                 </div>
               )}
             </div>

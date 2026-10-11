@@ -25,6 +25,8 @@ const funcionarioSchema = z
     valorValeRefeicao: z.coerce.number().nonnegative().nullable().optional(),
     temGratificacao: z.boolean(),
     recebeCestaComoVR: z.boolean(),
+    recebeValeGas: z.boolean().nullable(),
+    valeGasPecunia: z.boolean(),
   })
   .superRefine((data, ctx) => {
     if (data.status === "afastado" && !data.dataAfastamento) {
@@ -64,6 +66,8 @@ function montarDados(data: FuncionarioInput) {
     valorValeRefeicao: data.valorValeRefeicao ?? null,
     temGratificacao: data.temGratificacao,
     recebeCestaComoVR: data.recebeCestaComoVR,
+    recebeValeGas: data.recebeValeGas,
+    valeGasPecunia: data.valeGasPecunia,
   };
 }
 

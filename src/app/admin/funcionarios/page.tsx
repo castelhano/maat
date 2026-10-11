@@ -32,6 +32,8 @@ export default async function FuncionariosPage() {
     valorValeRefeicao: f.valorValeRefeicao?.toNumber() ?? null,
     temGratificacao: f.temGratificacao,
     recebeCestaComoVR: f.recebeCestaComoVR,
+    recebeValeGas: f.recebeValeGas,
+    valeGasPecunia: f.valeGasPecunia,
     empresa: { nome: f.empresa.nome },
     cargo: {
       nome: f.cargo.nome,
