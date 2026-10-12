@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { paraCsv, baixarCsv } from "@/lib/csv";
 import { lerArquivoTexto } from "@/app/admin/importar/ler-arquivo";
@@ -57,7 +58,7 @@ function montarAnalise(lido: Lido, fracionarInterjornada: boolean): Analise {
   };
 }
 
-type Visao = "colaboradores" | "alertas" | "he";
+type Visao = "colaboradores" | "alertas" | "he" | "gestores";
 type FiltroTipo = "todos" | TipoAlerta;
 
 const ROTULO_ALERTA: Record<TipoAlerta, string> = {
@@ -294,6 +295,9 @@ export function AnaliseFrequenciaCentral() {
             <Button variant={visao === "he" ? "default" : "secondary"} size="sm" onClick={() => setVisao("he")}>
               Relatório de HE
             </Button>
+            <Button variant={visao === "gestores" ? "default" : "secondary"} size="sm" onClick={() => setVisao("gestores")}>
+              Relatório p/ gestores
+            </Button>
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -336,6 +340,9 @@ export function AnaliseFrequenciaCentral() {
           )}
           {visao === "alertas" && <TodosAlertas analise={analise} filtroTipo={filtroTipo} passaBusca={passaBusca} />}
           {visao === "he" && <RelatorioHe analise={analise} passaBusca={passaBusca} />}
+          {visao === "gestores" && (
+            <RelatorioGestores key={`${analise.nomeArquivo}|${analise.periodo.inicio}`} analise={analise} passaBusca={passaBusca} />
+          )}
         </>
       )}
     </div>
@@ -567,6 +574,31 @@ function escaparHtml(texto: string) {
   return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Abre o relatório numa janela à parte, com layout claro de papel, e chama a impressão (Salvar
+// como PDF no navegador) — a análise não fica gravada, então não há página de PDF no servidor.
+function abrirImpressao(titulo: string, corpo: string) {
+  const janela = window.open("", "_blank");
+  if (!janela) {
+    toast.error("O navegador bloqueou a janela de impressão — libere pop-ups para este site.");
+    return;
+  }
+  janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escaparHtml(titulo)}</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 24px; }
+      h1 { font-size: 16px; margin: 0 0 4px; } h2 { font-size: 13px; margin: 18px 0 6px; } p { margin: 0 0 12px; color: #555; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+      th { background: #f2f2f2; } tr.colab td { font-weight: bold; background: #fafafa; border-top: 2px solid #999; }
+      .bloco { break-inside: avoid; margin-bottom: 14px; }
+      .resposta { width: 28%; border-left: 1px solid #ddd; }
+      .assinatura { margin-top: 28px; display: flex; gap: 48px; }
+      .assinatura div { flex: 1; border-top: 1px solid #333; padding-top: 4px; text-align: center; }
+    </style></head><body>${corpo}</body></html>`);
+  janela.document.close();
+  janela.focus();
+  janela.print();
+}
+
 function RelatorioHe({ analise, passaBusca }: { analise: Analise; passaBusca: (c: Colaborador) => boolean }) {
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
 
@@ -622,30 +654,15 @@ function RelatorioHe({ analise, passaBusca }: { analise: Analise; passaBusca: (c
           .join("")}`
       )
       .join("");
-    const janela = window.open("", "_blank");
-    if (!janela) {
-      toast.error("O navegador bloqueou a janela de impressão — libere pop-ups para este site.");
-      return;
-    }
-    janela.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de HE — ${escaparHtml(
-      analise.empresa
-    )}</title>
-      <style>
-        body { font-family: Arial, sans-serif; font-size: 11px; color: #111; margin: 24px; }
-        h1 { font-size: 16px; margin: 0 0 4px; } p { margin: 0 0 12px; color: #555; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
-        th { background: #f2f2f2; } tr.colab td { font-weight: bold; background: #fafafa; border-top: 2px solid #999; }
-      </style></head><body>
-      <h1>Relatório de entradas antecipadas / saídas prorrogadas (HE)</h1>
+    abrirImpressao(
+      `Relatório de HE — ${analise.empresa}`,
+      `<h1>Relatório de entradas antecipadas / saídas prorrogadas (HE)</h1>
       <p>${escaparHtml(analise.empresa)} · período ${nomeCompetencia(analise.periodo)} · ${linhas.length} colaborador(es) · total ${formatarDuracao(
         totalGeral
       )} · marcação 30 min ou mais antes da entrada ou depois da saída programada, no mesmo turno</p>
       <table><thead><tr><th>Código</th><th>Data</th><th>Programado</th><th>Realizado</th><th>Diferença</th><th>Total</th></tr></thead>
-      <tbody>${corpo}</tbody></table></body></html>`);
-    janela.document.close();
-    janela.focus();
-    janela.print();
+      <tbody>${corpo}</tbody></table>`
+    );
   }
 
   function alternar(matricula: string) {
@@ -724,6 +741,283 @@ function RelatorioHe({ analise, passaBusca }: { analise: Analise; passaBusca: (c
               </Fragment>
             );
           })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function formatarDataIso(iso: string) {
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a}`;
+}
+
+// Relatório filtrado para entregar aos gestores: cada alerta sai com um espaço em branco para a
+// justificativa/providência e há campo de assinatura para a devolução ao DP.
+function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBusca: (c: Colaborador) => boolean }) {
+  const datas = useMemo(
+    () =>
+      [...new Set(analise.colaboradores.flatMap((c) => c.dias.map((d) => d.data)))].sort((a, b) =>
+        dataOrdenavel(a).localeCompare(dataOrdenavel(b))
+      ),
+    [analise]
+  );
+  const funcoes = useMemo(() => [...new Set(analise.colaboradores.map((c) => c.funcao))].sort(), [analise]);
+
+  const [tipos, setTipos] = useState<Set<TipoAlerta>>(new Set(TIPOS_ACAO));
+  const [de, setDe] = useState(datas[0] ?? "");
+  const [ate, setAte] = useState(datas[datas.length - 1] ?? "");
+  const [funcao, setFuncao] = useState("todas");
+  const [minimo, setMinimo] = useState(1);
+  const [prazo, setPrazo] = useState("");
+  const [folhaPorColaborador, setFolhaPorColaborador] = useState(false);
+
+  const grupos = analise.colaboradores
+    .filter(passaBusca)
+    .filter((c) => funcao === "todas" || c.funcao === funcao)
+    .map((c) => ({
+      c,
+      itens: c.dias
+        .filter((d) => dataOrdenavel(d.data) >= dataOrdenavel(de) && dataOrdenavel(d.data) <= dataOrdenavel(ate))
+        .flatMap((d) => d.alertas.filter((a) => tipos.has(a.tipo)).map((a) => ({ d, a }))),
+    }))
+    .filter((g) => g.itens.length > 0 && g.itens.length >= minimo)
+    .sort((x, y) => y.itens.length - x.itens.length || x.c.matricula.localeCompare(y.c.matricula));
+
+  const porTipo = Object.fromEntries(TIPOS_ALERTA.map((t) => [t, 0])) as Record<TipoAlerta, number>;
+  for (const g of grupos) for (const { a } of g.itens) porTipo[a.tipo]++;
+  const totalItens = grupos.reduce((acc, g) => acc + g.itens.length, 0);
+  const periodo = de === ate ? de : `${de} a ${ate}`;
+  const tiposSelecionados = TIPOS_ALERTA.filter((t) => tipos.has(t));
+
+  function alternarTipo(t: TipoAlerta) {
+    setTipos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(t)) novo.delete(t);
+      else novo.add(t);
+      return novo;
+    });
+  }
+
+  function textoRealizado(d: DiaAnalisado) {
+    if (d.ocorrencia) return rotuloOcorrencia(d.ocorrencia);
+    return d.realizado.map(textoTrecho).join(" / ") || "sem marcação";
+  }
+
+  function exportar() {
+    const linhas: (string | number)[][] = [];
+    for (const { c, itens } of grupos) {
+      for (const { d, a } of itens) {
+        linhas.push([
+          c.matricula,
+          c.nome,
+          c.funcao,
+          d.data,
+          ROTULO_ALERTA[a.tipo],
+          d.programado.map(textoTrecho).join(" / ") || "sem escala",
+          textoRealizado(d),
+          a.detalhe,
+          "",
+        ]);
+      }
+    }
+    baixarCsv(
+      `frequencia-gestores-${de.replace(/\//g, "-")}`,
+      paraCsv(
+        ["Código", "Nome", "Função", "Data", "Alerta", "Programado", "Realizado", "O que aconteceu", "Justificativa / providência do gestor"],
+        linhas
+      )
+    );
+  }
+
+  function emitir() {
+    const filtros = [
+      `período ${periodo}`,
+      `alertas: ${tiposSelecionados.map((t) => ROTULO_ALERTA[t]).join(", ")}`,
+      funcao !== "todas" ? `função ${funcao}` : null,
+      minimo > 1 ? `com ${minimo} ou mais ocorrências` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const devolucao = prazo
+      ? `<p><strong>Devolver ao Departamento Pessoal até ${formatarDataIso(prazo)}</strong>, com a justificativa ou providência de cada ocorrência.</p>`
+      : "";
+    const assinatura = `<div class="assinatura"><div>Gestor responsável</div><div>Data</div><div>Departamento Pessoal</div></div>`;
+    const resumo = tiposSelecionados
+      .filter((t) => porTipo[t] > 0)
+      .map((t) => `<tr><td>${ROTULO_ALERTA[t]}</td><td>${porTipo[t]}</td></tr>`)
+      .join("");
+    const blocos = grupos
+      .map(({ c, itens }, i) => {
+        const quebra = folhaPorColaborador && i < grupos.length - 1 ? ` style="break-after: page"` : "";
+        const topo = folhaPorColaborador
+          ? `<h1>Ocorrências de frequência</h1><p>${escaparHtml(analise.empresa)} · ${escaparHtml(filtros)}</p>${devolucao}`
+          : "";
+        const linhas = itens
+          .map(
+            ({ d, a }) =>
+              `<tr><td>${d.data}</td><td>${ROTULO_ALERTA[a.tipo]}</td><td>${escaparHtml(
+                d.programado.map(textoTrecho).join(" / ") || "sem escala"
+              )}</td><td>${escaparHtml(textoRealizado(d))}</td><td>${escaparHtml(a.detalhe)}</td><td class="resposta"></td></tr>`
+          )
+          .join("");
+        return `<div class="bloco"${quebra}>${topo}<table><thead>
+          <tr class="colab"><td colspan="6">${c.matricula} — ${escaparHtml(c.nome)} · ${escaparHtml(c.funcao)} · ${itens.length} ocorrência(s)</td></tr>
+          <tr><th>Data</th><th>Alerta</th><th>Programado</th><th>Realizado</th><th>O que aconteceu</th><th class="resposta">Justificativa / providência</th></tr>
+          </thead><tbody>${linhas}</tbody></table>${folhaPorColaborador ? assinatura : ""}</div>`;
+      })
+      .join("");
+    const cabecalho = folhaPorColaborador
+      ? ""
+      : `<h1>Ocorrências de frequência — para providência do gestor</h1>
+        <p>${escaparHtml(analise.empresa)} · ${escaparHtml(filtros)} · ${grupos.length} colaborador(es) · ${totalItens} ocorrência(s) · emitido em ${new Date().toLocaleDateString("pt-BR")}</p>
+        ${devolucao}
+        <table style="width:auto;margin-bottom:12px"><thead><tr><th>Alerta</th><th>Ocorrências</th></tr></thead><tbody>${resumo}</tbody></table>`;
+    abrirImpressao(`Ocorrências de frequência — ${analise.empresa}`, `${cabecalho}${blocos}${folhaPorColaborador ? "" : assinatura}`);
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-2">
+          <Label>Alertas no relatório</Label>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {TIPOS_ALERTA.map((t) => (
+              <label key={t} className="flex items-center gap-2 font-mono text-[11px] text-text-2">
+                <input type="checkbox" checked={tipos.has(t)} onChange={() => alternarTipo(t)} />
+                <Badge variant={VARIANTE_ALERTA[t]}>{ROTULO_ALERTA[t]}</Badge>
+                <span className="text-text-3">({analise.totais[t]})</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-2">
+            <Label>De</Label>
+            <Select value={de} onValueChange={(v) => v && setDe(v as string)}>
+              <SelectTrigger className="w-36">
+                <SelectValue>{(valor: string) => valor}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {datas.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Até</Label>
+            <Select value={ate} onValueChange={(v) => v && setAte(v as string)}>
+              <SelectTrigger className="w-36">
+                <SelectValue>{(valor: string) => valor}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {datas.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Função</Label>
+            <Select value={funcao} onValueChange={(v) => v && setFuncao(v as string)}>
+              <SelectTrigger className="w-44">
+                <SelectValue>{(valor: string) => (valor === "todas" ? "Todas" : valor)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas</SelectItem>
+                {funcoes.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {f}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Mínimo de ocorrências</Label>
+            <Input
+              type="number"
+              min={1}
+              className="w-28"
+              value={minimo}
+              onChange={(e) => setMinimo(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Devolver ao DP até</Label>
+            <Input type="date" className="w-40" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-2 pb-2 font-mono text-[11px] text-text-2">
+            <input type="checkbox" checked={folhaPorColaborador} onChange={(e) => setFolhaPorColaborador(e.target.checked)} />
+            uma folha por colaborador
+          </label>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <p className="font-mono text-[11px] text-text-2">
+          {grupos.length} colaborador(es) · {totalItens} ocorrência(s) no relatório · {periodo}
+        </p>
+        <div className="ml-auto flex gap-2">
+          <Button variant="secondary" size="sm" onClick={exportar} disabled={grupos.length === 0}>
+            <Download />
+            Exportar
+          </Button>
+          <Button size="sm" onClick={emitir} disabled={grupos.length === 0}>
+            <Printer />
+            Emitir relatório / PDF
+          </Button>
+        </div>
+      </div>
+
+      <Table containerClassName="max-h-[60vh] overflow-y-auto">
+        <TableHeader className="sticky top-0 z-10">
+          <TableRow>
+            <TableHead>Código</TableHead>
+            <TableHead>Nome / função</TableHead>
+            <TableHead className="text-right">Ocorrências</TableHead>
+            <TableHead>Alertas</TableHead>
+            <TableHead>Datas</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {grupos.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={5} className="py-6 text-center font-mono text-[11px] text-text-3">
+                Nenhuma ocorrência com esses filtros.
+              </TableCell>
+            </TableRow>
+          )}
+          {grupos.map(({ c, itens }) => (
+            <TableRow key={c.matricula}>
+              <TableCell className="font-mono">{c.matricula}</TableCell>
+              <TableCell>
+                <div className="text-foreground">{c.nome}</div>
+                <div className="font-mono text-[10px] text-text-3">{c.funcao}</div>
+              </TableCell>
+              <TableCell className="text-right font-mono">{itens.length}</TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  {TIPOS_ALERTA.map((t) => {
+                    const n = itens.filter((i) => i.a.tipo === t).length;
+                    return n > 0 ? (
+                      <Badge key={t} variant={VARIANTE_ALERTA[t]}>
+                        {n} {ROTULO_ALERTA[t].toLowerCase()}
+                      </Badge>
+                    ) : null;
+                  })}
+                </div>
+              </TableCell>
+              <TableCell className="max-w-xs font-mono text-[10px] whitespace-normal text-text-3">
+                {[...new Set(itens.map((i) => i.d.data.slice(0, 5)))].join(", ")}
+              </TableCell>
+            </TableRow>
+          ))}
         </TableBody>
       </Table>
     </div>
