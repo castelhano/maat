@@ -1,4 +1,4 @@
-import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3, Calculator } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3, Calculator, CalendarClock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { getPermissoes, requireUser } from "@/lib/session";
 import type { Modulo } from "@/lib/permissoes";
@@ -74,6 +74,16 @@ export default async function DashboardPage() {
               tag="rotina"
               nome="Análise da Folha"
               descricao="importa a folha de pagamento do ERP e confere INSS, IR, FGTS, horas extras, adicional noturno, férias e limite do e-consignado."
+            />
+          )}
+          {pode("frequencia") && (
+            <ProjectCard
+              href="/admin/frequencia"
+              icon={CalendarClock}
+              cor="amber"
+              tag="rotina"
+              nome="Análise de Frequência"
+              descricao="importa o Realizado x Programado e aponta jornada curta, excesso de 11h, hora extra, troca de escala e interjornada."
             />
           )}
           {pode("indicadores") && (

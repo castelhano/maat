@@ -6,6 +6,7 @@ export const MODULOS = [
   { chave: "beneficios", nome: "Benefícios" },
   { chave: "banco-horas", nome: "Banco de Horas" },
   { chave: "folha", nome: "Análise da Folha" },
+  { chave: "frequencia", nome: "Análise de Frequência" },
   { chave: "indicadores", nome: "Indicadores" },
   { chave: "importar", nome: "Central de Importações" },
   { chave: "ferias", nome: "Programação de Férias" },
