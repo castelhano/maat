@@ -88,7 +88,7 @@ const COR_CARD: Record<TipoAlerta, "red" | "yellow" | "blue" | "neutral"> = {
   ocorrencia: "neutral",
 };
 
-// Alertas que pedem ação; ocorrência (atestado, falta justificada) é só informativa.
+// Alertas que pedem ação; ocorrência (atestado, compensação, falta...) é só informativa.
 const TIPOS_ACAO = TIPOS_ALERTA.filter((t) => t !== "ocorrencia");
 
 function totalAlertas(c: ColaboradorAnalisado) {
@@ -271,7 +271,7 @@ export function AnaliseFrequenciaCentral() {
             Cartões contam ocorrências (dias). Jornada curta: abaixo de 4:00 no dia · Acima de 11h: somando os trechos do dia · HE: 30 min
             ou mais antes da entrada ou depois da saída, no mesmo turno · Troca: outro turno ou outra linha com 1h ou mais de diferença,
             entrada 1h depois ou dia sem escala · Interjornada: menos de 11h de descanso entre um dia e outro{" "}
-            {fracionar ? "(com fracionamento: mínimo 8h seguidas, completando as 11h com as pausas do dia seguinte em até 16h)" : "(11h seguidas)"} · Turnos: madrugada 22:00–03:59,
+            {fracionar ? "(com fracionamento: mínimo 8h seguidas, completando as 11h com as pausas da dupla pegada do dia anterior e do dia seguinte)" : "(11h seguidas)"} · Turnos: madrugada 22:00–03:59,
             manhã 04:00–11:59, tarde 12:00–21:59.
           </p>
 
@@ -529,7 +529,7 @@ function TodosAlertas({
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
         <p className="font-mono text-[11px] text-text-2">
-          {linhas.length} alerta(s){filtroTipo === "todos" ? " (sem as ocorrências justificadas)" : ` de ${ROTULO_ALERTA[filtroTipo].toLowerCase()}`}
+          {linhas.length} alerta(s){filtroTipo === "todos" ? " (sem as ocorrências informativas)" : ` de ${ROTULO_ALERTA[filtroTipo].toLowerCase()}`}
         </p>
         <Button variant="secondary" size="sm" className="ml-auto" onClick={exportar}>
           <Download />
@@ -757,13 +757,13 @@ function formatarDataIso(iso: string) {
 type FiltroOcorrencia = "todas" | TipoAlerta;
 
 const OPCOES_OCORRENCIA: { valor: FiltroOcorrencia; rotulo: string }[] = [
-  { valor: "todas", rotulo: "Todas (menos as justificadas)" },
+  { valor: "todas", rotulo: "Todas (menos as informativas)" },
   { valor: "he", rotulo: "HE — antes ou depois do programado" },
   { valor: "jornada_curta", rotulo: "Jornada curta (abaixo de 4h)" },
   { valor: "excesso", rotulo: "Acima de 11h trabalhadas" },
   { valor: "troca", rotulo: "Troca de escala" },
   { valor: "interjornada", rotulo: "Interjornada (descanso abaixo do mínimo)" },
-  { valor: "ocorrencia", rotulo: "Justificadas (atestado, falta justificada, compensação)" },
+  { valor: "ocorrencia", rotulo: "Informativas (atestado, compensação, curso, faltas...)" },
 ];
 
 function atendeFiltro(filtro: FiltroOcorrencia, a: AlertaFrequencia) {

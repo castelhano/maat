@@ -35,7 +35,8 @@ export type FrequenciaParseResult = {
 
 const EMPRESA = /EMPRESA\s*:\s*(\d{3})\s+(.+?)\s{2,}/;
 const PERIODO = /PERIODO DE:\s*(\d{2}\/\d{2}\/\d{4})\s*a\s*(\d{2}\/\d{2}\/\d{4})/;
-const LINHA_DIA = /^ (\d{6}) (.{15}) (\d{2}\/\d{2}\/\d{4}) /;
+// A função ocupa 16 posições e pode encostar na data ("PROMOT DE VENDAS01/09/2026").
+const LINHA_DIA = /^ (\d{6}) (.{16})(\d{2}\/\d{2}\/\d{4}) /;
 const HORA = /^(\d{2}):(\d{2})$/;
 const OCORRENCIA = /\*\s*(.+?)\s*\*/;
 
@@ -100,6 +101,8 @@ export function parseFrequencia(conteudo: string): FrequenciaParseResult {
       };
       dias.push(atual);
     } else if (!atual || linha.slice(0, PROGRAMADO).trim() !== "") {
+      // Linha de colaborador não reconhecida: as continuações dela não podem cair no anterior.
+      atual = null;
       continue;
     }
 

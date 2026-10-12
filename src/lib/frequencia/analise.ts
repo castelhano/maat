@@ -10,10 +10,11 @@
 //     trabalhou num dia sem escala;
 //   - interjornada: descansou menos de 11h entre a saída de um dia e a entrada do seguinte (CLT 66).
 //     Com o fracionamento ligado (art. 235-C, §3º, Lei 13.103/2015), um descanso de 8h a 11h é aceito
-//     quando as pausas entre os trechos do dia seguinte, dentro das 16h após a entrada, completam as
-//     11h. Atenção: o STF declarou esse fracionamento inconstitucional (ADI 5322, a partir de
+//     quando as pausas entre os trechos (da dupla pegada do dia anterior e do dia seguinte, este
+//     dentro das 16h após a entrada) completam as 11h. Atenção: o STF declarou esse fracionamento inconstitucional (ADI 5322, a partir de
 //     12/07/2023) — por isso ele é opcional na tela;
-//   - ocorrência: atestado, falta justificada, compensação — só informativo.
+//   - ocorrência: atestado, compensação, curso, faltas, suspensão etc. — só informativo. Folga,
+//     feriado e folga prêmio são dias normais sem escala e não aparecem na análise.
 //
 // Escala da madrugada: o ERP lança no dia D o trecho que começa às 23h do dia anterior (ex.: 23:25
 // às 04:20 + 05:09 às 09:59). Por isso um trecho que entra a partir das 22h é posicionado na noite
@@ -82,9 +83,18 @@ export type ColaboradorAnalisado = {
 
 const OCORRENCIAS: Record<string, string> = {
   "ATESTADO MEDI": "Atestado médico",
+  "ATESTADO OBIT": "Atestado de óbito",
   "FALTA JUSTIF": "Falta justificada",
+  FALTAS: "Falta",
   "COMPENSACAO B": "Compensação (banco de horas)",
+  "CURSO APRENDI": "Curso (aprendiz)",
+  TREINAMENTO: "Treinamento",
+  ABONADO: "Abonado",
+  SUSPENSAO: "Suspensão",
 };
+
+// Dias de descanso normais: não geram alerta nem entram como ocorrência.
+const OCORRENCIAS_IGNORADAS = new Set(["FOLGA", "FERIADO", "FOLGA PREMIO"]);
 
 export function rotuloOcorrencia(texto: string): string {
   const chave = texto.replace(/\s+/g, " ").trim();
@@ -127,7 +137,9 @@ function janela(trechos: TrechoPosicionado[]) {
   return `${formatarHorario(trechos[0].inicio)}–${formatarHorario(Math.max(...trechos.map((t) => t.fim)))}`;
 }
 
-function analisarDia(dia: DiaFrequencia): DiaAnalisado {
+// temEscala: o colaborador tem escala programada em algum dia do período. Quem não trabalha por escala
+// (administrativo, vendas) não tem com o que comparar — sem troca nem HE, só as regras de jornada.
+function analisarDia(dia: DiaFrequencia, temEscala: boolean): DiaAnalisado {
   const programado = posicionar(dia.programado);
   const realizado = posicionar(dia.realizado);
   const minutosProgramados = soma(programado);
@@ -150,6 +162,7 @@ function analisarDia(dia: DiaFrequencia): DiaAnalisado {
   const alertas = resultado.alertas;
 
   if (dia.ocorrencia) {
+    if (OCORRENCIAS_IGNORADAS.has(dia.ocorrencia.replace(/s+/g, " ").trim())) return resultado;
     alertas.push({ tipo: "ocorrencia", detalhe: rotuloOcorrencia(dia.ocorrencia) });
     return resultado;
   }
@@ -179,7 +192,7 @@ function analisarDia(dia: DiaFrequencia): DiaAnalisado {
   }
 
   if (programado.length === 0) {
-    alertas.push({ tipo: "troca", detalhe: `Sem escala no dia e trabalhou das ${janela(realizado)}.` });
+    if (temEscala) alertas.push({ tipo: "troca", detalhe: `Sem escala no dia e trabalhou das ${janela(realizado)}.` });
     return resultado;
   }
 
@@ -256,9 +269,10 @@ function contagemVazia(): Record<TipoAlerta, number> {
   return { jornada_curta: 0, excesso: 0, interjornada: 0, he: 0, troca: 0, ocorrencia: 0 };
 }
 
-// Pausas entre os trechos realizados do dia que caem nas 16h seguintes à entrada.
-function pausasNaJanela(realizado: TrechoPosicionado[]): number {
-  const limite = realizado[0].inicio + JANELA_REMANESCENTE;
+// Pausas entre os trechos realizados do dia; com limitarJanela, só o que cai nas 16h seguintes à
+// entrada.
+function pausasNaJanela(realizado: TrechoPosicionado[], limitarJanela: boolean): number {
+  const limite = limitarJanela ? realizado[0].inicio + JANELA_REMANESCENTE : Infinity;
   let total = 0;
   for (let i = 1; i < realizado.length; i++) {
     const inicio = realizado[i - 1].fim;
@@ -281,8 +295,9 @@ export function analisarFrequencia(
 
   const resultado: ColaboradorAnalisado[] = [];
   for (const [matricula, grupo] of porMatricula) {
+    const temEscala = grupo.dias.some((d) => d.programado.length > 0);
     const analisados = grupo.dias
-      .map(analisarDia)
+      .map((d) => analisarDia(d, temEscala))
       .sort((a, b) => diaAbsoluto(a.data) - diaAbsoluto(b.data));
 
     // Interjornada: da última saída de um dia trabalhado até a primeira entrada do próximo.
@@ -302,15 +317,17 @@ export function analisarFrequencia(
             }): ${intervalo}.`,
           });
         } else if (descanso < LIMITE_INTERJORNADA) {
-          const pausas = pausasNaJanela(dia.realizado);
+          // Por decisão do DP, a pausa da dupla pegada do dia anterior também completa as 11h
+          // (ex.: pausa na sexta + descanso até o sábado, que é trabalhado direto).
+          const pausas = pausasNaJanela(anterior.dia.realizado, false) + pausasNaJanela(dia.realizado, true);
           if (descanso + pausas < LIMITE_INTERJORNADA) {
             dia.alertas.push({
               tipo: "interjornada",
               detalhe: `Descansou ${formatarDuracao(descanso)} (${intervalo}) e ${
                 pausas ? `só ${formatarDuracao(pausas)} de pausa` : "nenhuma pausa"
-              } entre os trechos do dia — faltou ${formatarDuracao(
+              } entre os trechos (dia anterior + dia) — faltou ${formatarDuracao(
                 LIMITE_INTERJORNADA - descanso - pausas
-              )} para completar as 11:00 (fracionamento 8h + restante em 16h).`,
+              )} para completar as 11:00 (fracionamento: 8h seguidas + pausas).`,
             });
           }
         }
