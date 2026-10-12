@@ -19,6 +19,7 @@ import {
   formatarHorario,
   rotuloOcorrencia,
   TIPOS_ALERTA,
+  type AlertaFrequencia,
   type ColaboradorAnalisado,
   type DiaAnalisado,
   type TipoAlerta,
@@ -296,7 +297,7 @@ export function AnaliseFrequenciaCentral() {
               Relatório de HE
             </Button>
             <Button variant={visao === "gestores" ? "default" : "secondary"} size="sm" onClick={() => setVisao("gestores")}>
-              Relatório p/ gestores
+              Filtrar e imprimir ocorrências
             </Button>
           </div>
 
@@ -752,8 +753,26 @@ function formatarDataIso(iso: string) {
   return `${d}/${m}/${a}`;
 }
 
-// Relatório filtrado para entregar aos gestores: cada alerta sai com um espaço em branco para a
-// justificativa/providência e há campo de assinatura para a devolução ao DP.
+// Opções do filtro de ocorrência do relatório.
+type FiltroOcorrencia = "todas" | TipoAlerta;
+
+const OPCOES_OCORRENCIA: { valor: FiltroOcorrencia; rotulo: string }[] = [
+  { valor: "todas", rotulo: "Todas (menos as justificadas)" },
+  { valor: "he", rotulo: "HE — antes ou depois do programado" },
+  { valor: "jornada_curta", rotulo: "Jornada curta (abaixo de 4h)" },
+  { valor: "excesso", rotulo: "Acima de 11h trabalhadas" },
+  { valor: "troca", rotulo: "Troca de escala" },
+  { valor: "interjornada", rotulo: "Interjornada (descanso abaixo do mínimo)" },
+  { valor: "ocorrencia", rotulo: "Justificadas (atestado, falta justificada, compensação)" },
+];
+
+function atendeFiltro(filtro: FiltroOcorrencia, a: AlertaFrequencia) {
+  if (filtro === "todas") return a.tipo !== "ocorrencia";
+  return a.tipo === filtro;
+}
+
+// Relatório filtrado por tipo de ocorrência, para imprimir e entregar aos gestores: cada linha sai
+// com um espaço em branco para a justificativa/providência e há campo de assinatura.
 function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBusca: (c: Colaborador) => boolean }) {
   const datas = useMemo(
     () =>
@@ -764,7 +783,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
   );
   const funcoes = useMemo(() => [...new Set(analise.colaboradores.map((c) => c.funcao))].sort(), [analise]);
 
-  const [tipos, setTipos] = useState<Set<TipoAlerta>>(new Set(TIPOS_ACAO));
+  const [filtro, setFiltro] = useState<FiltroOcorrencia>("todas");
   const [de, setDe] = useState(datas[0] ?? "");
   const [ate, setAte] = useState(datas[datas.length - 1] ?? "");
   const [funcao, setFuncao] = useState("todas");
@@ -779,7 +798,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
       c,
       itens: c.dias
         .filter((d) => dataOrdenavel(d.data) >= dataOrdenavel(de) && dataOrdenavel(d.data) <= dataOrdenavel(ate))
-        .flatMap((d) => d.alertas.filter((a) => tipos.has(a.tipo)).map((a) => ({ d, a }))),
+        .flatMap((d) => d.alertas.filter((a) => atendeFiltro(filtro, a)).map((a) => ({ d, a, detalhe: a.detalhe }))),
     }))
     .filter((g) => g.itens.length > 0 && g.itens.length >= minimo)
     .sort((x, y) => y.itens.length - x.itens.length || x.c.matricula.localeCompare(y.c.matricula));
@@ -788,16 +807,13 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
   for (const g of grupos) for (const { a } of g.itens) porTipo[a.tipo]++;
   const totalItens = grupos.reduce((acc, g) => acc + g.itens.length, 0);
   const periodo = de === ate ? de : `${de} a ${ate}`;
-  const tiposSelecionados = TIPOS_ALERTA.filter((t) => tipos.has(t));
-
-  function alternarTipo(t: TipoAlerta) {
-    setTipos((atual) => {
-      const novo = new Set(atual);
-      if (novo.has(t)) novo.delete(t);
-      else novo.add(t);
-      return novo;
-    });
-  }
+  const rotuloFiltro = OPCOES_OCORRENCIA.find((o) => o.valor === filtro)!.rotulo;
+  const contagemOpcao = useMemo(() => {
+    const total = Object.fromEntries(OPCOES_OCORRENCIA.map((o) => [o.valor, 0])) as Record<FiltroOcorrencia, number>;
+    for (const c of analise.colaboradores)
+      for (const d of c.dias) for (const a of d.alertas) for (const o of OPCOES_OCORRENCIA) if (atendeFiltro(o.valor, a)) total[o.valor]++;
+    return total;
+  }, [analise]);
 
   function textoRealizado(d: DiaAnalisado) {
     if (d.ocorrencia) return rotuloOcorrencia(d.ocorrencia);
@@ -807,7 +823,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
   function exportar() {
     const linhas: (string | number)[][] = [];
     for (const { c, itens } of grupos) {
-      for (const { d, a } of itens) {
+      for (const { d, a, detalhe } of itens) {
         linhas.push([
           c.matricula,
           c.nome,
@@ -816,7 +832,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
           ROTULO_ALERTA[a.tipo],
           d.programado.map(textoTrecho).join(" / ") || "sem escala",
           textoRealizado(d),
-          a.detalhe,
+          detalhe,
           "",
         ]);
       }
@@ -833,7 +849,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
   function emitir() {
     const filtros = [
       `período ${periodo}`,
-      `alertas: ${tiposSelecionados.map((t) => ROTULO_ALERTA[t]).join(", ")}`,
+      `ocorrência: ${rotuloFiltro}`,
       funcao !== "todas" ? `função ${funcao}` : null,
       minimo > 1 ? `com ${minimo} ou mais ocorrências` : null,
     ]
@@ -843,8 +859,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
       ? `<p><strong>Devolver ao Departamento Pessoal até ${formatarDataIso(prazo)}</strong>, com a justificativa ou providência de cada ocorrência.</p>`
       : "";
     const assinatura = `<div class="assinatura"><div>Gestor responsável</div><div>Data</div><div>Departamento Pessoal</div></div>`;
-    const resumo = tiposSelecionados
-      .filter((t) => porTipo[t] > 0)
+    const resumo = TIPOS_ALERTA.filter((t) => porTipo[t] > 0)
       .map((t) => `<tr><td>${ROTULO_ALERTA[t]}</td><td>${porTipo[t]}</td></tr>`)
       .join("");
     const blocos = grupos
@@ -855,10 +870,10 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
           : "";
         const linhas = itens
           .map(
-            ({ d, a }) =>
+            ({ d, a, detalhe }) =>
               `<tr><td>${d.data}</td><td>${ROTULO_ALERTA[a.tipo]}</td><td>${escaparHtml(
                 d.programado.map(textoTrecho).join(" / ") || "sem escala"
-              )}</td><td>${escaparHtml(textoRealizado(d))}</td><td>${escaparHtml(a.detalhe)}</td><td class="resposta"></td></tr>`
+              )}</td><td>${escaparHtml(textoRealizado(d))}</td><td>${escaparHtml(detalhe)}</td><td class="resposta"></td></tr>`
           )
           .join("");
         return `<div class="bloco"${quebra}>${topo}<table><thead>
@@ -869,29 +884,37 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
       .join("");
     const cabecalho = folhaPorColaborador
       ? ""
-      : `<h1>Ocorrências de frequência — para providência do gestor</h1>
+      : `<h1>Ocorrências de frequência — ${escaparHtml(rotuloFiltro)}</h1>
         <p>${escaparHtml(analise.empresa)} · ${escaparHtml(filtros)} · ${grupos.length} colaborador(es) · ${totalItens} ocorrência(s) · emitido em ${new Date().toLocaleDateString("pt-BR")}</p>
         ${devolucao}
-        <table style="width:auto;margin-bottom:12px"><thead><tr><th>Alerta</th><th>Ocorrências</th></tr></thead><tbody>${resumo}</tbody></table>`;
+        ${filtro === "todas" ? `<table style="width:auto;margin-bottom:12px"><thead><tr><th>Alerta</th><th>Ocorrências</th></tr></thead><tbody>${resumo}</tbody></table>` : ""}`;
     abrirImpressao(`Ocorrências de frequência — ${analise.empresa}`, `${cabecalho}${blocos}${folhaPorColaborador ? "" : assinatura}`);
   }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
-        <div className="flex flex-col gap-2">
-          <Label>Alertas no relatório</Label>
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
-            {TIPOS_ALERTA.map((t) => (
-              <label key={t} className="flex items-center gap-2 font-mono text-[11px] text-text-2">
-                <input type="checkbox" checked={tipos.has(t)} onChange={() => alternarTipo(t)} />
-                <Badge variant={VARIANTE_ALERTA[t]}>{ROTULO_ALERTA[t]}</Badge>
-                <span className="text-text-3">({analise.totais[t]})</span>
-              </label>
-            ))}
-          </div>
-        </div>
         <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-2">
+            <Label>Ocorrência</Label>
+            <Select value={filtro} onValueChange={(v) => v && setFiltro(v as FiltroOcorrencia)}>
+              <SelectTrigger className="w-96">
+                <SelectValue>
+                  {(valor: string) => {
+                    const o = OPCOES_OCORRENCIA.find((x) => x.valor === valor);
+                    return o ? `${o.rotulo} (${contagemOpcao[o.valor]})` : null;
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {OPCOES_OCORRENCIA.map((o) => (
+                  <SelectItem key={o.valor} value={o.valor}>
+                    {o.rotulo} ({contagemOpcao[o.valor]})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex flex-col gap-2">
             <Label>De</Label>
             <Select value={de} onValueChange={(v) => v && setDe(v as string)}>
