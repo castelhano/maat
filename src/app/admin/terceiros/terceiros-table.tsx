@@ -35,6 +35,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createTerceiro, deleteTerceiro, updateTerceiro } from "./actions";
+import { usePodeOperar } from "@/components/permissoes-provider";
 
 type Empresa = { id: string; nome: string };
 
@@ -90,6 +91,7 @@ function paraNumero(valor: string): number {
 }
 
 export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[]; empresas: Empresa[] }) {
+  const podeOperar = usePodeOperar("terceiros");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -209,7 +211,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button onClick={abrirCriar}>Novo terceiro</Button>} />
+          {podeOperar && <DialogTrigger render={<Button onClick={abrirCriar}>Novo terceiro</Button>} />}
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editando ? "Editar terceiro" : "Novo terceiro"}</DialogTitle>
@@ -383,7 +385,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
             <TableHead>Cesta básica</TableHead>
             <TableHead>Vale-alimentação</TableHead>
             <TableHead>Vale gás</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
+            <TableHead className="text-right">{podeOperar ? "Ações" : ""}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -413,6 +415,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
+                {podeOperar && (
                 <div className="flex justify-end gap-2">
                   <Button variant="secondary" size="sm" disabled={isPending} onClick={() => abrirEditar(terceiro)}>
                     Editar
@@ -421,6 +424,7 @@ export function TerceirosTable({ terceiros, empresas }: { terceiros: Terceiro[];
                     Excluir
                   </Button>
                 </div>
+                )}
               </TableCell>
             </TableRow>
           ))}

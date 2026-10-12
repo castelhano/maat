@@ -6,3 +6,12 @@ export const CARGOS_SEM_HORA_EXTRA = ["AG DE PORTARIA A", "APRENDIZ", "AUX BORRA
 export function funcaoNaoPodeCredito(cargoNome: string, temGratificacao: boolean): boolean {
   return temGratificacao || CARGOS_SEM_HORA_EXTRA.includes(cargoNome.trim().toUpperCase());
 }
+
+// Funções que ficam fora do Banco de Horas: recebem hora extra fixa (motorista escolar = 2h por dia
+// trabalhado, paga direto na folha). Não geram apuração na importação e somem das telas e do
+// arquivo "A Pagar" — o histórico já gravado continua no banco, só fica oculto.
+export const CARGOS_FORA_BANCO_HORAS = ["MOTORISTA ESCOLA"];
+
+export function cargoForaDoBancoDeHoras(cargoNome: string): boolean {
+  return CARGOS_FORA_BANCO_HORAS.includes(cargoNome.trim().toUpperCase());
+}

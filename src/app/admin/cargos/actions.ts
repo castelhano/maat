@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 
 const cargoSchema = z.object({
@@ -16,7 +16,7 @@ const cargoSchema = z.object({
 });
 
 export async function createCargo(input: z.infer<typeof cargoSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("cargos", "operar");
   const data = cargoSchema.parse(input);
 
   const existente = await prisma.cargo.findUnique({ where: { nome: data.nome } });
@@ -32,7 +32,7 @@ export async function createCargo(input: z.infer<typeof cargoSchema>) {
 }
 
 export async function updateCargo(id: string, input: z.infer<typeof cargoSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("cargos", "operar");
   const data = cargoSchema.parse(input);
 
   const conflito = await prisma.cargo.findFirst({ where: { nome: data.nome, NOT: { id } } });
@@ -48,7 +48,7 @@ export async function updateCargo(id: string, input: z.infer<typeof cargoSchema>
 }
 
 export async function deleteCargo(id: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("cargos", "operar");
 
   const funcionarios = await prisma.funcionario.count({ where: { cargoId: id } });
   if (funcionarios > 0) {

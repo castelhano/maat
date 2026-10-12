@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { ImprimirButton } from "./imprimir-button";
 
 const MESES = [
@@ -24,7 +24,7 @@ export default async function ProgramacaoPdfPage({
     status?: string;
   }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("ferias", "consultar");
   const { busca, empresa, area, departamento, mes, ano, status } = await searchParams;
 
   const periodos = await prisma.ferias.findMany({

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { buscarExtratoColaborador } from "../actions";
 import { ImprimirButton } from "./imprimir-button";
@@ -26,7 +26,7 @@ export default async function ExtratoPdfPage({
 }: {
   searchParams: Promise<{ funcionarioId?: string; inicio?: string; fim?: string; rescisao?: string }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
   const { funcionarioId, inicio, fim, rescisao } = await searchParams;
   if (!funcionarioId || !inicio || !fim) notFound();
   const ehRescisao = rescisao === "1";

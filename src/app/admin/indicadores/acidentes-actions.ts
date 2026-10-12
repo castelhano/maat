@@ -1,12 +1,12 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 
 export type OpcaoEmpresaCat = { id: string; nome: string };
 
 export async function listarEmpresasComCat(): Promise<OpcaoEmpresaCat[]> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
   const empresas = await prisma.empresa.findMany({
     where: { funcionarios: { some: { cats: { some: {} } } } },
     select: { id: true, nome: true },
@@ -28,7 +28,7 @@ export async function carregarAcidentes(filtro: {
   empresaId?: string;
   setor?: string;
 }): Promise<{ linhas: AcidenteLinha[] }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
 
   const registros = await prisma.cat.findMany({
     where: {

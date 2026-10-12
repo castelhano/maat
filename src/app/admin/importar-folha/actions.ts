@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { parseFolhaSalarios, type FolhaSalariosLinha } from "@/lib/parsers/folha-salarios";
 
@@ -100,7 +100,7 @@ async function montarDiff(linhas: FolhaSalariosLinha[], empresa: { codigo: strin
 }
 
 export async function previewImportacao(conteudo: string): Promise<{ data: PreviewResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("funcionarios", "operar");
 
   let parsed;
   try {
@@ -129,7 +129,7 @@ export async function confirmarImportacao(
   conteudo: string,
   nomeArquivo: string
 ): Promise<{ error: string | null; resumo?: { criados: number; atualizados: number; naoEncontrados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("funcionarios", "operar");
 
   let parsed;
   try {

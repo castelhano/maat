@@ -1,11 +1,11 @@
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { Tabs, TabsList, TabsTab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 import { ExtratoCentral } from "./extrato-central";
 import { ResumoMensal } from "./resumo-mensal";
 import { Evolucao } from "./evolucao";
 
 export default async function BancoHorasPage() {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
 
   return (
     <>

@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { parseFaltas, type FaltaLinha } from "@/lib/parsers/faltas";
 
 export type PreviewFaltaLinha = {
@@ -45,7 +45,7 @@ async function montarDiff(linhas: FaltaLinha[], empresaId: string, periodo: { in
 }
 
 export async function previewFaltas(conteudo: string): Promise<{ data: PreviewFaltasResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -81,7 +81,7 @@ export async function confirmarFaltas(
   nomeArquivo: string,
   competencia: string
 ): Promise<{ error: string | null; resumo?: { faltasRegistradas: number; funcionarios: number; naoEncontrados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
 
   if (!competencia.trim()) {
     return { error: "Selecione a competência antes de confirmar." };

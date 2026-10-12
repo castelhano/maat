@@ -23,12 +23,32 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   role            String    @default("usuario")
+  // Usuário desativado não consegue entrar (as sessões abertas são encerradas ao desativar).
+  ativo           Boolean   @default(true)
+  // Quando true, o usuário é levado para /trocar-senha antes de usar o sistema.
+  trocarSenha     Boolean   @default(false)
   sessions        Session[]
   accounts        Account[]
+  permissoes      UserPermissao[]
 
   @@unique([email])
   @@unique([username])
   @@map("user")
+}
+
+// Permissão por rotina para usuários não-admin (admin acessa tudo).
+// nivel: "consultar" (ver telas e relatórios) | "operar" (consultar + importar/processar/editar).
+// Sem linha para a rotina = sem acesso.
+model UserPermissao {
+  id     String @id @default(cuid())
+  userId String
+  modulo String
+  nivel  String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, modulo])
+  @@map("user_permissao")
 }
 
 model Session {
@@ -114,6 +134,7 @@ model Empresa {
   apuracoes            Apuracao[]
   apuracoesValeGas     ApuracaoValeGas[]
   bancoHorasImportacoes BancoHorasImportacao[]
+  folhasPagamento       FolhaPagamento[]
   indicadoresMensais   IndicadorMensal[]
   rateiosTotais        RateioTotalCampo[]
 
@@ -704,4 +725,46 @@ model BancoHorasImportacao {
 
   @@index([empresaId])
   @@map("banco_horas_importacao")
+}
+
+// Folha de pagamento importada do ERP (relatório "FLP - Folha de Pagamento"), uma por
+// empresa/competência — reimportar substitui. Guarda os eventos de cada funcionário como vieram,
+// e a conferência dos cálculos é refeita na hora de exibir (assim uma regra corrigida vale para
+// os meses já importados). Os meses guardados formam o histórico usado para médias de férias.
+model FolhaPagamento {
+  id             String   @id @default(cuid())
+  empresaId      String
+  empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  competencia    String   // "MM/AAAA"
+  nomeArquivo    String
+  importadoPorId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  itens FolhaPagamentoItem[]
+
+  @@unique([empresaId, competencia])
+  @@index([empresaId])
+  @@map("folha_pagamento")
+}
+
+model FolhaPagamentoItem {
+  id          String         @id @default(cuid())
+  folhaId     String
+  folha       FolhaPagamento @relation(fields: [folhaId], references: [id], onDelete: Cascade)
+  matricula   String
+  nome        String
+  funcao      String
+  situacao    String
+  divisao     String
+  salarioBase Decimal
+  admissao    String         // "dd/mm/aaaa"
+  gozoInicio  String?        // "dd/mm/aaaa"
+  gozoFim     String?
+  // JSON com a lista de eventos (código, descrição, coluna, tipo, referência, valor).
+  eventos     String
+
+  @@unique([folhaId, matricula])
+  @@index([folhaId])
+  @@map("folha_pagamento_item")
 }

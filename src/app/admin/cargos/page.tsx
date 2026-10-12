@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { CargosTable } from "./cargos-table";
 
 export default async function CargosPage() {
-  await requireAdmin();
+  await requirePermissao("cargos", "consultar");
   const cargosRaw = await prisma.cargo.findMany({
     orderBy: { nome: "asc" },
     include: { _count: { select: { funcionarios: true } } },

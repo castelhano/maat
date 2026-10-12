@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 
 const terceiroSchema = z.object({
@@ -37,7 +37,7 @@ function montarDados(data: TerceiroInput) {
 }
 
 export async function createTerceiro(input: TerceiroInput) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("terceiros", "operar");
   const data = terceiroSchema.parse(input);
 
   const terceiro = await prisma.terceiro.create({ data: montarDados(data) });
@@ -48,7 +48,7 @@ export async function createTerceiro(input: TerceiroInput) {
 }
 
 export async function updateTerceiro(id: string, input: TerceiroInput) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("terceiros", "operar");
   const data = terceiroSchema.parse(input);
 
   await prisma.terceiro.update({ where: { id }, data: montarDados(data) });
@@ -59,7 +59,7 @@ export async function updateTerceiro(id: string, input: TerceiroInput) {
 }
 
 export async function deleteTerceiro(id: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("terceiros", "operar");
 
   await prisma.terceiro.delete({ where: { id } });
   await logAction(admin.id, "terceiro.delete", id);

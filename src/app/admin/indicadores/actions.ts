@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import {
   CAMPOS_INDICADOR,
   RATEIO_CAMPOS,
@@ -29,7 +29,7 @@ export type IndicadorLinha = {
 export type OpcaoEmpresa = { id: string; nome: string };
 
 export async function listarEmpresasIndicadores(): Promise<OpcaoEmpresa[]> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
   const empresas = await prisma.empresa.findMany({
     where: { indicadoresMensais: { some: {} } },
     select: { id: true, nome: true },
@@ -65,7 +65,7 @@ export async function carregarIndicadores(filtro: {
   empresaId?: string;
   setor?: string;
 }): Promise<{ linhas: IndicadorLinha[] }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
 
   // Busca sem limitar por competência aqui — o IRRF "do mês" de jan/2026 depende do irrfNormal
   // lançado em dez/2025, então precisa desse histórico completo antes de cortar a partir de
@@ -192,7 +192,7 @@ export async function carregarRateioTotal(
   competencia: string,
   campo: CampoRateio
 ): Promise<{ valor: number }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
   const registro = await prisma.rateioTotalCampo.findUnique({
     where: { empresaId_competencia_campo: { empresaId, competencia, campo } },
   });
@@ -205,7 +205,7 @@ export async function atualizarRateioTotal(
   campo: CampoRateio,
   valor: number
 ): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "operar");
   if (!RATEIO_CAMPOS.includes(campo)) return { error: "Campo inválido." };
   if (Number.isNaN(valor) || valor < 0) return { error: "Valor inválido." };
 
@@ -222,7 +222,7 @@ export async function atualizarCampoIndicador(
   campo: CampoIndicador,
   valor: number
 ): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "operar");
 
   if (!CAMPOS_INDICADOR.includes(campo)) return { error: "Campo inválido." };
   if (RATEIO_CAMPOS.includes(campo as CampoRateio)) {

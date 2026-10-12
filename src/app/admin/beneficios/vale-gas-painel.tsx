@@ -26,6 +26,7 @@ import { FileText, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { ExportCard } from "./export-card";
 import { paraCsv, baixarCsv } from "@/lib/csv";
+import { usePodeOperar } from "@/components/permissoes-provider";
 import { salvarValorEntregaValeGas, type ApuracaoValeGasItemDTO } from "./vale-gas-actions";
 
 const COR_ELEGIVEL = "#0d9488";
@@ -142,6 +143,7 @@ export function ValeGasPainel({
   filtroArea?: string;
   onValorSalvo: () => void;
 }) {
+  const podeOperar = usePodeOperar("beneficios");
   const [buscaNome, setBuscaNome] = useState("");
   const [buscaMatricula, setBuscaMatricula] = useState("");
 
@@ -290,7 +292,12 @@ export function ValeGasPainel({
         arquivo={`${arquivoBase}-valor-entrega`}
       >
         <div className="flex flex-col gap-2.5">
-          <ValorEntregaForm competencia={competencia} valorAtual={valorEntregaUnificado} onSalvo={onValorSalvo} />
+          {podeOperar && (
+            <ValorEntregaForm competencia={competencia} valorAtual={valorEntregaUnificado} onSalvo={onValorSalvo} />
+          )}
+          {!podeOperar && valorEntregaUnificado === null && (
+            <p className="font-mono text-[10px] text-text-3">Valor ainda não registrado.</p>
+          )}
           {valorEntregaUnificado !== null && (
             <p className="font-mono text-[10px] text-text-3">Valor registrado: {formatarMoeda(valorEntregaUnificado)}</p>
           )}

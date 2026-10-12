@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { parseAdmitidosDesligados, MOTIVO_TRANSFERENCIA_COM_ONUS, type EventoLinha } from "@/lib/parsers/admitidos-desligados";
 
 const FUNCAO_APRENDIZ = "APRENDIZ";
@@ -194,7 +194,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
 export async function previewMovimentacaoAprendiz(
   conteudo: string
 ): Promise<{ data: PreviewMovimentacaoResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
   return montarPreview(conteudo);
 }
 
@@ -211,7 +211,7 @@ export async function confirmarMovimentacaoAprendiz(
     transferenciaComOnus: number;
   };
 }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
 
   let parsed;
   try {

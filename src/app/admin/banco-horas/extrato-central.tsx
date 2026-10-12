@@ -17,6 +17,7 @@ import {
   type ExtratoResult,
 } from "./actions";
 import { Importador } from "./importador";
+import { usePodeOperar } from "@/components/permissoes-provider";
 
 function fmtHoras(decimal: number): string {
   const neg = decimal < 0;
@@ -43,6 +44,7 @@ function nomeCompetencia(competencia: string): string {
 }
 
 export function ExtratoCentral() {
+  const podeOperar = usePodeOperar("banco-horas");
   const [funcionarios, setFuncionarios] = useState<FuncionarioOpcao[]>([]);
   const [funcionarioSelecionado, setFuncionarioSelecionado] = useState<FuncionarioOpcao | null>(null);
   const [busca, setBusca] = useState("");
@@ -153,7 +155,7 @@ export function ExtratoCentral() {
 
   return (
     <div className="flex flex-col gap-6">
-      <Importador onImportado={handleImportado} />
+      {podeOperar && <Importador onImportado={handleImportado} />}
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex min-w-[280px] flex-col gap-2">

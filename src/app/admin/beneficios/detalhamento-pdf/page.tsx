@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { carregarApuracao, type ApuracaoItemDTO } from "../actions";
 import { ImprimirButton } from "./imprimir-button";
 
@@ -25,7 +25,7 @@ export default async function DetalhamentoPdfPage({
 }: {
   searchParams: Promise<{ competencia?: string; dimensao?: string; empresa?: string; area?: string }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("beneficios", "consultar");
   const { competencia, dimensao, empresa, area } = await searchParams;
 
   if (!competencia || (dimensao !== "cesta" && dimensao !== "vr")) notFound();

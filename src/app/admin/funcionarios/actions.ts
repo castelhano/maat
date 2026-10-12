@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 
 const funcionarioSchema = z
@@ -72,7 +72,7 @@ function montarDados(data: FuncionarioInput) {
 }
 
 export async function createFuncionario(input: FuncionarioInput) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("funcionarios", "operar");
   const data = funcionarioSchema.parse(input);
 
   const existente = await prisma.funcionario.findUnique({
@@ -90,7 +90,7 @@ export async function createFuncionario(input: FuncionarioInput) {
 }
 
 export async function updateFuncionario(id: string, input: FuncionarioInput) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("funcionarios", "operar");
   const data = funcionarioSchema.parse(input);
 
   const conflito = await prisma.funcionario.findFirst({
@@ -108,7 +108,7 @@ export async function updateFuncionario(id: string, input: FuncionarioInput) {
 }
 
 export async function deleteFuncionario(id: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("funcionarios", "operar");
 
   await prisma.funcionario.delete({ where: { id } });
   await logAction(admin.id, "funcionario.delete", id);

@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { FeriasTable } from "./ferias-table";
 
 export default async function FeriasPage() {
-  await requireAdmin();
+  await requirePermissao("ferias", "consultar");
 
   const [periodos, quinzenas] = await Promise.all([
     prisma.ferias.findMany({

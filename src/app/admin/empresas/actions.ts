@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 import { primeiraPalavra } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ const empresaSchema = z.object({
 });
 
 export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("empresas", "operar");
   const data = empresaSchema.parse(input);
 
   const existente = await prisma.empresa.findUnique({ where: { codigo: data.codigo } });
@@ -38,7 +38,7 @@ export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
 }
 
 export async function updateEmpresa(id: string, input: z.infer<typeof empresaSchema>) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("empresas", "operar");
   const data = empresaSchema.parse(input);
 
   const conflito = await prisma.empresa.findFirst({ where: { codigo: data.codigo, NOT: { id } } });
@@ -62,7 +62,7 @@ export async function updateEmpresa(id: string, input: z.infer<typeof empresaSch
 }
 
 export async function deleteEmpresa(id: string) {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("empresas", "operar");
 
   const funcionarios = await prisma.funcionario.count({ where: { empresaId: id } });
   if (funcionarios > 0) {

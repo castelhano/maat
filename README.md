@@ -1,6 +1,6 @@
 # Maat — Depto Pessoal
 
-Sistema interno de rotinas de departamento pessoal: recebe arquivos do ERP, processa, gera análises e devolve arquivos processados. Primeira etapa: usuários, permissões (`admin` | `usuario`) e autenticação.
+Sistema interno de rotinas de departamento pessoal: recebe arquivos do ERP, processa, gera análises e devolve arquivos processados. Primeira etapa: usuários, permissões por rotina e autenticação.
 
 ## Stack
 
@@ -38,7 +38,17 @@ O banco fica em `prisma/dev.db`, um único arquivo — para backup, basta copiar
 
 ## Estrutura de permissões
 
-- `usuario`: acessa `/dashboard` e as rotinas do dia a dia.
-- `admin`: acessa também `/admin/usuarios` para criar/editar/remover usuários e trocar permissões.
+- `admin`: acessa todas as rotinas e `/admin/usuarios` (criar/editar/remover usuários, permissões, ativar/desativar, exigir troca de senha).
+- `usuario`: começa sem acesso; o admin libera cada rotina em **Permissões**, com um de dois níveis:
+  - `consultar`: ver telas e baixar relatórios/PDFs;
+  - `operar`: consultar + importar, processar, editar e excluir.
 
-Todas as ações administrativas (criar/editar/remover usuário, trocar permissão) ficam registradas em `AuditLog`.
+O catálogo de rotinas fica em `src/lib/permissoes.ts` e as permissões na tabela `user_permissao`.
+Cada página confere o acesso com `requirePermissao(rotina, "consultar")` e cada ação que grava com
+`requirePermissao(rotina, "operar")` (`src/lib/session.ts`). **Toda página ou ação nova em `/admin` precisa
+dessa chamada** — o layout só exige login. Na tela, `usePodeOperar(rotina)` esconde os botões de quem só consulta.
+
+Usuário desativado não consegue entrar e tem as sessões abertas encerradas. Com "trocar senha" marcado, o usuário
+é levado a `/trocar-senha` antes de usar o sistema.
+
+Todas as ações administrativas (criar/editar/remover usuário, permissões, ativar/desativar, senha) ficam registradas em `AuditLog`.

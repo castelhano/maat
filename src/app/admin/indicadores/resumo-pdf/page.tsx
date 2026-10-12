@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { carregarIndicadores } from "../actions";
 import { CAMPOS_INDICADOR, CAMPO_LABEL, labelSetor, calcularDerivados } from "@/lib/indicadores";
 import { ImprimirButton } from "../../banco-horas/extrato-pdf/imprimir-button";
@@ -17,7 +17,7 @@ export default async function ResumoIndicadoresPdfPage({
 }: {
   searchParams: Promise<{ empresaId?: string; setor?: string }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
   const { empresaId, setor } = await searchParams;
 
   const { linhas } = await carregarIndicadores({ empresaId, setor });

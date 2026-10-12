@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,7 +24,14 @@ const alterarSenhaSchema = z
 
 type AlterarSenhaValues = z.infer<typeof alterarSenhaSchema>;
 
-export function AlterarSenhaForm({ username }: { username: string }) {
+export function AlterarSenhaForm({
+  username,
+  redirecionarPara,
+}: {
+  username: string;
+  redirecionarPara?: string;
+}) {
+  const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
     register,
@@ -46,6 +54,10 @@ export function AlterarSenhaForm({ username }: { username: string }) {
     }
     toast.success("Senha alterada com sucesso");
     reset();
+    if (redirecionarPara) {
+      router.push(redirecionarPara);
+      router.refresh();
+    }
   }
 
   return (

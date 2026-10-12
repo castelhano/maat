@@ -1,20 +1,24 @@
-import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3 } from "lucide-react";
+import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3, Calculator } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/session";
+import { getPermissoes, requireUser } from "@/lib/session";
+import type { Modulo } from "@/lib/permissoes";
 import { ProjectCard } from "@/components/project-card";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const isAdmin = user.role === "admin";
+  const permissoes = await getPermissoes(user.id, user.role);
+  const pode = (m: Modulo) => permissoes[m] !== undefined;
+  const contar = <T,>(m: Modulo, consulta: () => Promise<T>) => (pode(m) ? consulta() : null);
 
-  const counts = isAdmin
-    ? await Promise.all([
-        prisma.funcionario.count(),
-        prisma.cargo.count(),
-        prisma.empresa.count(),
-        prisma.importacao.count(),
-        prisma.terceiro.count(),
+  const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes, indicadores] =
+    await Promise.all([
+      contar("funcionarios", () => prisma.funcionario.count()),
+      contar("cargos", () => prisma.cargo.count()),
+      contar("empresas", () => prisma.empresa.count()),
+      contar("importar", () => prisma.importacao.count()),
+      contar("terceiros", () => prisma.terceiro.count()),
+      contar("ferias", () =>
         prisma.ferias
           .findMany({
             where: { gozoInicio: null, funcionario: { status: { not: "desligado" } } },
@@ -23,12 +27,11 @@ export default async function DashboardPage() {
           .then(
             (lista) =>
               lista.filter((p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ")).length
-          ),
-        prisma.indicadorMensal.count(),
-      ])
-    : null;
-  const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes, indicadores] =
-    counts ?? [0, 0, 0, 0, 0, 0, 0];
+          )
+      ),
+      contar("indicadores", () => prisma.indicadorMensal.count()),
+    ]);
+  const algumaRotina = Object.keys(permissoes).length > 0;
 
   return (
     <>
@@ -41,80 +44,108 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {isAdmin ? (
+      {algumaRotina ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <ProjectCard
-            href="/admin/beneficios"
-            icon={HandCoins}
-            cor="rose"
-            tag="rotina"
-            nome="Benefícios"
-            descricao="apuração mensal de cesta básica e vale-alimentação, com resumos e gráficos exportáveis."
-          />
-          <ProjectCard
-            href="/admin/banco-horas"
-            icon={Clock}
-            cor="violet"
-            tag="rotina"
-            nome="Banco de Horas"
-            descricao="extrato mensal por colaborador — crédito, débito, saldo anterior, a pagar e saldo atual."
-          />
-          <ProjectCard
-            href="/admin/indicadores"
-            icon={BarChart3}
-            cor="rose"
-            tag="rotina"
-            nome="Indicadores"
-            descricao={`${indicadores} registro(s) de indicador mensal. Headcount, custo de pessoal, absenteísmo, benefícios e encargos por área.`}
-          />
-          <ProjectCard
-            href="/admin/importar"
-            icon={UploadCloud}
-            cor="amber"
-            tag="rotina"
-            nome="Central de Importações"
-            descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-alimentação, faltas e afastamentos por competência.`}
-          />
-          <ProjectCard
-            href="/admin/ferias"
-            icon={CalendarDays}
-            cor="green"
-            tag="rotina"
-            nome="Programação de Férias"
-            descricao={`${feriasPendentes} período(s) aguardando programação. Importação do ERP, mês/quinzena, abono e emissão para mural/gestores.`}
-          />
-          <ProjectCard
-            href="/admin/funcionarios"
-            icon={Users}
-            cor="blue"
-            tag="cadastro"
-            nome="Funcionários"
-            descricao={`${funcionarios} funcionário(s) cadastrado(s). Ficha completa por empresa.`}
-          />
-          <ProjectCard
-            href="/admin/terceiros"
-            icon={UserRoundCog}
-            cor="blue"
-            tag="cadastro"
-            nome="Terceiros"
-            descricao={`${terceiros} terceiro(s) cadastrado(s), fora da folha do ERP.`}
-          />
-          <ProjectCard
-            href="/admin/cargos"
-            icon={Briefcase}
-            cor="violet"
-            tag="cadastro"
-            nome="Cargos"
-            descricao={`${cargos} cargo(s) cadastrado(s), organizados por empresa.`}
-          />
-          <ProjectCard
-            href="/admin/empresas"
-            icon={Building2}
-            cor="teal"
-            tag="cadastro"
-            nome="Empresas"
-            descricao={`${empresas} empresa(s) atendida(s) pelo departamento pessoal.`}
-          />
+          {pode("beneficios") && (
+            <ProjectCard
+              href="/admin/beneficios"
+              icon={HandCoins}
+              cor="rose"
+              tag="rotina"
+              nome="Benefícios"
+              descricao="apuração mensal de cesta básica e vale-alimentação, com resumos e gráficos exportáveis."
+            />
+          )}
+          {pode("banco-horas") && (
+            <ProjectCard
+              href="/admin/banco-horas"
+              icon={Clock}
+              cor="violet"
+              tag="rotina"
+              nome="Banco de Horas"
+              descricao="extrato mensal por colaborador — crédito, débito, saldo anterior, a pagar e saldo atual."
+            />
+          )}
+          {pode("folha") && (
+            <ProjectCard
+              href="/admin/folha"
+              icon={Calculator}
+              cor="teal"
+              tag="rotina"
+              nome="Análise da Folha"
+              descricao="importa a folha de pagamento do ERP e confere INSS, IR, FGTS, horas extras, adicional noturno, férias e limite do e-consignado."
+            />
+          )}
+          {pode("indicadores") && (
+            <ProjectCard
+              href="/admin/indicadores"
+              icon={BarChart3}
+              cor="rose"
+              tag="rotina"
+              nome="Indicadores"
+              descricao={`${indicadores} registro(s) de indicador mensal. Headcount, custo de pessoal, absenteísmo, benefícios e encargos por área.`}
+            />
+          )}
+          {pode("importar") && (
+            <ProjectCard
+              href="/admin/importar"
+              icon={UploadCloud}
+              cor="amber"
+              tag="rotina"
+              nome="Central de Importações"
+              descricao={`${importacoes} importação(ões) registrada(s). Folha, situação/vale-alimentação, faltas e afastamentos por competência.`}
+            />
+          )}
+          {pode("ferias") && (
+            <ProjectCard
+              href="/admin/ferias"
+              icon={CalendarDays}
+              cor="green"
+              tag="rotina"
+              nome="Programação de Férias"
+              descricao={`${feriasPendentes} período(s) aguardando programação. Importação do ERP, mês/quinzena, abono e emissão para mural/gestores.`}
+            />
+          )}
+          {pode("funcionarios") && (
+            <ProjectCard
+              href="/admin/funcionarios"
+              icon={Users}
+              cor="blue"
+              tag="cadastro"
+              nome="Funcionários"
+              descricao={`${funcionarios} funcionário(s) cadastrado(s). Ficha completa por empresa.`}
+            />
+          )}
+          {pode("terceiros") && (
+            <ProjectCard
+              href="/admin/terceiros"
+              icon={UserRoundCog}
+              cor="blue"
+              tag="cadastro"
+              nome="Terceiros"
+              descricao={`${terceiros} terceiro(s) cadastrado(s), fora da folha do ERP.`}
+            />
+          )}
+          {pode("cargos") && (
+            <ProjectCard
+              href="/admin/cargos"
+              icon={Briefcase}
+              cor="violet"
+              tag="cadastro"
+              nome="Cargos"
+              descricao={`${cargos} cargo(s) cadastrado(s), organizados por empresa.`}
+            />
+          )}
+          {pode("empresas") && (
+            <ProjectCard
+              href="/admin/empresas"
+              icon={Building2}
+              cor="teal"
+              tag="cadastro"
+              nome="Empresas"
+              descricao={`${empresas} empresa(s) atendida(s) pelo departamento pessoal.`}
+            />
+          )}
         </div>
       ) : (
         <Card>

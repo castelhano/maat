@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { TerceirosTable } from "./terceiros-table";
 
 export default async function TerceirosPage() {
-  await requireAdmin();
+  await requirePermissao("terceiros", "consultar");
   const [terceiros, empresas] = await Promise.all([
     prisma.terceiro.findMany({ orderBy: { nome: "asc" }, include: { empresa: true } }),
     prisma.empresa.findMany({ orderBy: { nome: "asc" } }),

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { carregarApuracaoValeGas } from "../vale-gas-actions";
 import { ImprimirButton } from "./imprimir-button";
 
@@ -25,7 +25,7 @@ export default async function ValeGasRelatorioPdfPage({
 }: {
   searchParams: Promise<{ competencia?: string; empresa?: string; area?: string }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("beneficios", "consultar");
   const { competencia, empresa, area } = await searchParams;
 
   if (!competencia) notFound();

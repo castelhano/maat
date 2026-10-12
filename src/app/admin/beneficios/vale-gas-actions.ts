@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { competenciaEstaFechada } from "@/lib/competencia";
 import { calcularElegibilidadeValeGas, periodoAquisitivoValeGas, resolverHeranca, valeGasEhMesDeEntrega } from "@/lib/beneficios";
@@ -38,7 +38,7 @@ function parseCompetencia(competencia: string): { ano: number; mes: number } {
 }
 
 export async function carregarApuracaoValeGas(competencia: string): Promise<ApuracaoValeGasResumo | null> {
-  await requireAdmin();
+  await requirePermissao("beneficios", "consultar");
   if (!competencia.trim()) return null;
   const { ano, mes } = parseCompetencia(competencia);
   if (!valeGasEhMesDeEntrega(mes)) return null;
@@ -114,7 +114,7 @@ export async function processarApuracaoValeGas(
   competencia: string,
   empresaId?: string
 ): Promise<{ error: string | null; resumo?: { empresas: number; itens: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("beneficios", "operar");
   if (!competencia.trim()) return { error: "Selecione a competência." };
 
   const { ano, mes } = parseCompetencia(competencia);
@@ -246,7 +246,7 @@ export async function processarApuracaoValeGas(
 // O valor da entrega é o mesmo pras 3 empresas (orçamento único por competência), então um só
 // preenchimento grava em todas as apurações já processadas dessa competência de uma vez.
 export async function salvarValorEntregaValeGas(competencia: string, valor: number | null): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("beneficios", "operar");
   const apuracoes = await prisma.apuracaoValeGas.findMany({ where: { competencia } });
   if (apuracoes.length === 0) {
     return { error: "Processe essa competência antes de registrar o valor da entrega." };

@@ -2,7 +2,7 @@
 
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { competenciaEstaFechada } from "@/lib/competencia";
 import {
@@ -49,7 +49,7 @@ function parseCompetencia(competencia: string): { ano: number; mes: number } {
 }
 
 export async function carregarApuracao(competencia: string): Promise<ApuracaoResumo | null> {
-  await requireAdmin();
+  await requirePermissao("beneficios", "consultar");
   if (!competencia.trim()) return null;
 
   const apuracoes = await prisma.apuracao.findMany({
@@ -134,7 +134,7 @@ export async function processarApuracao(
   dimensao: DimensaoApuracao,
   empresaId?: string
 ): Promise<{ error: string | null; resumo?: { empresas: number; itens: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("beneficios", "operar");
   if (!competencia.trim()) return { error: "Selecione a competência." };
 
   const { ano, mes } = parseCompetencia(competencia);

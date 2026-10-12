@@ -5,7 +5,16 @@ import { UsersTable } from "./users-table";
 export default async function UsuariosPage() {
   const currentUser = await requireAdmin();
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, username: true, role: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      role: true,
+      ativo: true,
+      trocarSenha: true,
+      createdAt: true,
+      permissoes: { select: { modulo: true, nivel: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
 
@@ -16,7 +25,7 @@ export default async function UsuariosPage() {
           Usuários
         </h1>
         <p className="font-mono text-[11px] tracking-[.06em] text-text-3">
-          gerencie quem tem acesso ao sistema e com qual permissão
+          gerencie quem tem acesso ao sistema e a quais rotinas
         </p>
       </div>
       <UsersTable users={users} currentUserId={currentUser.id} />

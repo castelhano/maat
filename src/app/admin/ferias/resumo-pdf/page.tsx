@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { dataPagamentoFerias } from "@/lib/feriados";
 import { ImprimirButton } from "./imprimir-button";
 
@@ -32,7 +32,7 @@ export default async function ResumoPdfPage({
     mesFim?: string;
   }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("ferias", "consultar");
   const { empresa, area, mes, ano, mesInicio, mesFim } = await searchParams;
 
   const [periodos, quinzenas] = await Promise.all([

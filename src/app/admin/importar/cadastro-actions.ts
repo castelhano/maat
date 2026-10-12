@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { parseCadastro, type CadastroLinha, type CadastroSituacao } from "@/lib/parsers/cadastro";
 
@@ -128,7 +128,7 @@ async function montarDiff(conteudo: string) {
 export async function previewCadastro(
   conteudo: string
 ): Promise<{ data: PreviewCadastroResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
 
   let diff;
   try {
@@ -160,7 +160,7 @@ export async function confirmarCadastro(
   error: string | null;
   resumo?: { criados: number; atualizados: number };
 }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
   if (!competencia.trim()) return { error: "Selecione a competência antes de confirmar." };
 
   let diff;

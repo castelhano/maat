@@ -27,6 +27,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createEmpresa, deleteEmpresa, updateEmpresa } from "./actions";
+import { usePodeOperar } from "@/components/permissoes-provider";
 
 type Empresa = {
   id: string;
@@ -59,6 +60,7 @@ const empresaSchema = z.object({
 type EmpresaValues = z.infer<typeof empresaSchema>;
 
 export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
+  const podeOperar = usePodeOperar("empresas");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -125,7 +127,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button onClick={abrirCriar}>Nova empresa</Button>} />
+          {podeOperar && <DialogTrigger render={<Button onClick={abrirCriar}>Nova empresa</Button>} />}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editando ? "Editar empresa" : "Nova empresa"}</DialogTitle>
@@ -182,7 +184,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
             <TableHead>Nome curto</TableHead>
             <TableHead>Cesta básica</TableHead>
             <TableHead>Funcionários</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
+            <TableHead className="text-right">{podeOperar ? "Ações" : ""}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -196,6 +198,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
               </TableCell>
               <TableCell>{empresa._count.funcionarios}</TableCell>
               <TableCell className="text-right">
+                {podeOperar && (
                 <div className="flex justify-end gap-2">
                   <Button
                     variant="secondary"
@@ -214,6 +217,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
                     Excluir
                   </Button>
                 </div>
+                )}
               </TableCell>
             </TableRow>
           ))}

@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { parseRelacaoFuncionarios, type RelacaoFuncionariosLinha } from "@/lib/parsers/relacao-funcionarios";
@@ -61,7 +61,7 @@ async function montarDiff(linhas: RelacaoFuncionariosLinha[]) {
 export async function previewSyncDepartamento(
   conteudo: string
 ): Promise<{ data: PreviewSyncDepartamentoResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("cargos", "operar");
 
   let parsed;
   try {
@@ -85,7 +85,7 @@ export async function previewSyncDepartamento(
 export async function confirmarSyncDepartamento(
   conteudo: string
 ): Promise<{ error: string | null; resumo?: { atualizados: number; criados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("cargos", "operar");
 
   let parsed;
   try {

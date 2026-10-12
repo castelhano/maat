@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { EmpresasTable } from "./empresas-table";
 
 export default async function EmpresasPage() {
-  await requireAdmin();
+  await requirePermissao("empresas", "consultar");
   const empresasRaw = await prisma.empresa.findMany({
     orderBy: { nome: "asc" },
     include: { _count: { select: { funcionarios: true } } },

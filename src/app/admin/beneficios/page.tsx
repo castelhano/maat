@@ -1,8 +1,8 @@
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { BeneficiosCentral } from "./beneficios-central";
 
 export default async function BeneficiosPage() {
-  await requireAdmin();
+  await requirePermissao("beneficios", "consultar");
 
   return (
     <>

@@ -35,6 +35,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createFuncionario, deleteFuncionario, updateFuncionario } from "./actions";
+import { usePodeOperar } from "@/components/permissoes-provider";
 
 type Empresa = { id: string; nome: string };
 type Cargo = { id: string; nome: string; recebeCestaBasica: boolean; recebeValeRefeicao: boolean };
@@ -144,6 +145,7 @@ export function FuncionariosTable({
   empresas: Empresa[];
   cargos: Cargo[];
 }) {
+  const podeOperar = usePodeOperar("funcionarios");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -296,7 +298,7 @@ export function FuncionariosTable({
 
         <div className="flex items-center gap-2">
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger render={<Button onClick={abrirCriar}>Novo funcionário</Button>} />
+            {podeOperar && <DialogTrigger render={<Button onClick={abrirCriar}>Novo funcionário</Button>} />}
             <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>{editando ? "Editar funcionário" : "Novo funcionário"}</DialogTitle>
@@ -573,7 +575,7 @@ export function FuncionariosTable({
             <TableHead>Empresa</TableHead>
             <TableHead>Salário</TableHead>
             <TableHead>Situação</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
+            <TableHead className="text-right">{podeOperar ? "Ações" : ""}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -588,6 +590,7 @@ export function FuncionariosTable({
                 <Badge variant={STATUS_BADGE[funcionario.status]}>{STATUS_LABEL[funcionario.status]}</Badge>
               </TableCell>
               <TableCell className="text-right">
+                {podeOperar && (
                 <div className="flex justify-end gap-2">
                   <Button
                     variant="secondary"
@@ -606,6 +609,7 @@ export function FuncionariosTable({
                     Excluir
                   </Button>
                 </div>
+                )}
               </TableCell>
             </TableRow>
           ))}

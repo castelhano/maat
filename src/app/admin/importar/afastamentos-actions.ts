@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { parseAfastamentos, type AfastamentoLinha, type AfastamentosParseResult } from "@/lib/parsers/afastamentos";
 
 export type PreviewAtualizacaoAfastamento = {
@@ -151,7 +151,7 @@ async function montarDiff(linhas: AfastamentoLinha[]) {
 export async function previewAfastamentos(
   conteudo: string
 ): Promise<{ data: PreviewAfastamentosResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -181,7 +181,7 @@ export async function confirmarAfastamentos(
   competencia: string,
   resolucoesAmbiguas: Record<string, string>
 ): Promise<{ error: string | null; resumo?: { atualizados: number; naoEncontrados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
 
   if (!competencia.trim()) {
     return { error: "Selecione a competência antes de confirmar." };

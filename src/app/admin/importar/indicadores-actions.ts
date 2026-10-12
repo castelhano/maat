@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { extrairTextoPdf } from "@/lib/pdf";
 import { parseResumoGerencial } from "@/lib/parsers/resumo-gerencial";
 import { CAMPOS_INDICADOR, type CampoIndicador } from "@/lib/indicadores";
@@ -21,7 +21,7 @@ export type PreviewIndicadoresResult = {
 export async function previewIndicadores(
   pdfBase64: string
 ): Promise<{ data: PreviewIndicadoresResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -127,7 +127,7 @@ export async function confirmarIndicadores(
   nomeArquivo: string,
   linhas: IndicadorLinhaEditada[]
 ): Promise<{ error: string | null; resumo?: { gravados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
 
   if (!competencia.trim()) return { error: "Competência não informada." };
   if (linhas.length === 0) return { error: "Nenhuma área pra gravar." };

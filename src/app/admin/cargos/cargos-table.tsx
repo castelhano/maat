@@ -36,6 +36,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createCargo, deleteCargo, updateCargo } from "./actions";
+import { usePodeOperar } from "@/components/permissoes-provider";
 import { SyncDepartamentoDialog } from "./sync-departamento-dialog";
 
 type Cargo = {
@@ -61,6 +62,7 @@ const cargoFormSchema = z.object({
 type CargoFormValues = z.infer<typeof cargoFormSchema>;
 
 export function CargosTable({ cargos }: { cargos: Cargo[] }) {
+  const podeOperar = usePodeOperar("cargos");
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -184,9 +186,9 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
         </div>
 
         <div className="flex items-end gap-2">
-          <SyncDepartamentoDialog />
+          {podeOperar && <SyncDepartamentoDialog />}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button onClick={abrirCriar}>Novo cargo</Button>} />
+          {podeOperar && <DialogTrigger render={<Button onClick={abrirCriar}>Novo cargo</Button>} />}
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editando ? "Editar cargo" : "Novo cargo"}</DialogTitle>
@@ -277,7 +279,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
             <TableHead>Vale-alimentação</TableHead>
             <TableHead>Valor fixo VR</TableHead>
             <TableHead>Funcionários</TableHead>
-            <TableHead className="text-right">Ações</TableHead>
+            <TableHead className="text-right">{podeOperar ? "Ações" : ""}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -309,6 +311,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
               </TableCell>
               <TableCell>{cargo._count.funcionarios}</TableCell>
               <TableCell className="text-right">
+                {podeOperar && (
                 <div className="flex justify-end gap-2">
                   <Button
                     variant="secondary"
@@ -327,6 +330,7 @@ export function CargosTable({ cargos }: { cargos: Cargo[] }) {
                     Excluir
                   </Button>
                 </div>
+                )}
               </TableCell>
             </TableRow>
             );

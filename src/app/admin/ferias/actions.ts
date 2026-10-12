@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { parseFerias, diasDireitoPorFaltas, type FeriasLinha } from "@/lib/parsers/ferias";
 import { dataPagamentoFerias } from "@/lib/feriados";
 
@@ -79,7 +79,7 @@ async function montarDiff(linhas: FeriasLinha[], codigoEmpresa: string) {
 export async function previewImportacaoFerias(
   conteudo: string
 ): Promise<{ data: PreviewResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("ferias", "operar");
 
   let parsed;
   try {
@@ -107,7 +107,7 @@ export async function confirmarImportacaoFerias(
   conteudo: string,
   nomeArquivo: string
 ): Promise<{ error: string | null; resumo?: { criados: number; atualizados: number; naoEncontrados: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("ferias", "operar");
 
   let parsed;
   try {
@@ -237,7 +237,7 @@ async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
 export async function salvarProgramacao(
   input: ProgramacaoInput
 ): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("ferias", "operar");
 
   const ferias = await prisma.ferias.findUnique({ where: { id: input.feriasId } });
   if (!ferias) return { error: "Período de férias não encontrado." };
@@ -289,7 +289,7 @@ export type QuinzenaInput = {
 };
 
 export async function salvarQuinzena(input: QuinzenaInput): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("ferias", "operar");
 
   const dataInicio = new Date(input.dataInicio);
   const dataFim = new Date(input.dataFim);
@@ -317,7 +317,7 @@ export async function alternarExibirMural(
   feriasId: string,
   exibirMural: boolean
 ): Promise<{ error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("ferias", "operar");
   await prisma.ferias.update({ where: { id: feriasId }, data: { exibirMural } });
   return { error: null };
 }

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/table";
 import { salvarProgramacao, salvarQuinzena, alternarExibirMural } from "./actions";
 import { Importador } from "./importador";
+import { usePodeOperar } from "@/components/permissoes-provider";
 import { dataPagamentoFerias } from "@/lib/feriados";
 
 export type QuinzenaLinha = {
@@ -125,6 +126,7 @@ function ExibirMuralToggle({
   periodo: FeriasLinha;
   onSaved: (p: FeriasLinha) => void;
 }) {
+  const podeOperar = usePodeOperar("ferias");
   const [isPending, startTransition] = useTransition();
 
   function alternar(checked: boolean) {
@@ -143,7 +145,7 @@ function ExibirMuralToggle({
       <input
         type="checkbox"
         checked={periodo.exibirMural}
-        disabled={isPending}
+        disabled={isPending || !podeOperar}
         onChange={(e) => alternar(e.target.checked)}
         className="size-3.5 accent-primary"
       />
@@ -460,6 +462,7 @@ function QuinzenaCelulaEditavel({
     ? custom.dataFim
     : new Date(Date.UTC(ano, mes - 1, quinzena === 2 ? ultimoDiaDoMes(ano, mes) : 15)).toISOString();
 
+  const podeOperar = usePodeOperar("ferias");
   const [dataInicio, setDataInicio] = useState(dataParaInput(padraoInicio));
   const [dataFim, setDataFim] = useState(dataParaInput(padraoFim));
   const [isPending, startTransition] = useTransition();
@@ -506,6 +509,22 @@ function QuinzenaCelulaEditavel({
 
   const inputCls =
     "h-7 rounded-sm border border-border-hi bg-secondary px-1.5 font-mono text-[10px] text-foreground outline-none focus-visible:border-primary";
+
+  if (!podeOperar) {
+    return (
+      <div className="flex flex-col gap-1 font-mono text-[10px] text-foreground">
+        <span>
+          {formatarData(padraoInicio)} a {formatarData(padraoFim)}
+          {!custom && <span className="ml-1.5 text-[9px] text-text-3">(padrão)</span>}
+        </span>
+        {pagamento && (
+          <span className="text-[9px] text-text-3">
+            pagar até {pagamento.toLocaleDateString("pt-BR", { timeZone: "UTC" })} (dia útil)
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1">
@@ -743,6 +762,7 @@ export function FeriasTable({
   periodos: FeriasLinha[];
   quinzenasIniciais: QuinzenaLinha[];
 }) {
+  const podeOperar = usePodeOperar("ferias");
   const [periodos, setPeriodos] = useState(periodosIniciais);
   const [quinzenas, setQuinzenas] = useState(quinzenasIniciais);
 
@@ -925,7 +945,7 @@ export function FeriasTable({
       <style>{`@media print { @page { size: landscape; margin: 10mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }`}</style>
       <TabsList className="print:hidden">
         <TabsTab value="programacao">Programação</TabsTab>
-        <TabsTab value="importar">Importar TXT</TabsTab>
+        {podeOperar && <TabsTab value="importar">Importar TXT</TabsTab>}
         <TabsTab value="calendario">Calendário de Quinzenas</TabsTab>
         <TabsTab value="resumo">Resumo</TabsTab>
         <TabsTab value="mural">Painel / Mural</TabsTab>
@@ -1029,9 +1049,13 @@ export function FeriasTable({
             </div>
             <p className="font-mono text-[10px] text-text-3">
               {periodosFiltrados.length} de {periodos.length} período(s) · {programados.length} programado(s) ·{" "}
-              {naoProgramados.length} pendente(s) — clique em{" "}
-              <span className="font-bold text-primary">Programar/Editar</span> na linha do colaborador pra lançar ou
-              alterar mês, quinzena e abono a qualquer momento
+              {naoProgramados.length} pendente(s)
+              {podeOperar && (
+                <>
+                  {" "}— clique em <span className="font-bold text-primary">Programar/Editar</span> na linha do
+                  colaborador pra lançar ou alterar mês, quinzena e abono a qualquer momento
+                </>
+              )}
             </p>
             <Table containerClassName="max-h-[70vh] overflow-y-auto">
               <TableHeader>
@@ -1076,7 +1100,7 @@ export function FeriasTable({
                       <ExibirMuralToggle periodo={p} onSaved={atualizarPeriodo} />
                     </TableCell>
                     <TableCell>
-                      <ProgramarDialog periodo={p} quinzenas={quinzenas} onSaved={atualizarPeriodo} />
+                      {podeOperar && <ProgramarDialog periodo={p} quinzenas={quinzenas} onSaved={atualizarPeriodo} />}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1086,9 +1110,11 @@ export function FeriasTable({
         )}
       </TabsPanel>
 
-      <TabsPanel value="importar">
-        <Importador />
-      </TabsPanel>
+      {podeOperar && (
+        <TabsPanel value="importar">
+          <Importador />
+        </TabsPanel>
+      )}
 
       <TabsPanel value="calendario" className="flex flex-col gap-3">
         <p className="font-mono text-[11px] text-text-3">

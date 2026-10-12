@@ -22,6 +22,7 @@ import {
   type ApuracaoValeGasResumo,
 } from "./vale-gas-actions";
 import { ValeGasPainel } from "./vale-gas-painel";
+import { usePodeOperar } from "@/components/permissoes-provider";
 
 const TODAS = "__todas__";
 
@@ -36,6 +37,7 @@ function mesEhPar(mes: string): boolean {
 }
 
 export function BeneficiosCentral() {
+  const podeOperar = usePodeOperar("beneficios");
   const padrao = competenciaPadrao();
   const [mes, setMes] = useState(padrao.mes);
   const [ano, setAno] = useState(padrao.ano);
@@ -178,10 +180,12 @@ export function BeneficiosCentral() {
           <CompetenciaSelect mes={mes} ano={ano} onMesChange={handleMesChange} onAnoChange={handleAnoChange} />
         </div>
         <div className="flex flex-col items-end gap-1.5">
-          <Button onClick={handleProcessar} disabled={isPending || !competencia || competenciaFechada || valeGasMesInvalido}>
-            <RefreshCw />
-            {processando ? "Processando..." : `Processar ${rotuloAba[aba]}${filtroEmpresa === TODAS ? "" : ` — ${filtroEmpresa}`}`}
-          </Button>
+          {podeOperar && (
+            <Button onClick={handleProcessar} disabled={isPending || !competencia || competenciaFechada || valeGasMesInvalido}>
+              <RefreshCw />
+              {processando ? "Processando..." : `Processar ${rotuloAba[aba]}${filtroEmpresa === TODAS ? "" : ` — ${filtroEmpresa}`}`}
+            </Button>
+          )}
           {valeGasMesInvalido && (
             <span className="font-mono text-[10px] text-warning">
               vale gás só é apurado em meses pares (a entrega acontece em fev, abr, jun, ago, out e dez)
@@ -250,7 +254,9 @@ export function BeneficiosCentral() {
                       ? "Nenhum item para os filtros selecionados."
                       : `Nenhuma apuração de cesta básica salva para ${competencia} ainda.`}
                   </p>
-                  <p className="font-mono text-[10px] text-text-3">Clique em Processar pra calcular a partir dos cadastros atuais.</p>
+                  <p className="font-mono text-[10px] text-text-3">
+                    {podeOperar ? "Clique em Processar pra calcular a partir dos cadastros atuais." : "Ainda não foi processada por quem opera a rotina."}
+                  </p>
                 </div>
               ) : (
                 <BeneficioPainel
@@ -270,7 +276,9 @@ export function BeneficiosCentral() {
                       ? "Nenhum item para os filtros selecionados."
                       : `Nenhuma apuração de vale-alimentação salva para ${competencia} ainda.`}
                   </p>
-                  <p className="font-mono text-[10px] text-text-3">Clique em Processar pra calcular a partir dos cadastros atuais.</p>
+                  <p className="font-mono text-[10px] text-text-3">
+                    {podeOperar ? "Clique em Processar pra calcular a partir dos cadastros atuais." : "Ainda não foi processada por quem opera a rotina."}
+                  </p>
                 </div>
               ) : (
                 <BeneficioPainel
@@ -291,7 +299,9 @@ export function BeneficiosCentral() {
                         ? "Nenhum item para os filtros selecionados."
                         : `Nenhuma apuração de vale gás salva para ${competencia} ainda.`}
                     </p>
-                    <p className="font-mono text-[10px] text-text-3">Clique em Processar pra calcular a partir dos cadastros atuais.</p>
+                    <p className="font-mono text-[10px] text-text-3">
+                    {podeOperar ? "Clique em Processar pra calcular a partir dos cadastros atuais." : "Ainda não foi processada por quem opera a rotina."}
+                  </p>
                   </div>
                 ) : (
                   <ValeGasPainel

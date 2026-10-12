@@ -1,15 +1,15 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
-import { funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
+import { requirePermissao } from "@/lib/session";
+import { CARGOS_FORA_BANCO_HORAS, funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
 
 export type FuncionarioOpcao = { id: string; matricula: string; nome: string };
 
 export async function listarFuncionariosComBancoHoras(): Promise<FuncionarioOpcao[]> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
   return prisma.funcionario.findMany({
-    where: { bancoHorasApuracoes: { some: {} } },
+    where: { bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } },
     select: { id: true, matricula: true, nome: true },
     orderBy: { nome: "asc" },
   });
@@ -86,16 +86,16 @@ export type ResumoMensalOpcoesFiltro = {
 };
 
 export async function listarOpcoesFiltroResumoMensal(): Promise<ResumoMensalOpcoesFiltro> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
 
   const [empresas, cargos] = await Promise.all([
     prisma.empresa.findMany({
-      where: { funcionarios: { some: { bancoHorasApuracoes: { some: {} } } } },
+      where: { funcionarios: { some: { bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } } } },
       select: { id: true, nome: true },
       orderBy: { nome: "asc" },
     }),
     prisma.cargo.findMany({
-      where: { funcionarios: { some: { bancoHorasApuracoes: { some: {} } } } },
+      where: { nome: { notIn: CARGOS_FORA_BANCO_HORAS }, funcionarios: { some: { bancoHorasApuracoes: { some: {} } } } },
       select: { departamento: true, setor: true },
     }),
   ]);
@@ -110,7 +110,7 @@ export async function buscarResumoMensal(
   competencia: string,
   filtros?: ResumoMensalFiltros
 ): Promise<{ data: ResumoMensalResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
 
   if (!competencia) return { data: null, error: "Selecione a competência." };
 
@@ -123,6 +123,7 @@ export async function buscarResumoMensal(
         status: { not: "desligado" },
         empresaId: filtros?.empresaId || undefined,
         cargo: {
+          nome: { notIn: CARGOS_FORA_BANCO_HORAS },
           departamento: filtros?.departamento || undefined,
           setor: filtros?.setor || undefined,
         },
@@ -250,7 +251,7 @@ export type EvolucaoResult = {
 };
 
 export async function listarCompetenciasDisponiveis(): Promise<string[]> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
   const rows = await prisma.bancoHorasApuracao.findMany({
     select: { competencia: true },
     distinct: ["competencia"],
@@ -263,7 +264,7 @@ export async function buscarEvolucao(
   competenciaFim: string,
   filtros?: ResumoMensalFiltros
 ): Promise<{ data: EvolucaoResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
 
   if (!competenciaInicio || !competenciaFim) return { data: null, error: "Selecione o período." };
   if (compararCompetencias(competenciaInicio, competenciaFim) > 0) {
@@ -275,6 +276,7 @@ export async function buscarEvolucao(
       funcionario: {
         empresaId: filtros?.empresaId || undefined,
         cargo: {
+          nome: { notIn: CARGOS_FORA_BANCO_HORAS },
           departamento: filtros?.departamento || undefined,
           setor: filtros?.setor || undefined,
         },
@@ -349,7 +351,7 @@ export async function buscarExtratoColaborador(
   competenciaFim: string,
   opcoes?: { completo?: boolean }
 ): Promise<{ data: ExtratoResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
 
   const funcionario = await prisma.funcionario.findUnique({
     where: { id: funcionarioId },

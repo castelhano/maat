@@ -10,6 +10,7 @@ import { AfastamentosImportador } from "./afastamentos-importador";
 import { CatImportador } from "./cat-importador";
 import { IndicadoresImportador } from "./indicadores-importador";
 import { MovimentacaoImportador } from "./movimentacao-importador";
+import { usePodeOperar } from "@/components/permissoes-provider";
 import { statusImportacoes, type StatusImportacoes, type StatusImportacaoTipo } from "./status-actions";
 
 type Empresa = { id: string; nome: string };
@@ -78,6 +79,8 @@ function empresasDoTipo(status: StatusImportacoes, tipos: string[]): StatusImpor
 }
 
 export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
+  // Sem permissão de operar, a central mostra só o status das importações.
+  const podeOperar = usePodeOperar("importar");
   const padrao = competenciaPadrao();
   const [mes, setMes] = useState(padrao.mes);
   const [ano, setAno] = useState(padrao.ano);
@@ -185,10 +188,10 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
                     </div>
                   )}
 
-                  {tipo.key === "cadastro" && (
+                  {podeOperar && tipo.key === "cadastro" && (
                     <CadastroImportador competencia={competencia} onImportado={recarregar} />
                   )}
-                  {tipo.key === "afastados_desligados" && (
+                  {podeOperar && tipo.key === "afastados_desligados" && (
                     <div className="flex flex-col gap-8">
                       <div className="flex flex-col gap-3">
                         <p className="font-mono text-[11px] font-bold tracking-[.08em] text-foreground uppercase">
@@ -204,9 +207,9 @@ export function ImportacaoCentral({ empresas }: { empresas: Empresa[] }) {
                       </div>
                     </div>
                   )}
-                  {tipo.key === "faltas" && <FaltasImportador competencia={competencia} onImportado={recarregar} />}
-                  {tipo.key === "indicadores_mensais" && <IndicadoresImportador onImportado={recarregar} />}
-                  {tipo.key === "cat" && <CatImportador onImportado={recarregar} />}
+                  {podeOperar && tipo.key === "faltas" && <FaltasImportador competencia={competencia} onImportado={recarregar} />}
+                  {podeOperar && tipo.key === "indicadores_mensais" && <IndicadoresImportador onImportado={recarregar} />}
+                  {podeOperar && tipo.key === "cat" && <CatImportador onImportado={recarregar} />}
                 </div>
               )}
             </div>

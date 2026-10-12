@@ -47,7 +47,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (error) {
-      toast.error("Usuário ou senha inválidos");
+      toast.error(error.status === 403 && error.message ? error.message : "Usuário ou senha inválidos");
       return;
     }
 

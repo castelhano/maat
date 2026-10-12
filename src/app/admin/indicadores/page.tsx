@@ -1,11 +1,11 @@
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { listarEmpresasIndicadores } from "./actions";
 import { IndicadoresPainel } from "./indicadores-painel";
 import { AcidentesPainel } from "./acidentes-painel";
 import { listarEmpresasComCat } from "./acidentes-actions";
 
 export default async function IndicadoresPage() {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
   const empresas = await listarEmpresasIndicadores();
   const empresasCat = await listarEmpresasComCat();
 

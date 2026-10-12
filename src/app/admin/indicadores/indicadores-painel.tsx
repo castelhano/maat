@@ -5,7 +5,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Line,
   ReferenceLine,
@@ -21,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ExportCard } from "../beneficios/export-card";
+import { usePodeOperar } from "@/components/permissoes-provider";
 import {
   carregarIndicadores,
   atualizarCampoIndicador,
@@ -35,6 +35,7 @@ import {
   RATEIO_CAMPOS,
   CAMPO_LABEL,
   SETORES_INDICADOR,
+  MOTIVO_FALTA_LABEL,
   labelSetor,
   calcularDerivados,
   chaveCompetencia,
@@ -42,6 +43,10 @@ import {
   type CampoRateio,
   type ComDerivados,
 } from "@/lib/indicadores";
+
+// Ordem fixa dos motivos de ausência — garante cor consistente entre meses no gráfico empilhado
+// (não depende de quais motivos aparecem em cada competência).
+const MOTIVOS_ABSENTEISMO = Object.values(MOTIVO_FALTA_LABEL);
 
 const TODOS = "__todos__";
 
@@ -184,11 +189,11 @@ function Legenda({ itens }: { itens: { cor: string; label: string }[] }) {
 }
 
 export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
+  const podeOperar = usePodeOperar("indicadores");
   const [empresaId, setEmpresaId] = useState<string>(TODOS);
   const [setor, setSetor] = useState<string>(TODOS);
   const [linhas, setLinhas] = useState<IndicadorLinha[]>([]);
   const [absenteismoMeses, setAbsenteismoMeses] = useState<AbsenteismoMes[]>([]);
-  const [competenciaMotivo, setCompetenciaMotivo] = useState<string | null>(null);
   const [carregando, startCarregando] = useTransition();
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
 
@@ -200,9 +205,6 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
       const [result, absenteismo] = await Promise.all([carregarIndicadores(filtro), carregarAbsenteismo(filtro)]);
       setLinhas(result.linhas);
       setAbsenteismoMeses(absenteismo.meses);
-      setCompetenciaMotivo((atual) =>
-        absenteismo.meses.some((m) => m.competencia === atual) ? atual : (absenteismo.meses.at(-1)?.competencia ?? null)
-      );
     });
   }
 
@@ -236,24 +238,48 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
   );
   const dadosCusto = useMemo(() => pivotPorArea(dados, "custoTotalEmpregador"), [dados]);
   const dadosTurnover = useMemo(() => pivotTurnover(dados), [dados]);
-  const dadosAbsenteismo = useMemo(() => pivotPorArea(dados, "diasAusencia"), [dados]);
-  const dadosAbsenteismoPct = useMemo(
+  // Vem do relatório de Faltas (mesma fonte do gráfico "por motivo"), não mais do PDF do Resumo
+  // Gerencial — esse só passou a trazer atestado médico a partir de jul/2026, ficando incompleto
+  // pra trás disso (ver absenteismo-actions.ts).
+  const dadosAbsenteismo = useMemo(
     () =>
-      absenteismoMeses.map((m) => ({
-        competencia: nomeCompetencia(m.competencia),
-        Dias: m.totalDias,
-        Absenteísmo: m.percentual,
-      })),
+      absenteismoMeses.map((m) => {
+        const porArea = {} as Record<string, number>;
+        for (const item of m.porArea) {
+          const label = labelSetor(item.setor);
+          porArea[label] = (porArea[label] ?? 0) + item.dias;
+        }
+        return { competencia: nomeCompetencia(m.competencia), ...porArea } as PontoPorArea;
+      }),
     [absenteismoMeses]
   );
-  const mesMotivo = useMemo(
-    () => absenteismoMeses.find((m) => m.competencia === competenciaMotivo) ?? null,
-    [absenteismoMeses, competenciaMotivo]
+  // Um gráfico só: barras empilhadas por motivo (dias) + linha de % Absenteísmo + meta — em vez de
+  // dois cards separados (um de % e outro de motivo por mês selecionado).
+  const dadosAbsenteismoPct = useMemo(
+    () =>
+      absenteismoMeses.map((m) => {
+        const porMotivo = {} as Record<string, number>;
+        for (const motivo of MOTIVOS_ABSENTEISMO) porMotivo[motivo] = 0;
+        for (const item of m.porMotivo) porMotivo[item.motivo] = (porMotivo[item.motivo] ?? 0) + item.dias;
+        return {
+          competencia: nomeCompetencia(m.competencia),
+          Dias: m.totalDias,
+          Absenteísmo: m.percentual,
+          ...porMotivo,
+        } as { competencia: string; Dias: number; Absenteísmo: number } & Record<string, number>;
+      }),
+    [absenteismoMeses]
   );
-  const dadosMotivo = useMemo(
-    () => (mesMotivo ? mesMotivo.porMotivo.map((m) => ({ motivo: m.motivo, dias: m.dias })) : []),
-    [mesMotivo]
-  );
+  // Junta os dias por área com o % Absenteísmo geral (mesmo mês) — pra mostrar a linha de % e a
+  // meta de 1,5% nesse gráfico também, sem duplicar a conta (o % já é só um total da empresa, não
+  // por área).
+  const dadosAbsenteismoAreaComPct = useMemo(() => {
+    const percentualPorCompetencia = new Map(dadosAbsenteismoPct.map((d) => [d.competencia, d.Absenteísmo]));
+    return dadosAbsenteismo.map(
+      (d) =>
+        ({ ...d, Absenteísmo: percentualPorCompetencia.get(d.competencia) ?? 0 }) as PontoPorArea & { Absenteísmo: number }
+    );
+  }, [dadosAbsenteismo, dadosAbsenteismoPct]);
   const dadosBeneficios = useMemo(() => pivotPorArea(dados, "custoBeneficios"), [dados]);
   const dadosEncargos = useMemo(() => pivotPorArea(dados, "encargos"), [dados]);
 
@@ -459,6 +485,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                   stroke="#2a3038"
                   width={48}
                   tickFormatter={(v) => `${v}%`}
+                  domain={[0, (max: number) => Math.max(max, META_TURNOVER * 1.2)]}
                 />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, nome) => (nome === "Turnover" ? `${Number(v).toFixed(2)}%` : v)} />
                 <Bar yAxisId="qtd" dataKey="Admitidos" fill={COR_ADMITIDOS} maxBarSize={28} radius={[3, 3, 0, 0]} />
@@ -594,34 +621,63 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
 
           <ExportCard
             titulo="Absenteísmo (%) — meta 1,5%"
-            descricao="dias de ausência ÷ (ativos × dias úteis do mês) × 100 — dia útil aqui conta sábado, só desconta domingo e feriado nacional; inclui atestado médico, faltas (justificadas e não), suspensão, licença luto e licença casamento"
+            descricao="barras = dias de ausência por motivo; linha = % (dias de ausência ÷ (ativos × dias úteis do mês) × 100) — dia útil aqui conta sábado, só desconta domingo e feriado nacional"
             arquivo="indicadores-absenteismo-percentual"
             csv={{
-              headers: ["Competência", "Dias de ausência", "Absenteísmo %"],
-              linhas: dadosAbsenteismoPct.map((d) => [d.competencia, d.Dias, d.Absenteísmo]),
+              headers: ["Competência", "Dias de ausência", "Absenteísmo %", ...MOTIVOS_ABSENTEISMO],
+              linhas: dadosAbsenteismoPct.map((d) => [
+                d.competencia,
+                d.Dias,
+                d.Absenteísmo,
+                ...MOTIVOS_ABSENTEISMO.map((m) => d[m] ?? 0),
+              ]),
             }}
           >
             <Legenda
               itens={[
+                ...MOTIVOS_ABSENTEISMO.map((motivo, i) => ({ cor: CORES_MOTIVO[i % CORES_MOTIVO.length], label: motivo })),
                 { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
                 { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
               ]}
             />
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={dadosAbsenteismoPct} margin={{ left: 8, right: 8, top: 8 }}>
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={dadosAbsenteismoPct} margin={{ left: 8, right: 8, top: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
                 <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-                <YAxis tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={48} tickFormatter={(v) => `${v}%`} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => `${Number(v).toFixed(2)}%`} />
-                <Bar dataKey="Absenteísmo" fill={COR_ABSENTEISMO} maxBarSize={36} radius={[3, 3, 0, 0]} />
+                <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
+                <YAxis
+                  yAxisId="pct"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: "#7590a8" }}
+                  stroke="#2a3038"
+                  width={48}
+                  tickFormatter={(v) => `${v}%`}
+                  domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)}
+                />
+                {MOTIVOS_ABSENTEISMO.map((motivo, i) => (
+                  <Bar
+                    key={motivo}
+                    yAxisId="dias"
+                    dataKey={motivo}
+                    stackId="motivo"
+                    fill={CORES_MOTIVO[i % CORES_MOTIVO.length]}
+                    maxBarSize={36}
+                  />
+                ))}
+                <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
                 <ReferenceLine
+                  yAxisId="pct"
                   y={META_ABSENTEISMO}
                   stroke={COR_META}
                   strokeWidth={2}
                   strokeDasharray="4 3"
                   label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
                 />
-              </BarChart>
+              </ComposedChart>
             </ResponsiveContainer>
 
             {dadosAbsenteismoPct.length > 0 && (
@@ -646,10 +702,23 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                     </tr>
                   </thead>
                   <tbody>
+                    {MOTIVOS_ABSENTEISMO.map((motivo) => (
+                      <tr key={motivo} className="border-b border-border/50">
+                        <td className="px-2 py-1.5 text-text-2">{motivo}</td>
+                        {dadosAbsenteismoPct.map((d) => (
+                          <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                            {d[motivo] ?? 0}
+                          </td>
+                        ))}
+                        <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                          {media(dadosAbsenteismoPct.map((d) => Number(d[motivo]) || 0)).toFixed(1)}
+                        </td>
+                      </tr>
+                    ))}
                     <tr className="border-b border-border/50">
-                      <td className="px-2 py-1.5 text-text-2">Dias de ausência</td>
+                      <td className="px-2 py-1.5 font-bold text-foreground">Total dias</td>
                       {dadosAbsenteismoPct.map((d) => (
-                        <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                        <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-foreground">
                           {d.Dias}
                         </td>
                       ))}
@@ -675,71 +744,67 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
           </ExportCard>
 
           <ExportCard
-            titulo="Absenteísmo por motivo"
-            descricao="dias de ausência no mês selecionado, por tipo de ocorrência (dados do relatório de faltas)"
-            arquivo="indicadores-absenteismo-motivo"
-            csv={{
-              headers: ["Motivo", "Dias"],
-              linhas: dadosMotivo.map((d) => [d.motivo, d.dias]),
-            }}
-          >
-            <div className="mb-3 flex flex-col gap-2">
-              <Label>Competência</Label>
-              <Select value={competenciaMotivo ?? undefined} onValueChange={(v) => setCompetenciaMotivo(v as string)}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {absenteismoMeses.map((m) => (
-                    <SelectItem key={m.competencia} value={m.competencia}>
-                      {nomeCompetencia(m.competencia)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {dadosMotivo.length === 0 ? (
-              <p className="font-mono text-[11px] text-text-3">Sem dados de faltas para essa competência.</p>
-            ) : (
-              <>
-                <p className="mb-2 font-mono text-[10px] text-text-3">
-                  Total: {mesMotivo?.totalDias} dia(s) de ausência em {nomeCompetencia(mesMotivo?.competencia ?? "")}
-                </p>
-                <ResponsiveContainer width="100%" height={Math.max(180, dadosMotivo.length * 34)}>
-                  <BarChart data={dadosMotivo} layout="vertical" margin={{ left: 8, right: 24, top: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" />
-                    <YAxis
-                      type="category"
-                      dataKey="motivo"
-                      tick={{ fontSize: 10, fill: "#8fa0b0" }}
-                      stroke="#2a3038"
-                      width={140}
-                    />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Bar dataKey="dias" maxBarSize={22} radius={[0, 3, 3, 0]}>
-                      {dadosMotivo.map((_, i) => (
-                        <Cell key={i} fill={CORES_MOTIVO[i % CORES_MOTIVO.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </>
-            )}
-          </ExportCard>
-
-          <ExportCard
             titulo="Absenteísmo (dias) por área"
-            descricao="dias de falta + atestado somados"
+            descricao="dias de ausência por área (relatório de Faltas, todos os motivos); linha = % Absenteísmo geral da empresa, com meta de 1,5%"
             arquivo="indicadores-absenteismo"
             csv={{
-              headers: ["Competência", ...areasPresentes],
-              linhas: dadosAbsenteismo.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
+              headers: ["Competência", ...areasPresentes, "Absenteísmo %"],
+              linhas: dadosAbsenteismoAreaComPct.map((d) => [
+                d.competencia,
+                ...areasPresentes.map((a) => d[a] ?? 0),
+                d.Absenteísmo,
+              ]),
             }}
           >
-            <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
-            <AreaBarChart dados={dadosAbsenteismo} areasPresentes={areasPresentes} />
+            <Legenda
+              itens={[
+                ...areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" })),
+                { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
+                { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
+              ]}
+            />
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={dadosAbsenteismoAreaComPct} margin={{ left: 8, right: 8, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+                <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+                <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
+                <YAxis
+                  yAxisId="pct"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: "#7590a8" }}
+                  stroke="#2a3038"
+                  width={48}
+                  tickFormatter={(v) => `${v}%`}
+                  domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)}
+                />
+                {areasPresentes.map((areaLabel) => {
+                  const valor = SETORES_INDICADOR.find((s) => s.label === areaLabel)?.valor ?? areaLabel;
+                  return (
+                    <Bar
+                      key={areaLabel}
+                      yAxisId="dias"
+                      dataKey={areaLabel}
+                      fill={COR_SETOR[valor] ?? "#8fa0b0"}
+                      maxBarSize={28}
+                      radius={[3, 3, 0, 0]}
+                    />
+                  );
+                })}
+                <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
+                <ReferenceLine
+                  yAxisId="pct"
+                  y={META_ABSENTEISMO}
+                  stroke={COR_META}
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                  label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </ExportCard>
 
           <ExportCard
@@ -781,6 +846,7 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
             <AreaBarChart dados={dadosEncargos} areasPresentes={areasPresentes} formatter={fmtMoeda} />
           </ExportCard>
 
+          {podeOperar && (
           <div className="rounded-lg border border-border bg-surface p-4">
             <p className="mb-1 font-mono text-[13px] font-bold text-foreground">Lançamento total (por empresa)</p>
             <p className="mb-3 font-mono text-[10px] text-text-3">
@@ -836,10 +902,11 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
               </div>
             )}
           </div>
+          )}
 
           <ExportCard
-            titulo="Tabela detalhada — editável"
-            descricao="clique num valor pra corrigir; grava assim que sai do campo"
+            titulo={podeOperar ? "Tabela detalhada — editável" : "Tabela detalhada"}
+            descricao={podeOperar ? "clique num valor pra corrigir; grava assim que sai do campo" : "valores por área e competência"}
             arquivo="indicadores-detalhado"
             pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
             csv={{ headers: csvHeaders, linhas: csvLinhas }}
@@ -891,6 +958,8 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
                         >
                           {l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                         </TableCell>
+                      ) : !podeOperar ? (
+                        <TableCell key={c}>{l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</TableCell>
                       ) : (
                         <TableCell key={c}>
                           <Input

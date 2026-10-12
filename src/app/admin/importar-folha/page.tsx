@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { requirePermissao } from "@/lib/session";
 import { Importador } from "./importador";
 
-export default function ImportarFolhaPage() {
+export default async function ImportarFolhaPage() {
+  await requirePermissao("funcionarios", "operar");
+
   return (
     <>
       <div>

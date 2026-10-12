@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import {
   parseSituacaoValeRefeicao,
   type SituacaoStatus,
@@ -125,7 +125,7 @@ async function montarDiff(linhas: SituacaoValeRefeicaoLinha[]) {
 export async function previewSituacaoVR(
   conteudo: string
 ): Promise<{ data: PreviewSituacaoResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -156,7 +156,7 @@ export async function confirmarSituacaoVR(
   competencia: string,
   resolucoesAmbiguas: Record<string, string>
 ): Promise<{ error: string | null; resumo?: { atualizados: number; naoEncontrados: number; ambiguosPendentes: number } }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("importar", "operar");
 
   if (!competencia.trim()) {
     return { error: "Selecione a competência antes de confirmar." };

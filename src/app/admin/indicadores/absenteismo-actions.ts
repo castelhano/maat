@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { chaveCompetencia, diasUteisNoMes, labelMotivoFalta } from "@/lib/indicadores";
 
 const DESDE_COMPETENCIA = "01/2026";
@@ -13,6 +13,10 @@ export type AbsenteismoMes = {
   ativos: number;
   percentual: number;
   porMotivo: { motivo: string; dias: number }[];
+  // Dias de ausência por área (setor do cargo da pessoa) — vem do relatório de Faltas (mesma fonte
+  // de totalDias/porMotivo), não do PDF do Resumo Gerencial: esse só passou a trazer atestado
+  // médico a partir de jul/2026, então ficaria incompleto pra meses anteriores.
+  porArea: { setor: string; dias: number }[];
 };
 
 function competenciaDaData(data: Date): string {
@@ -22,7 +26,7 @@ function competenciaDaData(data: Date): string {
 export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: string }): Promise<{
   meses: AbsenteismoMes[];
 }> {
-  await requireAdmin();
+  await requirePermissao("indicadores", "consultar");
 
   const [mesInicio, anoInicio] = DESDE_COMPETENCIA.split("/").map(Number);
 
@@ -34,7 +38,7 @@ export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: 
         ...(filtro.setor ? { cargo: { setor: filtro.setor } } : {}),
       },
     },
-    select: { data: true, ocorrencia: true },
+    select: { data: true, ocorrencia: true, funcionario: { select: { cargo: { select: { setor: true } } } } },
   });
 
   const indicadores = await prisma.indicadorMensal.findMany({
@@ -50,13 +54,19 @@ export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: 
     ativosPorCompetencia.set(i.competencia, (ativosPorCompetencia.get(i.competencia) ?? 0) + i.ativos);
   }
 
-  const porCompetencia = new Map<string, { total: number; motivos: Map<string, number> }>();
+  const porCompetencia = new Map<string, { total: number; motivos: Map<string, number>; areas: Map<string, number> }>();
   for (const f of faltas) {
     const competencia = competenciaDaData(f.data);
-    const bucket = porCompetencia.get(competencia) ?? { total: 0, motivos: new Map<string, number>() };
+    const bucket = porCompetencia.get(competencia) ?? {
+      total: 0,
+      motivos: new Map<string, number>(),
+      areas: new Map<string, number>(),
+    };
     bucket.total++;
     const motivo = labelMotivoFalta(f.ocorrencia ?? "");
     bucket.motivos.set(motivo, (bucket.motivos.get(motivo) ?? 0) + 1);
+    const setorPessoa = f.funcionario.cargo.setor;
+    if (setorPessoa) bucket.areas.set(setorPessoa, (bucket.areas.get(setorPessoa) ?? 0) + 1);
     porCompetencia.set(competencia, bucket);
   }
 
@@ -77,6 +87,7 @@ export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: 
         porMotivo: [...bucket.motivos.entries()]
           .map(([motivo, dias]) => ({ motivo, dias }))
           .sort((a, b) => b.dias - a.dias),
+        porArea: [...bucket.areas.entries()].map(([setor, dias]) => ({ setor, dias })),
       };
     });
 

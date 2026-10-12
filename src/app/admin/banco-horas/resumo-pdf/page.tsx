@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { buscarResumoMensal } from "../actions";
 import { ImprimirButton } from "../extrato-pdf/imprimir-button";
 
@@ -31,7 +31,7 @@ export default async function ResumoPdfPage({
     rescisao?: string;
   }>;
 }) {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "consultar");
   const { competencia, empresaId, departamento, setor, rescisao } = await searchParams;
   if (!competencia) notFound();
   const mostrarRescisao = rescisao === "1";

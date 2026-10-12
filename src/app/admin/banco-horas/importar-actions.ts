@@ -1,10 +1,10 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/session";
+import { requirePermissao } from "@/lib/session";
 import { parseBancoHoras, type BancoHorasLinha } from "@/lib/parsers/banco-horas";
 import { processarHistorico, type CompetenciaEntrada } from "@/lib/banco-horas";
-import { funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
+import { cargoForaDoBancoDeHoras, funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
 import { estaCongeladoNaCompetencia } from "@/lib/banco-horas-afastamento";
 
 function compararCompetencias(a: string, b: string): number {
@@ -47,7 +47,9 @@ async function montarPreview(parsed: { empresa: { codigo: string; nome: string }
   for (const [matricula, competencias] of porMatricula) {
     const func = funcPorMatricula.get(matricula);
     const item = { matricula, nome: func?.nome ?? "", competencias: competencias.sort(compararCompetencias) };
-    if (func) {
+    if (func && cargoForaDoBancoDeHoras(func.cargo.nome)) {
+      continue;
+    } else if (func) {
       encontrados.push(item);
       const competenciasComCredito = competencias.filter((c) =>
         parsed.linhas.some((l) => l.matricula === matricula && l.competencia === c && l.creditoDecimal > 0.001)
@@ -78,7 +80,7 @@ async function montarPreview(parsed: { empresa: { codigo: string; nome: string }
 export async function previewExtratoBancoHoras(
   conteudo: string
 ): Promise<{ data: PreviewBancoHorasResult | null; error: string | null }> {
-  await requireAdmin();
+  await requirePermissao("banco-horas", "operar");
 
   let parsed;
   try {
@@ -122,7 +124,7 @@ export async function confirmarExtratoBancoHoras(
     alertasCongelamento: AlertaCongelamento[];
   };
 }> {
-  const admin = await requireAdmin();
+  const admin = await requirePermissao("banco-horas", "operar");
 
   let parsed;
   try {
@@ -147,7 +149,16 @@ export async function confirmarExtratoBancoHoras(
 
   const funcionarios = await prisma.funcionario.findMany({
     where: { empresaId: empresa.id, matricula: { in: [...linhasPorMatricula.keys()] } },
-    select: { id: true, matricula: true, nome: true, status: true, dataAfastamento: true, dataRetorno: true, motivoAfastamento: true },
+    select: {
+      id: true,
+      matricula: true,
+      nome: true,
+      status: true,
+      dataAfastamento: true,
+      dataRetorno: true,
+      motivoAfastamento: true,
+      cargo: { select: { nome: true } },
+    },
   });
   const funcPorMatricula = new Map(funcionarios.map((f) => [f.matricula, f]));
   const naoEncontrados = [...linhasPorMatricula.keys()].filter((m) => !funcPorMatricula.has(m));
@@ -160,7 +171,7 @@ export async function confirmarExtratoBancoHoras(
     async (tx) => {
       for (const [matricula, novasLinhas] of linhasPorMatricula) {
         const func = funcPorMatricula.get(matricula);
-        if (!func) continue;
+        if (!func || cargoForaDoBancoDeHoras(func.cargo.nome)) continue;
 
         const saldoInicial = await tx.bancoHorasSaldoInicial.findUnique({ where: { funcionarioId: func.id } });
 
