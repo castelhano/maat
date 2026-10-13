@@ -269,7 +269,7 @@ export function AnaliseFrequenciaCentral() {
           </div>
           <p className="font-mono text-[10px] tracking-[.04em] text-text-3">
             Cartões contam ocorrências (dias). Jornada curta: abaixo de 4:00 no dia · Acima de 11h: somando os trechos do dia · HE: entrada
-            mais de 20 min antes ou saída mais de 45 min depois do programado, no mesmo turno · Troca: outro turno ou outra linha com 1h ou mais de diferença,
+            mais de 30 min antes ou saída mais de 45 min depois do programado, no mesmo turno, fora do plantão (linha 445) · Troca: outro turno ou outra linha com 1h ou mais de diferença,
             entrada 1h depois ou dia sem escala · Interjornada: menos de 11h de descanso entre um dia e outro{" "}
             {fracionar ? "(com fracionamento: mínimo 8h seguidas, completando as 11h com as pausas da dupla pegada do dia anterior e do dia seguinte)" : "(11h seguidas)"} · Turnos: madrugada 22:00–03:59,
             manhã 04:00–11:59, tarde 12:00–21:59.
@@ -660,7 +660,7 @@ function RelatorioHe({ analise, passaBusca }: { analise: Analise; passaBusca: (c
       `<h1>Relatório de entradas antecipadas / saídas prorrogadas (HE)</h1>
       <p>${escaparHtml(analise.empresa)} · período ${nomeCompetencia(analise.periodo)} · ${linhas.length} colaborador(es) · total ${formatarDuracao(
         totalGeral
-      )} · entrada mais de 20 min antes ou saída mais de 45 min depois do programado, no mesmo turno</p>
+      )} · entrada mais de 30 min antes ou saída mais de 45 min depois do programado, no mesmo turno, fora do plantão (linha 445)</p>
       <table><thead><tr><th>Código</th><th>Data</th><th>Programado</th><th>Realizado</th><th>Diferença</th><th>Total</th></tr></thead>
       <tbody>${corpo}</tbody></table>`
     );

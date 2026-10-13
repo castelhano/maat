@@ -3,8 +3,9 @@
 //   - jornada curta: trabalhou menos de 4h no dia (somando os trechos), ou não marcou nada estando
 //     escalado e sem ocorrência que justifique;
 //   - excesso: passou de 11h no dia (dobra/estendeu);
-//   - HE: no mesmo turno da escala, entrou mais de 20 min antes do programado e/ou saiu mais de
-//     45 min depois — suspeita de marcação para gerar hora extra;
+//   - HE: no mesmo turno da escala, entrou mais de 30 min antes do programado e/ou saiu mais de
+//     45 min depois — suspeita de marcação para gerar hora extra (não vale para dia de plantão,
+//     linha 445);
 //   - troca de escala: com 1h ou mais de diferença na entrada, trabalhou em outro turno
 //     (madrugada/manhã/tarde) ou em outra linha; entrou 1h ou mais depois do programado; ou
 //     trabalhou num dia sem escala;
@@ -25,8 +26,10 @@ import { minutosDoHorario, type DiaFrequencia, type TrechoFrequencia } from "@/l
 export const LIMITE_JORNADA_CURTA = 4 * 60;
 export const LIMITE_EXCESSO = 11 * 60;
 // HE: alerta acima destes minutos de entrada antecipada / saída prorrogada.
-export const LIMITE_HE_ENTRADA = 20;
+export const LIMITE_HE_ENTRADA = 30;
 export const LIMITE_HE_SAIDA = 45;
+// Linha do plantão: dias com algum trecho nela (programado ou realizado) não geram HE.
+export const LINHA_PLANTAO = "445";
 export const LIMITE_ATRASO_TROCA = 60;
 export const LIMITE_INTERJORNADA = 11 * 60;
 export const MINIMO_PRIMEIRO_PERIODO = 8 * 60;
@@ -235,6 +238,9 @@ function analisarDia(dia: DiaFrequencia, temEscala: boolean): DiaAnalisado {
     });
     return resultado;
   }
+
+  // Plantão (linha 445): o horário varia conforme o acionamento, então não gera HE.
+  if ([...programado, ...realizado].some((t) => linhaBase(t.linha) === LINHA_PLANTAO)) return resultado;
 
   const antecipado = entradaProg - entradaReal;
   const prorrogado = saidaReal - saidaProg;
