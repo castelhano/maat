@@ -268,8 +268,8 @@ export function AnaliseFrequenciaCentral() {
             ))}
           </div>
           <p className="font-mono text-[10px] tracking-[.04em] text-text-3">
-            Cartões contam ocorrências (dias). Jornada curta: abaixo de 4:00 no dia · Acima de 11h: somando os trechos do dia · HE: 30 min
-            ou mais antes da entrada ou depois da saída, no mesmo turno · Troca: outro turno ou outra linha com 1h ou mais de diferença,
+            Cartões contam ocorrências (dias). Jornada curta: abaixo de 4:00 no dia · Acima de 11h: somando os trechos do dia · HE: entrada
+            mais de 20 min antes ou saída mais de 45 min depois do programado, no mesmo turno · Troca: outro turno ou outra linha com 1h ou mais de diferença,
             entrada 1h depois ou dia sem escala · Interjornada: menos de 11h de descanso entre um dia e outro{" "}
             {fracionar ? "(com fracionamento: mínimo 8h seguidas, completando as 11h com as pausas da dupla pegada do dia anterior e do dia seguinte)" : "(11h seguidas)"} · Turnos: madrugada 22:00–03:59,
             manhã 04:00–11:59, tarde 12:00–21:59.
@@ -660,7 +660,7 @@ function RelatorioHe({ analise, passaBusca }: { analise: Analise; passaBusca: (c
       `<h1>Relatório de entradas antecipadas / saídas prorrogadas (HE)</h1>
       <p>${escaparHtml(analise.empresa)} · período ${nomeCompetencia(analise.periodo)} · ${linhas.length} colaborador(es) · total ${formatarDuracao(
         totalGeral
-      )} · marcação 30 min ou mais antes da entrada ou depois da saída programada, no mesmo turno</p>
+      )} · entrada mais de 20 min antes ou saída mais de 45 min depois do programado, no mesmo turno</p>
       <table><thead><tr><th>Código</th><th>Data</th><th>Programado</th><th>Realizado</th><th>Diferença</th><th>Total</th></tr></thead>
       <tbody>${corpo}</tbody></table>`
     );
@@ -804,7 +804,12 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
     .sort((x, y) => y.itens.length - x.itens.length || x.c.matricula.localeCompare(y.c.matricula));
 
   const porTipo = Object.fromEntries(TIPOS_ALERTA.map((t) => [t, 0])) as Record<TipoAlerta, number>;
-  for (const g of grupos) for (const { a } of g.itens) porTipo[a.tipo]++;
+  // Colaboradores distintos com pelo menos uma ocorrência de cada tipo.
+  const colaboradoresPorTipo = Object.fromEntries(TIPOS_ALERTA.map((t) => [t, 0])) as Record<TipoAlerta, number>;
+  for (const g of grupos) {
+    for (const { a } of g.itens) porTipo[a.tipo]++;
+    for (const t of new Set(g.itens.map((i) => i.a.tipo))) colaboradoresPorTipo[t]++;
+  }
   const totalItens = grupos.reduce((acc, g) => acc + g.itens.length, 0);
   const periodo = de === ate ? de : `${de} a ${ate}`;
   const rotuloFiltro = OPCOES_OCORRENCIA.find((o) => o.valor === filtro)!.rotulo;
@@ -860,7 +865,7 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
       : "";
     const assinatura = `<div class="assinatura"><div>Gestor responsável</div><div>Data</div><div>Departamento Pessoal</div></div>`;
     const resumo = TIPOS_ALERTA.filter((t) => porTipo[t] > 0)
-      .map((t) => `<tr><td>${ROTULO_ALERTA[t]}</td><td>${porTipo[t]}</td></tr>`)
+      .map((t) => `<tr><td>${ROTULO_ALERTA[t]}</td><td>${porTipo[t]}</td><td>${colaboradoresPorTipo[t]}</td></tr>`)
       .join("");
     const blocos = grupos
       .map(({ c, itens }, i) => {
@@ -887,7 +892,9 @@ function RelatorioGestores({ analise, passaBusca }: { analise: Analise; passaBus
       : `<h1>Ocorrências de frequência — ${escaparHtml(rotuloFiltro)}</h1>
         <p>${escaparHtml(analise.empresa)} · ${escaparHtml(filtros)} · ${grupos.length} colaborador(es) · ${totalItens} ocorrência(s) · emitido em ${new Date().toLocaleDateString("pt-BR")}</p>
         ${devolucao}
-        ${filtro === "todas" ? `<table style="width:auto;margin-bottom:12px"><thead><tr><th>Alerta</th><th>Ocorrências</th></tr></thead><tbody>${resumo}</tbody></table>` : ""}`;
+        <table style="width:auto;margin-bottom:12px"><thead><tr><th>Alerta</th><th>Ocorrências</th><th>Colaboradores</th></tr></thead><tbody>${resumo}${
+          filtro === "todas" ? `<tr><td><strong>Total</strong></td><td><strong>${totalItens}</strong></td><td><strong>${grupos.length}</strong></td></tr>` : ""
+        }</tbody></table>`;
     abrirImpressao(`Ocorrências de frequência — ${analise.empresa}`, `${cabecalho}${blocos}${folhaPorColaborador ? "" : assinatura}`);
   }
 
