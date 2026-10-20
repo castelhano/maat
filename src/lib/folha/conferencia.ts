@@ -121,8 +121,8 @@ export function conferirFuncionario(
   const tem = (codigo: string) => ev(codigo) !== undefined;
   const soma = (codigos: string[]) => codigos.reduce((acc, c) => acc + val(c), 0);
 
-  // `pendenteSeDivergir`: quando a divergência tem explicação conhecida que só o histórico
-  // resolve, a crítica vira "pendente" em vez de "erro".
+  // `seDivergir`: quando a divergência tem explicação conhecida, a crítica vira "pendente" (texto
+  // simples: só o histórico resolve) ou o status indicado, em vez de "erro".
   function comparar(
     regra: string,
     titulo: string,
@@ -130,18 +130,19 @@ export function conferirFuncionario(
     encontrado: number,
     explicacao: string,
     tolerancia = TOLERANCIA,
-    pendenteSeDivergir?: string
+    seDivergir?: string | { status: "pendente" | "alerta"; motivo: string }
   ) {
     const diferenca = arred(encontrado - esperado);
     const ok = Math.abs(diferenca) <= tolerancia;
-    if (!ok && pendenteSeDivergir) {
+    if (!ok && seDivergir) {
+      const { status, motivo } = typeof seDivergir === "string" ? { status: "pendente" as const, motivo: seDivergir } : seDivergir;
       criticas.push({
         regra,
         titulo,
-        status: "pendente",
+        status,
         esperado: arred(esperado),
         encontrado: arred(encontrado),
-        detalhe: `${explicacao} Diferença de ${fmt(diferenca)} — ${pendenteSeDivergir}`,
+        detalhe: `${explicacao} Diferença de ${fmt(diferenca)} — ${motivo}`,
       });
       return;
     }
@@ -253,9 +254,27 @@ export function conferirFuncionario(
   const textoFator = `${calendario.diasDsr - dsrPerdidos} dia(s) de descanso ÷ ${calendario.diasUteis} dias úteis`;
   // Na rescisão o DSR é proporcional aos dias trabalhados até o desligamento.
   const motivoDsrRescisao = rescisao ? "na rescisão o DSR é proporcional ao período trabalhado; será conferido com o histórico." : undefined;
+  // Suspensão com desconto de DSR: não há regra clara se o reflexo das horas extras no DSR também
+  // cai. Se o ERP pagou pelo mês cheio (sem reduzir), vira alerta para a empresa confirmar o critério.
+  const fatorCheio = calendario.diasDsr / calendario.diasUteis;
+  const suspensaoSemReducao = (esperadoCheio: number, encontrado: number, tolerancia: number) =>
+    !rescisao && tem("00528") && dsrPerdidos > 0 && Math.abs(encontrado - esperadoCheio) <= tolerancia
+      ? {
+          status: "alerta" as const,
+          motivo: `houve suspensão no mês e o ERP pagou o DSR pelo mês cheio (${calendario.diasDsr} dias), sem reduzir o dia descontado. Não há regra clara na lei — confirmar o critério da empresa.`,
+        }
+      : undefined;
   if (tem("00126")) {
     const baseHe = val("00003") + val("00363");
-    comparar("dsr", "DSR sobre horas extras", baseHe * fatorDsr, val("00126"), `(HE 50% + HE 100%) ${fmt(baseHe)} × ${textoFator}.`, TOLERANCIA, motivoDsrRescisao);
+    comparar(
+      "dsr",
+      "DSR sobre horas extras",
+      baseHe * fatorDsr,
+      val("00126"),
+      `(HE 50% + HE 100%) ${fmt(baseHe)} × ${textoFator}.`,
+      TOLERANCIA,
+      motivoDsrRescisao ?? suspensaoSemReducao(baseHe * fatorCheio, val("00126"), TOLERANCIA)
+    );
   }
   const dsrNoturno = ev("00119");
   const noturno = ev("00004");
@@ -263,15 +282,17 @@ export function conferirFuncionario(
     const divisor = divisorHoras ?? divisorFixo ?? p.divisoresHora[0];
     const horasDsr = noturno.referencia * fatorDsr;
     // O ERP calcula o DSR do noturno sobre a hora sem o adicional de insalubridade/periculosidade.
-    const esperado = horasDsr * (f.salarioBase / divisor) * p.adicionalNoturno;
+    const valorHoraNoturna = (f.salarioBase / divisor) * p.adicionalNoturno;
+    const esperado = horasDsr * valorHoraNoturna;
+    const tolerancia = Math.max(TOLERANCIA, valorHoraNoturna * 0.005 + 0.01);
     comparar(
       "dsr",
       "DSR sobre adicional noturno",
       esperado,
       dsrNoturno.valor,
       `${fmt(noturno.referencia)} h noturnas × ${textoFator} = ${fmt(horasDsr)} h × (${fmt(f.salarioBase)} ÷ ${divisor}) × 20%.`,
-      Math.max(TOLERANCIA, (f.salarioBase / divisor) * p.adicionalNoturno * 0.005 + 0.01),
-      motivoDsrRescisao
+      tolerancia,
+      motivoDsrRescisao ?? suspensaoSemReducao(noturno.referencia * fatorCheio * valorHoraNoturna, dsrNoturno.valor, tolerancia)
     );
   }
 

@@ -58,6 +58,7 @@ export default async function RelatorioPdfPage({
   const terceiros = itens.filter((i) => i.tipo === "terceiro");
   const valorTotal = comDireito.reduce((acc, i) => acc + i.valorVR, 0);
   const valorVaSemCestaTotal = comDireito.reduce((acc, i) => acc + (i.valorVR - (i.valorCestaConvertida ?? 0)), 0);
+  const cestaConvertidaQtd = itens.filter((i) => (i.valorCestaConvertida ?? 0) > 0).length;
 
   const motivosMap = new Map<string, number>();
   for (const i of semDireito) {
@@ -80,11 +81,6 @@ export default async function RelatorioPdfPage({
   const porEmpresa = [...empresaMap.entries()]
     .map(([nome, v]) => ({ nome, ...v, total: v.elegiveis + v.naoElegiveis }))
     .sort((a, b) => b.total - a.total);
-
-  const cestaConvertida = itens
-    .filter((i) => (i.valorCestaConvertida ?? 0) > 0)
-    .sort((a, b) => a.nome.localeCompare(b.nome));
-  const valorConvertidoTotal = cestaConvertida.reduce((acc, i) => acc + (i.valorCestaConvertida ?? 0), 0);
 
   const rotulo = dimensao === "cesta" ? "Cesta Básica" : "Vale-Alimentação";
   const filtrosAtivos = [empresa, area].filter(Boolean);
@@ -189,44 +185,16 @@ export default async function RelatorioPdfPage({
             ))}
           </tbody>
         </table>
+        {dimensao === "vr" && cestaConvertidaQtd > 0 && (
+          <p className="mt-3 text-xs text-neutral-500">
+            {cestaConvertidaQtd === 1
+              ? "1 colaborador optou por receber a cesta básica como crédito no VA nesta competência."
+              : `${cestaConvertidaQtd} colaboradores optaram por receber a cesta básica como crédito no VA nesta competência.`}
+          </p>
+        )}
       </div>
 
-      {dimensao === "vr" && cestaConvertida.length > 0 && (
-        <div className="mb-8">
-          <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">
-            Cesta básica convertida em VA — {cestaConvertida.length} colaborador(es), {formatarMoeda(valorConvertidoTotal)}
-          </p>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b-2 border-neutral-800 text-left text-[11px] tracking-wide text-neutral-500 uppercase">
-                <th className="py-2 pr-2">Matrícula</th>
-                <th className="px-2 py-2">Nome</th>
-                <th className="px-2 py-2">Empresa</th>
-                <th className="px-2 py-2">Cargo</th>
-                <th className="py-2 pl-2 text-right">Cesta no VA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cestaConvertida.map((i, idx) => (
-                <tr key={`${i.matricula ?? "terceiro"}-${idx}`} className="border-b border-neutral-200">
-                  <td className="py-2 pr-2 tabular-nums text-neutral-600">{i.matricula ?? "—"}</td>
-                  <td className="px-2 py-2 font-medium text-neutral-900">
-                    {i.nome}
-                    {i.tipo === "terceiro" && <span className="ml-1.5 text-[10px] font-normal text-neutral-400">terceiro</span>}
-                  </td>
-                  <td className="px-2 py-2 text-neutral-600">{i.empresaAbbr}</td>
-                  <td className="px-2 py-2 text-neutral-600">{i.cargo ?? "—"}</td>
-                  <td className="py-2 pl-2 text-right tabular-nums text-neutral-600">
-                    {formatarMoeda(i.valorCestaConvertida ?? 0)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div className="mb-2 break-before-page">
+      <div className="mb-2">
         <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">Detalhamento</p>
         <table className="w-full border-collapse text-sm">
           <thead>

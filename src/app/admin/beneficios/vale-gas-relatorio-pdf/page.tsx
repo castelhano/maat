@@ -185,7 +185,7 @@ export default async function ValeGasRelatorioPdfPage({
         </table>
       </div>
 
-      <div className="mb-2 break-before-page">
+      <div className="mb-2">
         <p className="mb-3 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase">Detalhamento</p>
         <table className="w-full border-collapse text-sm">
           <thead>

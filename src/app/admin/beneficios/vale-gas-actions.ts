@@ -146,6 +146,15 @@ export async function processarApuracaoValeGas(
     });
     const faltasPorFuncionario = new Map(faltasAgrupadas.map((f) => [f.funcionarioId, f._count._all]));
 
+    // Suspensão ("SUSP") também desqualifica acima de um limite, apurada no período aquisitivo
+    // inteiro, mesmo padrão das faltas.
+    const suspensoesAgrupadas = await prisma.falta.groupBy({
+      by: ["funcionarioId"],
+      where: { funcionarioId: { in: funcionarios.map((f) => f.id) }, data: { gte: periodo.inicio, lte: periodo.fim }, ocorrencia: "SUSP" },
+      _count: { _all: true },
+    });
+    const suspensoesPorFuncionario = new Map(suspensoesAgrupadas.map((s) => [s.funcionarioId, s._count._all]));
+
     const historicoAfastamentos = await prisma.afastamentoHistorico.findMany({
       where: { funcionarioId: { in: funcionarios.map((f) => f.id) } },
       select: { funcionarioId: true, dataInicio: true, dataFim: true },
@@ -179,6 +188,7 @@ export async function processarApuracaoValeGas(
           dataDesligamento: f.dataDesligamento,
           periodosAfastamento: periodosPorFuncionario.get(f.id) ?? [],
           faltasNoPeriodo: faltasPorFuncionario.get(f.id) ?? 0,
+          suspensoesNoPeriodo: suspensoesPorFuncionario.get(f.id) ?? 0,
           recebeValeGasResolvido,
           pecunia: f.valeGasPecunia,
         },

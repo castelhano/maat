@@ -674,6 +674,10 @@ model Ferias {
   gozoFim       DateTime?
   dataPagamento DateTime?
 
+  // Valor efetivamente pago nessa programação (lançado manualmente após o pagamento) — enquanto
+  // não lançado, o Resumo usa o valor aproximado calculado pela fórmula (salário/30 * dias * 1.333 * 1.2).
+  valorReal Decimal?
+
   // "pendente" | "programado" | "concluido"
   status String @default("pendente")
 
@@ -681,6 +685,10 @@ model Ferias {
   // ser expostas publicamente (ex.: cargos de confiança, situação ainda não confirmada com o
   // colaborador). Default true: some do mural só quem for desmarcado explicitamente.
   exibirMural Boolean @default(true)
+
+  // Alerta manual de que essa programação foi solicitada/confirmada e não deve ser alterada — só
+  // visual (emblema na tela), não bloqueia a edição.
+  travado Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

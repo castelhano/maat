@@ -209,6 +209,7 @@ export type ProgramacaoInput = {
   quinzena: number | null;
   diasAbono: number;
   abonoTipo: "inicio" | "final" | null;
+  valorReal: number | null;
 };
 
 async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
@@ -248,6 +249,9 @@ export async function salvarProgramacao(
   if (input.diasAbono > Math.floor(ferias.diasDireito / 3)) {
     return { error: `Abono não pode passar de 1/3 dos dias de direito (máx. ${Math.floor(ferias.diasDireito / 3)} dias).` };
   }
+  if (input.valorReal !== null && (!Number.isFinite(input.valorReal) || input.valorReal < 0)) {
+    return { error: "Valor pago inválido." };
+  }
 
   const diasGozo = ferias.diasDireito - input.diasAbono;
   const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo);
@@ -270,6 +274,7 @@ export async function salvarProgramacao(
       gozoFim,
       dataPagamento,
       status: gozoInicio ? "programado" : "pendente",
+      valorReal: input.valorReal,
     },
   });
 
@@ -319,5 +324,19 @@ export async function alternarExibirMural(
 ): Promise<{ error: string | null }> {
   await requirePermissao("ferias", "operar");
   await prisma.ferias.update({ where: { id: feriasId }, data: { exibirMural } });
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Travamento manual — alerta visual de que a programação foi confirmada e não
+// deve ser alterada (não bloqueia a edição, só avisa).
+// ---------------------------------------------------------------------------
+
+export async function alternarTravamento(
+  feriasId: string,
+  travado: boolean
+): Promise<{ error: string | null }> {
+  await requirePermissao("ferias", "operar");
+  await prisma.ferias.update({ where: { id: feriasId }, data: { travado } });
   return { error: null };
 }

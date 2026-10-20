@@ -60,6 +60,7 @@ export default async function ResumoPdfPage({
     diasDireito: p.diasDireito,
     diasAbono: p.diasAbono,
     dataPagamento: p.dataPagamento,
+    valorReal: p.valorReal?.toNumber() ?? null,
   }));
 
   if (empresa) linhas = linhas.filter((l) => l.empresa === empresa);
@@ -74,13 +75,24 @@ export default async function ResumoPdfPage({
 
   const mapa = new Map<
     string,
-    { mes: number; ano: number; quinzena: number; qtd: number; valor: number; pagamentos: Map<string, number> }
+    {
+      mes: number;
+      ano: number;
+      quinzena: number;
+      qtd: number;
+      valor: number;
+      comValorReal: number;
+      pagamentos: Map<string, number>;
+    }
   >();
   for (const l of linhas) {
     const chave = `${l.ano}-${l.mes}-${l.quinzena}`;
-    const atual = mapa.get(chave) ?? { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, pagamentos: new Map() };
+    const atual =
+      mapa.get(chave) ??
+      { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, comValorReal: 0, pagamentos: new Map() };
     atual.qtd++;
-    atual.valor += calcularValorAproximado(l.salario, l.diasDireito - l.diasAbono);
+    atual.valor += l.valorReal ?? calcularValorAproximado(l.salario, l.diasDireito - l.diasAbono);
+    if (l.valorReal !== null) atual.comValorReal++;
     // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
     // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
     if (l.dataPagamento) {
@@ -136,7 +148,7 @@ export default async function ResumoPdfPage({
           <p className="font-semibold text-neutral-900">{linhas.length}</p>
         </div>
         <div>
-          <p className="text-[10px] tracking-wide text-neutral-400 uppercase">Valor total aproximado</p>
+          <p className="text-[10px] tracking-wide text-neutral-400 uppercase">Valor total</p>
           <p className="font-semibold text-neutral-900">{formatarMoeda(valorTotal)}</p>
         </div>
       </div>
@@ -147,7 +159,7 @@ export default async function ResumoPdfPage({
             <th className="py-2 pr-2">Mês</th>
             <th className="px-2 py-2">Quinzena</th>
             <th className="px-2 py-2 text-center">Qtde.</th>
-            <th className="px-2 py-2 text-right">Valor aproximado</th>
+            <th className="px-2 py-2 text-right">Valor</th>
             <th className="px-2 py-2">Início do gozo</th>
             <th className="px-2 py-2">Data de pagamento</th>
           </tr>
@@ -160,7 +172,12 @@ export default async function ResumoPdfPage({
               </td>
               <td className="px-2 py-2 text-neutral-600">{v.quinzena}ª quinzena</td>
               <td className="px-2 py-2 text-center text-neutral-600">{v.qtd}</td>
-              <td className="px-2 py-2 text-right tabular-nums text-neutral-600">{formatarMoeda(v.valor)}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-neutral-600">
+                {formatarMoeda(v.valor)}
+                <span className="ml-1 text-[10px] text-neutral-400">
+                  ({v.comValorReal} de {v.qtd} real)
+                </span>
+              </td>
               <td className="px-2 py-2 text-neutral-600">{formatarData(v.gozoInicio)}</td>
               <td className="px-2 py-2 font-semibold text-neutral-900">{formatarData(v.dataPagamento)}</td>
             </tr>

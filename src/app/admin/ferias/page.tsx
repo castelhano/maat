@@ -61,6 +61,8 @@ export default async function FeriasPage() {
     dataPagamento: p.dataPagamento?.toISOString() ?? null,
     status: p.status as "pendente" | "programado" | "concluido",
     exibirMural: p.exibirMural,
+    valorReal: p.valorReal?.toNumber() ?? null,
+    travado: p.travado,
   }));
 
   return (

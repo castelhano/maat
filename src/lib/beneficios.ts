@@ -53,6 +53,14 @@ export type ResultadoVR = {
   valor: number;
 };
 
+// Arredonda pra centavos no momento do cálculo — sem isso, o valor fica guardado com casas
+// decimais extras (ex.: proporcionalidade de dias gera 404,19568) e, mesmo exibindo arredondado
+// pra cada pessoa, a SOMA dos valores crus diverge alguns centavos da soma dos valores já
+// arredondados (como o ERP soma).
+function arredondarCentavos(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
 function normalizar(texto: string): string {
   return texto
     .normalize("NFD")
@@ -284,7 +292,12 @@ export function calcularVR(
   const motivoProporcional = diasEfetivos < totalDias ? `Proporcional a ${diasEfetivos}/${totalDias} dias` : null;
 
   if (funcionario.valorValeRefeicao !== null) {
-    return { elegivel: true, motivo: motivoProporcional, baseCalculo: null, valor: funcionario.valorValeRefeicao * proporcao };
+    return {
+      elegivel: true,
+      motivo: motivoProporcional,
+      baseCalculo: null,
+      valor: arredondarCentavos(funcionario.valorValeRefeicao * proporcao),
+    };
   }
 
   // Piso de VR_MINIMO e teto de VR_MAXIMO valem pra todo mundo, com ou sem gratificação — a
@@ -292,7 +305,7 @@ export function calcularVR(
   const base = funcionario.temGratificacao ? funcionario.salario * (1 + GRATIFICACAO_PERCENTUAL) : funcionario.salario;
   const bruto = base * VR_PERCENTUAL;
   const valorIntegral = Math.min(Math.max(bruto, VR_MINIMO), VR_MAXIMO);
-  const valor = valorIntegral * proporcao;
+  const valor = arredondarCentavos(valorIntegral * proporcao);
   return { elegivel: true, motivo: motivoProporcional, baseCalculo: base, valor };
 }
 
@@ -318,6 +331,9 @@ export function resolverHeranca(override: boolean | null, padraoCargo: boolean):
 // inteiro (sem faltar mais de 2 vezes nem se afastar nenhum dia), ou perde o benefício inteiro.
 
 const FALTAS_MAXIMAS_VALE_GAS = 2;
+// Limite combinado de suspensões + faltas no período aquisitivo — chegar a esse total (não só
+// ultrapassar) já perde o direito.
+const SUSPENSOES_MAXIMAS_VALE_GAS = 4;
 
 export type PeriodoAquisitivoValeGas = { inicio: Date; fim: Date };
 
@@ -357,6 +373,7 @@ export function calcularElegibilidadeValeGas(
     dataDesligamento: Date | null;
     periodosAfastamento: PeriodoAfastamento[];
     faltasNoPeriodo: number;
+    suspensoesNoPeriodo: number;
     recebeValeGasResolvido: boolean;
     // Recebe o valor da entrega em dinheiro em vez da quantidade de vale — quem converteu não
     // entra na contagem de quantidade (mesmo cumprindo o período aquisitivo), já que o
@@ -401,6 +418,12 @@ export function calcularElegibilidadeValeGas(
 
   if (funcionario.faltasNoPeriodo > FALTAS_MAXIMAS_VALE_GAS) {
     return { elegivel: false, motivo: `Mais de ${FALTAS_MAXIMAS_VALE_GAS} faltas no período` };
+  }
+
+  // Suspensão conta junto com falta pro limite combinado (ex.: 3 suspensões + 1 falta já perde,
+  // mesmo cada uma sozinha estando dentro do próprio limite).
+  if (funcionario.suspensoesNoPeriodo + funcionario.faltasNoPeriodo >= SUSPENSOES_MAXIMAS_VALE_GAS) {
+    return { elegivel: false, motivo: `Mais de ${SUSPENSOES_MAXIMAS_VALE_GAS} suspensões no período` };
   }
 
   if (funcionario.pecunia) {

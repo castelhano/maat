@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { salvarProgramacao, salvarQuinzena, alternarExibirMural } from "./actions";
+import { salvarProgramacao, salvarQuinzena, alternarExibirMural, alternarTravamento } from "./actions";
 import { Importador } from "./importador";
 import { usePodeOperar } from "@/components/permissoes-provider";
 import { dataPagamentoFerias } from "@/lib/feriados";
@@ -68,6 +68,8 @@ export type FeriasLinha = {
   dataPagamento: string | null;
   status: "pendente" | "programado" | "concluido";
   exibirMural: boolean;
+  valorReal: number | null;
+  travado: boolean;
 };
 
 const MESES = [
@@ -90,8 +92,30 @@ function formatarMoeda(valor: number) {
   return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+const CONECTIVOS_NOME = new Set(["de", "da", "do", "dos", "das", "e"]);
+
+// Abrevia nomes do meio pra caber mais linhas na impressão do mural, mantendo primeiro e último nome
+// por extenso — ex.: "Walmir Roberto de Oliveira" -> "Walmir R Oliveira".
+function abreviarNome(nome: string) {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 2) return nome;
+  const primeiro = partes[0];
+  const ultimo = partes[partes.length - 1];
+  const meio = partes
+    .slice(1, -1)
+    .filter((p) => !CONECTIVOS_NOME.has(p.toLowerCase()))
+    .map((p) => p[0].toUpperCase())
+    .join(" ");
+  return meio ? `${primeiro} ${meio} ${ultimo}` : `${primeiro} ${ultimo}`;
+}
+
 function calcularValorAproximado(salario: number, diasGozo: number) {
   return (salario / 30) * diasGozo * 1.333 * 1.2;
+}
+
+// Usa o valor realmente pago (lançado na programação) quando existir; senão cai no aproximado.
+function valorEfetivo(p: FeriasLinha) {
+  return p.valorReal ?? calcularValorAproximado(p.salario, p.diasDireito - p.diasAbono);
 }
 
 // Ordena por competência programada (ano/mês/quinzena) — quem ainda não tem mês programado vai
@@ -105,13 +129,16 @@ function compararCompetencia(a: FeriasLinha, b: FeriasLinha) {
 
 function statusBadge(status: "pendente" | "programado" | "concluido") {
   const cfg = {
-    pendente: { label: "Não programado", cls: "text-text-3 bg-bg-4 border-border" },
-    programado: { label: "Programado", cls: "text-primary bg-accent-glow border-primary/30" },
-    concluido: { label: "Concluído", cls: "text-success bg-success-dim border-success/30" },
+    pendente: { label: "Não programado", letra: "N", cls: "text-text-3 bg-bg-4 border-border" },
+    programado: { label: "Programado", letra: "P", cls: "text-primary bg-accent-glow border-primary/30" },
+    concluido: { label: "Concluído", letra: "C", cls: "text-success bg-success-dim border-success/30" },
   }[status];
   return (
-    <span className={`rounded-[3px] border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[.06em] uppercase ${cfg.cls}`}>
-      {cfg.label}
+    <span
+      title={cfg.label}
+      className={`inline-flex size-5 items-center justify-center rounded-[3px] border font-mono text-[10px] font-bold uppercase ${cfg.cls}`}
+    >
+      {cfg.letra}
     </span>
   );
 }
@@ -154,6 +181,44 @@ function ExibirMuralToggle({
   );
 }
 
+function TravadoToggle({
+  periodo,
+  onSaved,
+}: {
+  periodo: FeriasLinha;
+  onSaved: (p: FeriasLinha) => void;
+}) {
+  const podeOperar = usePodeOperar("ferias");
+  const [isPending, startTransition] = useTransition();
+
+  function alternar(checked: boolean) {
+    startTransition(async () => {
+      const result = await alternarTravamento(periodo.id, checked);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      onSaved({ ...periodo, travado: checked });
+    });
+  }
+
+  return (
+    <label
+      className="flex cursor-pointer items-center gap-1.5"
+      title="Alerta visual de que essa programação foi solicitada/confirmada e não deve ser alterada (não bloqueia a edição)"
+    >
+      <input
+        type="checkbox"
+        checked={periodo.travado}
+        disabled={isPending || !podeOperar}
+        onChange={(e) => alternar(e.target.checked)}
+        className="size-3.5 accent-danger"
+      />
+      <span className="font-mono text-[9px] text-text-3">{periodo.travado ? "Sim" : "Não"}</span>
+    </label>
+  );
+}
+
 function ProgramarDialog({
   periodo,
   quinzenas,
@@ -169,6 +234,7 @@ function ProgramarDialog({
   const [quinzena, setQuinzena] = useState(periodo.quinzena ?? 0);
   const [diasAbono, setDiasAbono] = useState(periodo.diasAbono);
   const [abonoTipo, setAbonoTipo] = useState<"inicio" | "final" | "">(periodo.abonoTipo ?? "");
+  const [valorReal, setValorReal] = useState(periodo.valorReal !== null ? String(periodo.valorReal) : "");
   const [isPending, startTransition] = useTransition();
 
   const maxAbono = Math.floor(periodo.diasDireito / 3);
@@ -208,6 +274,11 @@ function ProgramarDialog({
       toast.error("Início do gozo é depois do limite legal deste colaborador. Escolha um mês/quinzena anterior.");
       return;
     }
+    const valorRealNum = valorReal.trim() ? Number(valorReal.replace(",", ".")) : null;
+    if (valorRealNum !== null && (!Number.isFinite(valorRealNum) || valorRealNum < 0)) {
+      toast.error("Valor pago inválido.");
+      return;
+    }
     startTransition(async () => {
       const result = await salvarProgramacao({
         feriasId: periodo.id,
@@ -216,6 +287,7 @@ function ProgramarDialog({
         quinzena,
         diasAbono,
         abonoTipo: diasAbono > 0 ? (abonoTipo || null) : null,
+        valorReal: valorRealNum,
       });
       if (result.error) {
         toast.error(result.error);
@@ -232,6 +304,7 @@ function ProgramarDialog({
         gozoInicio: gozoInicioPreview?.toISOString() ?? null,
         gozoFim: gozoFimPreview?.toISOString() ?? null,
         status: "programado",
+        valorReal: valorRealNum,
       });
       setOpen(false);
     });
@@ -263,6 +336,7 @@ function ProgramarDialog({
       setQuinzena(periodo.quinzena ?? 0);
       setDiasAbono(periodo.diasAbono);
       setAbonoTipo(periodo.abonoTipo ?? "");
+      setValorReal(periodo.valorReal !== null ? String(periodo.valorReal) : "");
     }
     setOpen(v);
   }
@@ -421,6 +495,43 @@ function ProgramarDialog({
             )}
           </div>
         </div>
+
+        <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+          <label htmlFor="valorReal" className={labelCls}>
+            Valor real pago (opcional)
+          </label>
+          <input
+            id="valorReal"
+            type="text"
+            inputMode="decimal"
+            placeholder="ex.: 4190,77 — deixe em branco se ainda não foi pago"
+            value={valorReal}
+            onChange={(e) => setValorReal(e.target.value)}
+            className={selectCls}
+          />
+          <p className="font-mono text-[10px] text-text-3">
+            Enquanto não for lançado, o Resumo usa o valor aproximado calculado pela fórmula.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          <span className="font-mono text-[11px] text-text-2">Exibir no Painel/Mural</span>
+          <ExibirMuralToggle periodo={periodo} onSaved={onSaved} />
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          <span className="font-mono text-[11px] text-text-2">
+            Travar (programação solicitada — não deve ser alterada)
+          </span>
+          <TravadoToggle periodo={periodo} onSaved={onSaved} />
+        </div>
+        {periodo.travado && (
+          <p className="-mt-2 flex items-center gap-1.5 font-mono text-[10px] font-bold text-danger">
+            <AlertTriangle className="size-3 shrink-0" />
+            Esta programação está marcada como travada — alterar aqui ainda é permitido, apenas confirme
+            com quem solicitou antes de salvar.
+          </p>
+        )}
 
         <DialogFooter>
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={isPending}>
@@ -617,7 +728,6 @@ function baixarCsv(nomeArquivo: string, cabecalho: string[], linhas: string[][])
 }
 
 const COR_PROGRAMADOS = "#0d9488";
-const COR_PENDENTES = "#7590a8";
 const COR_VALOR = "#3b82f6";
 const TOOLTIP_STYLE = {
   background: "#131619",
@@ -805,6 +915,21 @@ export function FeriasTable({
     return [...base].sort(compararCompetencia);
   }, [filtroProgramacao.filtrados, busca, filtroStatus]);
 
+  // Programados por área/quinzena dentro do filtro atual — ajuda a controlar limites por área
+  // (ex.: quantidade máxima de motoristas programados ao mesmo tempo) enquanto se está programando.
+  const programadosPorAreaQuinzena = useMemo(() => {
+    const mapa = new Map<string, { q1: number; q2: number }>();
+    for (const p of periodosFiltrados) {
+      if (!p.gozoInicio || !p.quinzena) continue;
+      const chave = p.setor ?? "Não classificado";
+      const atual = mapa.get(chave) ?? { q1: 0, q2: 0 };
+      if (p.quinzena === 1) atual.q1++;
+      else atual.q2++;
+      mapa.set(chave, atual);
+    }
+    return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [periodosFiltrados]);
+
   const empresas = useMemo(() => [...new Set(periodos.map((p) => p.empresa))].sort(), [periodos]);
   const areas = useMemo(
     () => [...new Set(periodos.map((p) => p.setor ?? "Não classificado"))].sort(),
@@ -827,6 +952,20 @@ export function FeriasTable({
     if (empresasNoFiltro.size === 1) return [...empresasNoFiltro][0];
     return "Todas as empresas";
   }, [filtroMural.empresa, filtroMural.filtrados]);
+  // Fonte do mural se ajusta à quantidade de linhas: quanto menos gente, maior a letra — sempre
+  // ocupando o espaço da página sem nunca estourar para uma 2ª folha. Nome e Departamento têm largura
+  // travada (table-fixed) e podem quebrar em 2 linhas; as colunas de data (Mês/Início/Final) NÃO quebram,
+  // então a fonte delas precisa caber em 1 linha na largura reservada — por isso o teto é mais baixo
+  // que o das colunas que quebram.
+  const muralTamanho = useMemo(() => {
+    const n = muralOrdenado.length;
+    if (n <= 8) return { tabela: "print:text-xl", cabecalho: "print:text-sm", linhaPy: "print:py-1" };
+    if (n <= 12) return { tabela: "print:text-lg", cabecalho: "print:text-sm", linhaPy: "print:py-0.5" };
+    if (n <= 17) return { tabela: "print:text-base", cabecalho: "print:text-xs", linhaPy: "print:py-0.5" };
+    if (n <= 24) return { tabela: "print:text-sm", cabecalho: "print:text-xs", linhaPy: "print:py-0.5" };
+    if (n <= 32) return { tabela: "print:text-xs", cabecalho: "print:text-xs", linhaPy: "print:py-0" };
+    return { tabela: "print:text-[10px]", cabecalho: "print:text-[10px]", linhaPy: "print:py-0" };
+  }, [muralOrdenado]);
   const filtroResumo = useFiltro(periodos);
   const [resumoMesInicio, setResumoMesInicio] = useState(0);
   const [resumoMesFim, setResumoMesFim] = useState(0);
@@ -841,12 +980,16 @@ export function FeriasTable({
   }, [filtroResumo.filtrados, filtroResumo.mes, resumoMesInicio, resumoMesFim]);
 
   const porArea = useMemo(() => {
-    const mapa = new Map<string, { programados: number; total: number }>();
+    const mapa = new Map<string, { programados: number; total: number; valor: number; comValorReal: number }>();
     for (const p of filtroResumoRange) {
       const chave = p.setor ?? "Não classificado";
-      const atual = mapa.get(chave) ?? { programados: 0, total: 0 };
+      const atual = mapa.get(chave) ?? { programados: 0, total: 0, valor: 0, comValorReal: 0 };
       atual.total++;
-      if (p.gozoInicio) atual.programados++;
+      if (p.gozoInicio) {
+        atual.programados++;
+        atual.valor += valorEfetivo(p);
+        if (p.valorReal !== null) atual.comValorReal++;
+      }
       mapa.set(chave, atual);
     }
     return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -855,14 +998,25 @@ export function FeriasTable({
   const porMesQuinzena = useMemo(() => {
     const mapa = new Map<
       string,
-      { mes: number; ano: number; quinzena: number; qtd: number; valor: number; pagamentos: Map<string, number> }
+      {
+        mes: number;
+        ano: number;
+        quinzena: number;
+        qtd: number;
+        valor: number;
+        comValorReal: number;
+        pagamentos: Map<string, number>;
+      }
     >();
     for (const p of filtroResumoRange) {
       if (!p.mes || !p.ano || !p.quinzena || !p.gozoInicio) continue;
       const chave = `${p.ano}-${p.mes}-${p.quinzena}`;
-      const atual = mapa.get(chave) ?? { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, pagamentos: new Map() };
+      const atual =
+        mapa.get(chave) ??
+        { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, comValorReal: 0, pagamentos: new Map() };
       atual.qtd++;
-      atual.valor += calcularValorAproximado(p.salario, p.diasDireito - p.diasAbono);
+      atual.valor += valorEfetivo(p);
+      if (p.valorReal !== null) atual.comValorReal++;
       // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
       // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
       if (p.dataPagamento) atual.pagamentos.set(p.dataPagamento, (atual.pagamentos.get(p.dataPagamento) ?? 0) + 1);
@@ -883,12 +1037,13 @@ export function FeriasTable({
   }, [filtroResumoRange, quinzenas]);
 
   const porMes = useMemo(() => {
-    const mapa = new Map<string, { qtd: number; valor: number }>();
+    const mapa = new Map<string, { qtd: number; valor: number; comValorReal: number }>();
     for (const v of porMesQuinzena) {
       const chave = `${MESES[v.mes - 1]}/${v.ano}`;
-      const atual = mapa.get(chave) ?? { qtd: 0, valor: 0 };
+      const atual = mapa.get(chave) ?? { qtd: 0, valor: 0, comValorReal: 0 };
       atual.qtd += v.qtd;
       atual.valor += v.valor;
+      atual.comValorReal += v.comValorReal;
       mapa.set(chave, atual);
     }
     return [...mapa.entries()];
@@ -899,7 +1054,7 @@ export function FeriasTable({
     let quinzena2 = 0;
     for (const p of filtroResumoRange) {
       if (!p.gozoInicio || !p.quinzena) continue;
-      const valor = calcularValorAproximado(p.salario, p.diasDireito - p.diasAbono);
+      const valor = valorEfetivo(p);
       if (p.quinzena === 1) quinzena1 += valor;
       else quinzena2 += valor;
     }
@@ -927,13 +1082,14 @@ export function FeriasTable({
   function exportarResumoCsv() {
     baixarCsv(
       "resumo_ferias_por_mes_quinzena.csv",
-      ["Mês", "Ano", "Quinzena", "Quantidade", "Valor Aproximado", "Início do Gozo", "Data de Pagamento"],
+      ["Mês", "Ano", "Quinzena", "Quantidade", "Valor", "Com Valor Real", "Início do Gozo", "Data de Pagamento"],
       porMesQuinzena.map((v) => [
         MESES[v.mes - 1],
         String(v.ano),
         `${v.quinzena}ª quinzena`,
         String(v.qtd),
         v.valor.toFixed(2),
+        `${v.comValorReal} de ${v.qtd}`,
         v.gozoInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" }),
         v.dataPagamento.toLocaleDateString("pt-BR", { timeZone: "UTC" }),
       ])
@@ -942,7 +1098,7 @@ export function FeriasTable({
 
   return (
     <Tabs defaultValue="programacao" className="flex flex-col gap-4">
-      <style>{`@media print { @page { size: landscape; margin: 10mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }`}</style>
+      <style>{`@media print { @page { size: landscape; margin: 6mm; } thead { display: table-header-group; } tr { break-inside: avoid; } }`}</style>
       <TabsList className="print:hidden">
         <TabsTab value="programacao">Programação</TabsTab>
         {podeOperar && <TabsTab value="importar">Importar TXT</TabsTab>}
@@ -1057,49 +1213,65 @@ export function FeriasTable({
                 </>
               )}
             </p>
+            {programadosPorAreaQuinzena.length > 0 && (
+              <p className="flex flex-wrap items-center gap-x-1.5 font-mono text-[10px] text-text-3">
+                <span className="font-bold text-text-2 uppercase tracking-[.04em]">Programados por área:</span>
+                {programadosPorAreaQuinzena.map(([nome, v], i) => (
+                  <span key={nome}>
+                    {nome} (1ª: {v.q1} · 2ª: {v.q2} · tot: {v.q1 + v.q2})
+                    {i < programadosPorAreaQuinzena.length - 1 ? " ·" : ""}
+                  </span>
+                ))}
+              </p>
+            )}
             <Table containerClassName="max-h-[70vh] overflow-y-auto">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Matrícula</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Depto</TableHead>
-                  <TableHead>Faltas</TableHead>
-                  <TableHead>Dias</TableHead>
-                  <TableHead>Meses vencido</TableHead>
-                  <TableHead>Limite</TableHead>
-                  <TableHead>Mês programado</TableHead>
-                  <TableHead>Gozo Ini.</TableHead>
-                  <TableHead>Gozo Fim</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Mural</TableHead>
+                  <TableHead className="px-2">Matr.</TableHead>
+                  <TableHead className="px-2">Nome</TableHead>
+                  <TableHead className="px-2">Depto</TableHead>
+                  <TableHead className="px-2">Falt.</TableHead>
+                  <TableHead className="px-2">Dias</TableHead>
+                  <TableHead className="px-2" title="Meses vencido">Mses venc.</TableHead>
+                  <TableHead className="px-2">Limite</TableHead>
+                  <TableHead className="px-2" title="Mês programado">Mês prog.</TableHead>
+                  <TableHead className="px-2">Gozo Ini.</TableHead>
+                  <TableHead className="px-2">Gozo Fim</TableHead>
+                  <TableHead className="px-2" title="Status: P = Programado, N = Não programado, C = Concluído">
+                    St.
+                  </TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {periodosFiltrados.map((p) => (
                   <TableRow key={p.id}>
-                    <TableCell className="whitespace-nowrap">{p.matricula}</TableCell>
-                    <TableCell className="font-medium text-foreground whitespace-nowrap">{p.nome}</TableCell>
-                    <TableCell className="whitespace-nowrap">{p.departamento ?? "—"}</TableCell>
-                    <TableCell className="text-center">{p.faltas}</TableCell>
-                    <TableCell className="text-center font-medium text-foreground">{p.diasDireito}</TableCell>
+                    <TableCell className="px-2 whitespace-nowrap">{p.matricula}</TableCell>
+                    <TableCell className="px-2 font-medium text-foreground whitespace-nowrap">
+                      {p.travado && (
+                        <span title="Programação travada — não deve ser alterada">
+                          <AlertTriangle className="mr-1 inline size-3 text-danger" />
+                        </span>
+                      )}
+                      {p.nome}
+                    </TableCell>
+                    <TableCell className="px-2 whitespace-nowrap">{p.departamento ?? "—"}</TableCell>
+                    <TableCell className="px-2 text-center">{p.faltas}</TableCell>
+                    <TableCell className="px-2 text-center font-medium text-foreground">{p.diasDireito}</TableCell>
                     <TableCell
-                      className={`text-center ${p.meses >= 21 ? "font-bold text-danger" : ""}`}
+                      className={`px-2 text-center ${p.meses >= 21 ? "font-bold text-danger" : ""}`}
                     >
                       {p.meses}
                       {p.meses >= 21 && <AlertTriangle className="ml-1 inline size-3 text-danger" />}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{formatarData(p.dataLimite)}</TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="px-2 whitespace-nowrap">{formatarData(p.dataLimite)}</TableCell>
+                    <TableCell className="px-2 whitespace-nowrap">
                       {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{formatarData(p.gozoInicio)}</TableCell>
-                    <TableCell className="whitespace-nowrap">{formatarData(p.gozoFim)}</TableCell>
-                    <TableCell>{statusBadge(p.gozoInicio ? "programado" : "pendente")}</TableCell>
-                    <TableCell>
-                      <ExibirMuralToggle periodo={p} onSaved={atualizarPeriodo} />
-                    </TableCell>
-                    <TableCell>
+                    <TableCell className="px-2 whitespace-nowrap">{formatarData(p.gozoInicio)}</TableCell>
+                    <TableCell className="px-2 whitespace-nowrap">{formatarData(p.gozoFim)}</TableCell>
+                    <TableCell className="px-2">{statusBadge(p.gozoInicio ? "programado" : "pendente")}</TableCell>
+                    <TableCell className="px-2">
                       {podeOperar && <ProgramarDialog periodo={p} quinzenas={quinzenas} onSaved={atualizarPeriodo} />}
                     </TableCell>
                   </TableRow>
@@ -1195,43 +1367,60 @@ export function FeriasTable({
           <h3 className="mb-2 font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase">
             Programados por Área
           </h3>
-          <ResponsiveContainer width="100%" height={Math.max(120, porArea.length * 40)}>
-            <BarChart data={porArea.map(([nome, v]) => ({ nome, ...v }))} layout="vertical" margin={{ left: 8, right: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" />
-              <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-              <Tooltip contentStyle={TOOLTIP_STYLE} />
-              <Bar dataKey="programados" name="Programados" stackId="a" fill={COR_PROGRAMADOS} maxBarSize={22} />
-              <Bar
-                dataKey="total"
-                name="Total"
-                fill={COR_PENDENTES}
-                radius={[0, 4, 4, 0]}
-                maxBarSize={22}
-                // total já inclui os programados — mostrado como referência ao lado, não empilhado
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div>
-          <h3 className="mb-2 font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase">
-            Valor aproximado por Mês
-          </h3>
-          {porMes.length === 0 ? (
-            <p className="font-mono text-[11px] text-text-3">Nenhum período programado no filtro atual.</p>
+          {porArea.length === 0 ? (
+            <p className="font-mono text-[11px] text-text-3">Nenhum período no filtro atual.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={Math.max(120, porMes.length * 36)}>
+            <ResponsiveContainer width="100%" height={Math.max(120, porArea.length * 40)}>
               <BarChart
-                data={porMes.map(([nome, v]) => ({ nome, ...v }))}
+                data={porArea.map(([nome, v]) => ({ nome, ...v }))}
                 layout="vertical"
                 margin={{ left: 8, right: 24 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" />
-                <YAxis type="category" dataKey="nome" width={90} tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => formatarMoeda(Number(v))} />
-                <Bar dataKey="valor" name="Valor aproximado" fill={COR_VALOR} radius={[0, 4, 4, 0]} maxBarSize={22} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" />
+                <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(value, name, item) => {
+                    if (name !== "Programados") return [value, name];
+                    const v = item.payload as { valor: number; comValorReal: number; programados: number };
+                    const detalhe =
+                      v.programados > 0 ? ` (${v.comValorReal} de ${v.programados} com valor real)` : "";
+                    return [`${formatarMoeda(v.valor)}${detalhe}`, "Valor"];
+                  }}
+                />
+                <Bar dataKey="programados" name="Programados" fill={COR_PROGRAMADOS} radius={[0, 4, 4, 0]} maxBarSize={22} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div>
+          <h3 className="mb-2 font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase">
+            Valor por Mês
+          </h3>
+          {porMes.length === 0 ? (
+            <p className="font-mono text-[11px] text-text-3">Nenhum período programado no filtro atual.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={porMes.map(([nome, v]) => ({ nome, ...v }))} margin={{ left: 8, right: 24, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+                <XAxis dataKey="nome" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+                <YAxis
+                  tick={{ fontSize: 10, fill: "#7590a8" }}
+                  stroke="#2a3038"
+                  width={56}
+                  tickFormatter={(v) => formatarMoeda(Number(v))}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(value, name, item) => {
+                    const v = item.payload as { valor: number; comValorReal: number; qtd: number };
+                    const detalhe = v.qtd > 0 ? ` (${v.comValorReal} de ${v.qtd} com valor real)` : "";
+                    return [`${formatarMoeda(Number(value))}${detalhe}`, "Valor"];
+                  }}
+                />
+                <Bar dataKey="valor" name="Valor" fill={COR_VALOR} maxBarSize={32} radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -1245,6 +1434,7 @@ export function FeriasTable({
                 <TableHead>Área</TableHead>
                 <TableHead>Programados</TableHead>
                 <TableHead>Total</TableHead>
+                <TableHead>Valor</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1253,6 +1443,14 @@ export function FeriasTable({
                   <TableCell className="font-medium text-foreground">{nome}</TableCell>
                   <TableCell>{v.programados}</TableCell>
                   <TableCell>{v.total}</TableCell>
+                  <TableCell>
+                    {formatarMoeda(v.valor)}
+                    {v.programados > 0 && (
+                      <span className="ml-1.5 font-mono text-[10px] text-text-3">
+                        ({v.comValorReal} de {v.programados} com valor real)
+                      </span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1293,7 +1491,7 @@ export function FeriasTable({
                 <TableHead>Mês</TableHead>
                 <TableHead>Quinzena</TableHead>
                 <TableHead>Qtde.</TableHead>
-                <TableHead>Valor aproximado</TableHead>
+                <TableHead>Valor</TableHead>
                 <TableHead>Início do gozo</TableHead>
                 <TableHead>Data de pagamento</TableHead>
               </TableRow>
@@ -1313,7 +1511,12 @@ export function FeriasTable({
                     </TableCell>
                     <TableCell>{v.quinzena}ª quinzena</TableCell>
                     <TableCell>{v.qtd}</TableCell>
-                    <TableCell>{formatarMoeda(v.valor)}</TableCell>
+                    <TableCell>
+                      {formatarMoeda(v.valor)}
+                      <span className="ml-1.5 font-mono text-[10px] text-text-3">
+                        ({v.comValorReal} de {v.qtd} com valor real)
+                      </span>
+                    </TableCell>
                     <TableCell>{v.gozoInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</TableCell>
                     <TableCell className="font-bold text-primary">
                       {v.dataPagamento.toLocaleDateString("pt-BR", { timeZone: "UTC" })}
@@ -1339,10 +1542,10 @@ export function FeriasTable({
           período específico.
         </p>
         <div className="flex flex-col items-center gap-0.5 print:gap-0">
-          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-xl">
+          <h2 className="text-center font-mono text-base font-bold tracking-[.08em] uppercase print:text-lg">
             Programação de Férias — {empresaMural}
           </h2>
-          <p className="text-center font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase print:text-sm">
+          <p className="text-center font-mono text-[11px] font-bold tracking-[.06em] text-text-2 uppercase print:text-xs">
             Mês de referência: {filtroMural.mes ? MESES[filtroMural.mes - 1] : "todos os períodos programados"}
             {filtroMural.ano > 0 && `/${filtroMural.ano}`}
             {filtroMural.area && ` · ${filtroMural.area}`}
@@ -1350,20 +1553,21 @@ export function FeriasTable({
           </p>
         </div>
         <Table
-          className={
-            filtroMural.mes > 0
-              ? "print:text-3xl print:[border-collapse:collapse]"
-              : "print:text-2xl print:[border-collapse:collapse]"
-          }
+          className={`${muralTamanho.tabela} print:table-fixed print:[border-collapse:collapse]`}
           containerClassName="print:overflow-visible print:border-0"
         >
+          <colgroup>
+            <col className="print:w-[11%]" />
+            <col className="print:w-[24%]" />
+            <col className="print:w-[17%]" />
+            <col className="print:w-[16%]" />
+            <col className="print:w-[16%]" />
+            <col className="print:w-[16%]" />
+          </colgroup>
           <TableHeader>
             <TableRow>
               {(() => {
-                const headCls =
-                  filtroMural.mes > 0
-                    ? "print:border print:border-neutral-500 print:py-2 print:text-3xl print:font-bold print:text-black print:normal-case"
-                    : "print:border print:border-neutral-500 print:py-1.5 print:text-2xl print:font-bold print:text-black print:normal-case";
+                const headCls = `print:border print:border-neutral-500 ${muralTamanho.linhaPy} ${muralTamanho.cabecalho} print:font-bold print:text-black print:normal-case`;
                 return (
                   <>
                     <TableHead className={headCls}>
@@ -1391,15 +1595,18 @@ export function FeriasTable({
           </TableHeader>
           <TableBody>
             {muralOrdenado.map((p) => {
-              const celCls =
-                filtroMural.mes > 0
-                  ? "print:border print:border-neutral-400 print:py-1.5 print:font-bold print:text-black"
-                  : "print:border print:border-neutral-400 print:py-1 print:font-bold print:text-black";
+              // A célula tem um tamanho de fonte próprio (herdado do componente de tabela) que sempre
+              // vence o do elemento pai — por isso o tamanho precisa ser aplicado aqui, não só no <table>.
+              const celCls = `print:border print:border-neutral-400 ${muralTamanho.linhaPy} ${muralTamanho.tabela} print:font-bold print:text-black`;
+              const celClsQuebra = `${celCls} print:whitespace-normal print:break-words print:align-top`;
               return (
                 <TableRow key={p.id}>
                   <TableCell className={celCls}>{p.matricula}</TableCell>
-                  <TableCell className={`font-medium text-foreground ${celCls}`}>{p.nome}</TableCell>
-                  <TableCell className={celCls}>{p.departamento ?? "—"}</TableCell>
+                  <TableCell className={`font-medium text-foreground ${celClsQuebra}`}>
+                    <span className="print:hidden">{p.nome}</span>
+                    <span className="hidden print:inline">{abreviarNome(p.nome)}</span>
+                  </TableCell>
+                  <TableCell className={celClsQuebra}>{p.departamento ?? "—"}</TableCell>
                   <TableCell className={celCls}>
                     {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
                   </TableCell>
