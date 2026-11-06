@@ -106,7 +106,10 @@ export default async function ExtratoPdfPage({
         <tbody>
           {data.linhas.map((l) => (
             <tr key={l.competencia} className="border-b border-neutral-200">
-              <td className="py-2 pr-2 font-medium text-neutral-900">{nomeCompetencia(l.competencia)}</td>
+              <td className="py-2 pr-2 font-medium text-neutral-900">
+                {nomeCompetencia(l.competencia)}
+                {l.observacao && <div className="text-[10px] font-normal text-neutral-500">{l.observacao}</div>}
+              </td>
               <td className="px-2 py-2 text-right tabular-nums text-neutral-600">{fmtHoras(l.saldoAnterior)}</td>
               <td className="px-2 py-2 text-right tabular-nums text-neutral-600">{fmtHoras(l.creditoBruto)}</td>
               <td className="px-2 py-2 text-right tabular-nums text-neutral-600">{fmtHoras(l.debitoBruto)}</td>

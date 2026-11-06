@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requirePermissao } from "@/lib/session";
 import { parseFerias, diasDireitoPorFaltas, type FeriasLinha } from "@/lib/parsers/ferias";
-import { dataPagamentoFerias } from "@/lib/feriados";
+import { dataPagamentoFerias, limiteProrrogado } from "@/lib/feriados";
 
 export type PreviewLinha = {
   matricula: string;
@@ -240,7 +240,10 @@ export async function salvarProgramacao(
 ): Promise<{ error: string | null }> {
   await requirePermissao("ferias", "operar");
 
-  const ferias = await prisma.ferias.findUnique({ where: { id: input.feriasId } });
+  const ferias = await prisma.ferias.findUnique({
+    where: { id: input.feriasId },
+    include: { funcionario: { include: { afastamentos: true } } },
+  });
   if (!ferias) return { error: "Período de férias não encontrado." };
 
   if (input.diasAbono > 0 && !input.abonoTipo) {
@@ -256,9 +259,18 @@ export async function salvarProgramacao(
   const diasGozo = ferias.diasDireito - input.diasAbono;
   const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo);
 
-  if (gozoInicio && gozoInicio.getTime() > ferias.dataLimite.getTime()) {
+  const { limite: limiteAjustado } = limiteProrrogado(
+    ferias.periodoAquisitivoFim,
+    ferias.dataLimite,
+    ferias.funcionario.afastamentos
+  );
+  // Período já vencido antes dessa edição (ex.: férias atrasadas sendo regularizadas agora) não
+  // bloqueia o salvamento — só um mês/quinzena novo que ultrapassaria um prazo ainda em aberto é
+  // que é impedido.
+  const jaVencido = new Date().getTime() > limiteAjustado.getTime();
+  if (gozoInicio && gozoInicio.getTime() > limiteAjustado.getTime() && !jaVencido) {
     return {
-      error: `Início do gozo (${gozoInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}) é depois do limite legal deste colaborador (${ferias.dataLimite.toLocaleDateString("pt-BR", { timeZone: "UTC" })}). Escolha um mês/quinzena anterior ao limite.`,
+      error: `Início do gozo (${gozoInicio.toLocaleDateString("pt-BR", { timeZone: "UTC" })}) é depois do limite legal deste colaborador (${limiteAjustado.toLocaleDateString("pt-BR", { timeZone: "UTC" })}). Escolha um mês/quinzena anterior ao limite.`,
     };
   }
 

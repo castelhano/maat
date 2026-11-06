@@ -31,3 +31,13 @@ export function baixarCsv(nomeArquivo: string, conteudo: string) {
   link.click();
   URL.revokeObjectURL(url);
 }
+
+export function baixarTxt(nomeArquivo: string, conteudo: string) {
+  const blob = new Blob([conteudo], { type: "text/plain;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = `${nomeArquivo}.txt`;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+}

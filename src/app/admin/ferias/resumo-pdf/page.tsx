@@ -59,6 +59,7 @@ export default async function ResumoPdfPage({
     quinzena: p.quinzena!,
     diasDireito: p.diasDireito,
     diasAbono: p.diasAbono,
+    gozoInicio: p.gozoInicio,
     dataPagamento: p.dataPagamento,
     valorReal: p.valorReal?.toNumber() ?? null,
   }));
@@ -82,36 +83,44 @@ export default async function ResumoPdfPage({
       qtd: number;
       valor: number;
       comValorReal: number;
-      pagamentos: Map<string, number>;
+      // Início do gozo e data de pagamento variam por colaborador quando há abono no início do
+      // período (empurra a data real de início). Contamos os PARES (início, pagamento) juntos — e
+      // não cada um separado — pra não acabar mostrando um início de uma turma com o pagamento de
+      // outra.
+      pares: Map<string, { count: number; gozoInicio: Date; dataPagamento: Date }>;
     }
   >();
   for (const l of linhas) {
+    if (!l.gozoInicio || !l.dataPagamento) continue;
     const chave = `${l.ano}-${l.mes}-${l.quinzena}`;
     const atual =
       mapa.get(chave) ??
-      { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, comValorReal: 0, pagamentos: new Map() };
+      { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
     atual.qtd++;
     atual.valor += l.valorReal ?? calcularValorAproximado(l.salario, l.diasDireito - l.diasAbono);
     if (l.valorReal !== null) atual.comValorReal++;
-    // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
-    // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
-    if (l.dataPagamento) {
-      const chaveData = l.dataPagamento.toISOString();
-      atual.pagamentos.set(chaveData, (atual.pagamentos.get(chaveData) ?? 0) + 1);
-    }
+    const chavePar = `${l.gozoInicio.toISOString()}|${l.dataPagamento.toISOString()}`;
+    const par = atual.pares.get(chavePar) ?? { count: 0, gozoInicio: l.gozoInicio, dataPagamento: l.dataPagamento };
+    par.count++;
+    atual.pares.set(chavePar, par);
     mapa.set(chave, atual);
   }
 
   const linhasResumo = [...mapa.values()]
     .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena)
     .map((v) => {
-      const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
-      const gozoInicio = custom
-        ? custom.dataInicio
-        : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
-      const maisFrequente = [...v.pagamentos.entries()].sort((a, b) => b[1] - a[1])[0];
-      const dataPagamento = maisFrequente ? new Date(maisFrequente[0]) : dataPagamentoFerias(gozoInicio);
-      const { pagamentos: _pagamentos, ...resto } = v;
+      const maisFrequente = [...v.pares.values()].sort((a, b) => b.count - a.count)[0];
+      let gozoInicio: Date;
+      let dataPagamento: Date;
+      if (maisFrequente) {
+        gozoInicio = maisFrequente.gozoInicio;
+        dataPagamento = maisFrequente.dataPagamento;
+      } else {
+        const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
+        gozoInicio = custom ? custom.dataInicio : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
+        dataPagamento = dataPagamentoFerias(gozoInicio);
+      }
+      const { pares: _pares, ...resto } = v;
       return { ...resto, gozoInicio, dataPagamento };
     });
 

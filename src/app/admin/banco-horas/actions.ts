@@ -22,6 +22,8 @@ export type ExtratoLinha = {
   debitoBruto: number;
   aPagar: number;
   saldoAtual: number;
+  // Ajuste manual do DP: o saldo anterior foi cancelado neste mês (motivo registrado).
+  observacao?: string;
 };
 
 export type ExtratoResult = {
@@ -174,7 +176,8 @@ export async function buscarResumoMensal(
       const creditoBruto = Number(a.creditoBruto);
       const debitoBruto = Number(a.debitoBruto);
       const pagoNoMes = Number(a.pagoNoMes);
-      const saldoAnterior = saldoAnteriorPorFuncionario.get(a.funcionarioId) ?? 0;
+      // Saldo anterior cancelado manualmente pelo DP: não foi pago neste mês.
+      const saldoAnterior = a.saldoZeradoManual ? 0 : (saldoAnteriorPorFuncionario.get(a.funcionarioId) ?? 0);
       // Congelado (afastado há mais de 30 dias): nada foi pago, nem crédito do mês nem saldo
       // anterior — as duas caixinhas ficam em zero, não em "zero e negativo".
       const pagoReferenteSaldoAnterior = a.congelado
@@ -381,6 +384,9 @@ export async function buscarExtratoColaborador(
       debitoBruto: Number(a.debitoBruto),
       aPagar: Number(a.pagoNoMes),
       saldoAtual: Number(a.saldoFinal),
+      observacao: a.saldoZeradoManual
+        ? `Saldo anterior cancelado (não pago).${a.saldoZeradoMotivo ? ` ${a.saldoZeradoMotivo}` : ""}`
+        : undefined,
     };
     anterior = Number(a.saldoFinal);
     return linha;

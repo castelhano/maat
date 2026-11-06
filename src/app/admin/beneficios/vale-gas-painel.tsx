@@ -22,10 +22,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileText, Landmark } from "lucide-react";
+import { FileText, Landmark, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ExportCard } from "./export-card";
-import { paraCsv, baixarCsv } from "@/lib/csv";
+import { paraCsv, baixarCsv, baixarTxt } from "@/lib/csv";
 import { usePodeOperar } from "@/components/permissoes-provider";
 import { salvarValorEntregaValeGas, type ApuracaoValeGasItemDTO } from "./vale-gas-actions";
 
@@ -251,9 +251,35 @@ export function ValeGasPainel({
     baixarCsv(`arquivo-bancario-vale-gas-${competencia.replace("/", "-")}`, paraCsv(["Nome", "Documento", "  Valor R$  ", "Benefício"], linhas));
   }
 
+  // Arquivo pro sistema ERP — matrícula + valor cadastrado da empresa, um por linha, separados
+  // por tab, no layout que o ERP espera pra importar o vale gás (ex.: "000067\t 117,00 ").
+  // Funcionário com direito à quantidade entra, e quem converteu em pecúnia também entra (mesmo
+  // recebendo o valor em dinheiro à parte, no arquivo bancário, o ERP ainda precisa registrar o
+  // benefício na modalidade pecúnia). Terceiro não entra — não tem matrícula no ERP.
+  function gerarArquivoErp() {
+    const valorPorEmpresa = new Map(valorEntregaPorEmpresa.map((v) => [v.empresaId, v.valorEntrega]));
+    const beneficiarios = itens.filter(
+      (i) => i.tipo === "funcionario" && i.matricula && (i.elegivel || (i.pecunia && i.motivoPerda === "Convertida em Pecúnia"))
+    );
+    const semValor = beneficiarios.filter((i) => (valorPorEmpresa.get(i.empresaId) ?? null) === null);
+    if (semValor.length > 0) {
+      toast.error(`Lance o valor da entrega da empresa antes de gerar o arquivo — falta pra ${semValor.length} colaborador(es).`);
+      return;
+    }
+    const linhas = beneficiarios.map((i) => {
+      const valor = valorPorEmpresa.get(i.empresaId) ?? 0;
+      return `${i.matricula}\t ${valor.toFixed(2).replace(".", ",")} `;
+    });
+    baixarTxt(`arquivo-erp-vale-gas-${competencia.replace("/", "-")}`, linhas.join("\n"));
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end gap-2.5">
+        <Button variant="secondary" size="sm" onClick={gerarArquivoErp}>
+          <Upload />
+          Gerar arquivo ERP
+        </Button>
         <Button variant="secondary" size="sm" onClick={gerarArquivoBancario}>
           <Landmark />
           Gerar arquivo bancário

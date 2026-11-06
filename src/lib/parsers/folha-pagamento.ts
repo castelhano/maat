@@ -29,10 +29,17 @@ export type FuncionarioFolha = {
   eventos: EventoFolha[];
 };
 
+// "mensal" = folha do mês; "13_1"/"13_2" = 1ª e 2ª parcela do 13º salário ("FOLHA DE DÉCIMO
+// TERCEIRO"), que o ERP emite no mesmo layout.
+export type TipoFolha = "mensal" | "13_1" | "13_2";
+
 export type FolhaPagamentoParseResult = {
   empresa: { codigo: string; nome: string };
   // "mm/aaaa"
   competencia: string;
+  tipo: TipoFolha;
+  // Relatório "SIMULADO" (antes do fechamento).
+  simulado: boolean;
   funcionarios: FuncionarioFolha[];
   // Total por código de evento segundo a última página do relatório.
   resumoPorEvento: Record<string, number>;
@@ -63,6 +70,7 @@ export function parseFolhaPagamento(conteudo: string): FolhaPagamentoParseResult
 
   let empresa: { codigo: string; nome: string } | null = null;
   let competencia: string | null = null;
+  let titulo: string | null = null;
   const funcionarios: FuncionarioFolha[] = [];
   const resumoPorEvento: Record<string, number> = {};
   let atual: FuncionarioFolha | null = null;
@@ -73,6 +81,7 @@ export function parseFolhaPagamento(conteudo: string): FolhaPagamentoParseResult
       const m = EMPRESA.exec(linha);
       if (m) empresa = { codigo: m[1], nome: m[2].trim() };
     }
+    if (!titulo && /FOLHA DE /.test(linha)) titulo = linha;
     if (!competencia) {
       const m = COMPETENCIA.exec(linha);
       if (m) competencia = `${m[1]}/${m[2]}`;
@@ -161,5 +170,14 @@ export function parseFolhaPagamento(conteudo: string): FolhaPagamentoParseResult
     }
   }
 
-  return { empresa, competencia, funcionarios, resumoPorEvento };
+  // 13º: a 2ª parcela traz o evento 13º SALÁRIO (00012); a 1ª só o adiantamento (00069).
+  const decimoTerceiro = titulo !== null && /TERCEIRO/i.test(titulo);
+  const tipo: TipoFolha = !decimoTerceiro
+    ? "mensal"
+    : funcionarios.some((f) => f.eventos.some((e) => e.codigo === "00012"))
+      ? "13_2"
+      : "13_1";
+  const simulado = titulo !== null && /SIMULAD/i.test(titulo);
+
+  return { empresa, competencia, tipo, simulado, funcionarios, resumoPorEvento };
 }

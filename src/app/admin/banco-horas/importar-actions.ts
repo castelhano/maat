@@ -182,7 +182,12 @@ export async function confirmarExtratoBancoHoras(
         const seriePorCompetencia = new Map<string, CompetenciaEntrada>(
           apuracoesExistentes.map((a) => [
             a.competencia,
-            { competencia: a.competencia, creditoDecimal: Number(a.creditoBruto), debitoDecimal: Number(a.debitoBruto) },
+            {
+              competencia: a.competencia,
+              creditoDecimal: Number(a.creditoBruto),
+              debitoDecimal: Number(a.debitoBruto),
+              zerarSaldo: a.saldoZeradoManual,
+            },
           ])
         );
         for (const l of novasLinhas) {
@@ -190,6 +195,8 @@ export async function confirmarExtratoBancoHoras(
             competencia: l.competencia,
             creditoDecimal: l.creditoDecimal,
             debitoDecimal: l.debitoDecimal,
+            // Reimportar o mês não desfaz o zeramento manual feito pelo DP.
+            zerarSaldo: seriePorCompetencia.get(l.competencia)?.zerarSaldo,
           });
         }
         // Funcionário afastado há mais de 30 dias nesta competência: congela o saldo (ver

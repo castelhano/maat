@@ -55,6 +55,8 @@ export type FeriasLinha = {
   salario: number;
   periodoAquisitivoFim: string;
   dataLimite: string;
+  dataLimiteAjustada: string;
+  diasProrrogadosPorAfastamento: number;
   meses: number;
   faltas: number;
   diasDireito: number;
@@ -222,10 +224,12 @@ function TravadoToggle({
 function ProgramarDialog({
   periodo,
   quinzenas,
+  periodos,
   onSaved,
 }: {
   periodo: FeriasLinha;
   quinzenas: QuinzenaLinha[];
+  periodos: FeriasLinha[];
   onSaved: (p: FeriasLinha) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -236,6 +240,30 @@ function ProgramarDialog({
   const [abonoTipo, setAbonoTipo] = useState<"inicio" | "final" | "">(periodo.abonoTipo ?? "");
   const [valorReal, setValorReal] = useState(periodo.valorReal !== null ? String(periodo.valorReal) : "");
   const [isPending, startTransition] = useTransition();
+
+  // Período anterior do mesmo colaborador, já programado — usado pelo botão "Repetir programação
+  // anterior" (só mês/quinzena, nunca abono: o colaborador pode não querer vender férias de novo).
+  const periodoAnterior = useMemo(() => {
+    return periodos
+      .filter(
+        (p) =>
+          p.id !== periodo.id &&
+          p.matricula === periodo.matricula &&
+          p.empresa === periodo.empresa &&
+          p.mes &&
+          p.ano &&
+          p.quinzena &&
+          new Date(p.periodoAquisitivoFim).getTime() < new Date(periodo.periodoAquisitivoFim).getTime()
+      )
+      .sort((a, b) => new Date(b.periodoAquisitivoFim).getTime() - new Date(a.periodoAquisitivoFim).getTime())[0];
+  }, [periodos, periodo]);
+
+  function repetirAnterior() {
+    if (!periodoAnterior) return;
+    setMes(periodoAnterior.mes!);
+    setAno(periodo.ano ?? new Date(periodo.dataLimite).getUTCFullYear());
+    setQuinzena(periodoAnterior.quinzena!);
+  }
 
   const maxAbono = Math.floor(periodo.diasDireito / 3);
   const diasGozo = periodo.diasDireito - diasAbono;
@@ -259,7 +287,13 @@ function ProgramarDialog({
     : null;
   const pagamentoPreview = gozoInicioPreview ? dataPagamentoFerias(gozoInicioPreview) : null;
 
-  const excedeuLimite = !!(gozoInicioPreview && gozoInicioPreview.getTime() > new Date(periodo.dataLimite).getTime());
+  const limiteAjustado = new Date(periodo.dataLimiteAjustada);
+  const excedeuLimite = !!(gozoInicioPreview && gozoInicioPreview.getTime() > limiteAjustado.getTime());
+  // Período que já estava vencido antes mesmo dessa edição (ex.: férias atrasadas sendo
+  // regularizadas agora) não trava o Salvar — só avisa. O bloqueio de verdade é só pra evitar
+  // escolher, agora, um mês/quinzena novo que ultrapasse o prazo ainda em aberto.
+  const jaVencido = new Date().getTime() > limiteAjustado.getTime();
+  const bloqueiaSalvar = excedeuLimite && !jaVencido;
 
   function salvar() {
     if (!mes || !ano || !quinzena) {
@@ -270,7 +304,7 @@ function ProgramarDialog({
       toast.error("Escolha se o abono fica no início ou no final do período de gozo.");
       return;
     }
-    if (excedeuLimite) {
+    if (bloqueiaSalvar) {
       toast.error("Início do gozo é depois do limite legal deste colaborador. Escolha um mês/quinzena anterior.");
       return;
     }
@@ -357,7 +391,15 @@ function ProgramarDialog({
           <DialogDescription>
             Matrícula {periodo.matricula} · {periodo.funcao} · {periodo.faltas} falta(s) no período →{" "}
             <span className="font-bold text-primary">{periodo.diasDireito} dias de direito</span> · limite para
-            iniciar o gozo: <span className="font-bold text-foreground">{formatarData(periodo.dataLimite)}</span>
+            iniciar o gozo:{" "}
+            <span className="font-bold text-foreground">{formatarData(periodo.dataLimiteAjustada)}</span>
+            {periodo.diasProrrogadosPorAfastamento > 0 && (
+              <span className="text-warning">
+                {" "}
+                (prazo original {formatarData(periodo.dataLimite)}, prorrogado {periodo.diasProrrogadosPorAfastamento}{" "}
+                dia(s) por afastamento dentro do período concessivo)
+              </span>
+            )}
             {periodo.gozoInicio && (
               <>
                 <br />
@@ -368,6 +410,14 @@ function ProgramarDialog({
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
+          {periodoAnterior && (
+            <Button type="button" size="sm" variant="secondary" onClick={repetirAnterior}>
+              <CalendarPlus className="size-3.5" />
+              Repetir programação anterior ({String(periodoAnterior.mes).padStart(2, "0")}/{periodoAnterior.ano} ·{" "}
+              {periodoAnterior.quinzena}ª quinz.)
+            </Button>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Mês de férias</label>
@@ -442,20 +492,30 @@ function ProgramarDialog({
 
           <div
             className={`rounded-lg border p-4 ${
-              excedeuLimite ? "border-danger/40 bg-danger/10" : "border-primary/30 bg-accent-glow"
+              !excedeuLimite
+                ? "border-primary/30 bg-accent-glow"
+                : bloqueiaSalvar
+                  ? "border-danger/40 bg-danger/10"
+                  : "border-warning/40 bg-warning/10"
             }`}
           >
             <p
               className={`mb-3 font-mono text-[10px] font-bold tracking-[.06em] uppercase ${
-                excedeuLimite ? "text-danger" : "text-primary"
+                !excedeuLimite ? "text-primary" : bloqueiaSalvar ? "text-danger" : "text-warning"
               }`}
             >
               Prévia da programação
             </p>
-            {excedeuLimite && (
+            {excedeuLimite && bloqueiaSalvar && (
               <p className="mb-3 font-mono text-[11px] font-bold text-danger">
-                Início do gozo passa do limite legal ({formatarData(periodo.dataLimite)}) — escolha um mês/quinzena
-                anterior.
+                Início do gozo passa do limite legal ({formatarData(periodo.dataLimiteAjustada)}) — escolha um
+                mês/quinzena anterior.
+              </p>
+            )}
+            {excedeuLimite && !bloqueiaSalvar && (
+              <p className="mb-3 font-mono text-[11px] font-bold text-warning">
+                Este período já está vencido desde {formatarData(periodo.dataLimiteAjustada)} — pode salvar mesmo
+                assim pra regularizar a programação em atraso.
               </p>
             )}
             {gozoInicioPreview && gozoFimPreview ? (
@@ -537,7 +597,7 @@ function ProgramarDialog({
           <Button variant="secondary" onClick={() => setOpen(false)} disabled={isPending}>
             Cancelar
           </Button>
-          <Button onClick={salvar} disabled={isPending || excedeuLimite}>
+          <Button onClick={salvar} disabled={isPending || bloqueiaSalvar}>
             {isPending ? "Salvando..." : "Salvar programação"}
           </Button>
         </DialogFooter>
@@ -1005,33 +1065,45 @@ export function FeriasTable({
         qtd: number;
         valor: number;
         comValorReal: number;
-        pagamentos: Map<string, number>;
+        // Início do gozo e data de pagamento variam por colaborador quando há abono no início do
+        // período (empurra a data real de início). Contamos os PARES (início, pagamento) juntos — e
+        // não cada um separado — pra não acabar mostrando um início de uma turma com o pagamento de
+        // outra.
+        pares: Map<string, { count: number; gozoInicio: string; dataPagamento: string }>;
       }
     >();
     for (const p of filtroResumoRange) {
-      if (!p.mes || !p.ano || !p.quinzena || !p.gozoInicio) continue;
+      if (!p.mes || !p.ano || !p.quinzena || !p.gozoInicio || !p.dataPagamento) continue;
       const chave = `${p.ano}-${p.mes}-${p.quinzena}`;
       const atual =
         mapa.get(chave) ??
-        { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, comValorReal: 0, pagamentos: new Map() };
+        { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
       atual.qtd++;
       atual.valor += valorEfetivo(p);
       if (p.valorReal !== null) atual.comValorReal++;
-      // A data de pagamento pode ter sido ajustada manualmente por colaborador (ex.: antecipação de
-      // fim de ano) — usamos a data mais frequente do grupo em vez de recalcular do zero pela fórmula.
-      if (p.dataPagamento) atual.pagamentos.set(p.dataPagamento, (atual.pagamentos.get(p.dataPagamento) ?? 0) + 1);
+      const chavePar = `${p.gozoInicio}|${p.dataPagamento}`;
+      const par = atual.pares.get(chavePar) ?? { count: 0, gozoInicio: p.gozoInicio, dataPagamento: p.dataPagamento };
+      par.count++;
+      atual.pares.set(chavePar, par);
       mapa.set(chave, atual);
     }
     return [...mapa.values()]
       .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena)
       .map((v) => {
-        const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
-        const gozoInicio = custom
-          ? new Date(custom.dataInicio)
-          : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
-        const maisFrequente = [...v.pagamentos.entries()].sort((a, b) => b[1] - a[1])[0];
-        const dataPagamento = maisFrequente ? new Date(maisFrequente[0]) : dataPagamentoFerias(gozoInicio);
-        const { pagamentos: _pagamentos, ...resto } = v;
+        const maisFrequente = [...v.pares.values()].sort((a, b) => b.count - a.count)[0];
+        let gozoInicio: Date;
+        let dataPagamento: Date;
+        if (maisFrequente) {
+          gozoInicio = new Date(maisFrequente.gozoInicio);
+          dataPagamento = new Date(maisFrequente.dataPagamento);
+        } else {
+          const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
+          gozoInicio = custom
+            ? new Date(custom.dataInicio)
+            : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
+          dataPagamento = dataPagamentoFerias(gozoInicio);
+        }
+        const { pares: _pares, ...resto } = v;
         return { ...resto, gozoInicio, dataPagamento };
       });
   }, [filtroResumoRange, quinzenas]);
@@ -1272,7 +1344,9 @@ export function FeriasTable({
                     <TableCell className="px-2 whitespace-nowrap">{formatarData(p.gozoFim)}</TableCell>
                     <TableCell className="px-2">{statusBadge(p.gozoInicio ? "programado" : "pendente")}</TableCell>
                     <TableCell className="px-2">
-                      {podeOperar && <ProgramarDialog periodo={p} quinzenas={quinzenas} onSaved={atualizarPeriodo} />}
+                      {podeOperar && (
+                        <ProgramarDialog periodo={p} quinzenas={quinzenas} periodos={periodos} onSaved={atualizarPeriodo} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -135,6 +135,7 @@ model Empresa {
   apuracoesValeGas     ApuracaoValeGas[]
   bancoHorasImportacoes BancoHorasImportacao[]
   folhasPagamento       FolhaPagamento[]
+  consignadoImportacoes ConsignadoImportacao[]
   indicadoresMensais   IndicadorMensal[]
   rateiosTotais        RateioTotalCampo[]
 
@@ -615,6 +616,12 @@ model BancoHorasApuracao {
   // src/lib/banco-horas-afastamento.ts. Volta a processar normalmente quando ele retornar.
   congelado Boolean @default(false)
 
+  // Ajuste manual do DP: o saldo que vem da competência anterior é cancelado na entrada desta
+  // (não é pago aqui nem segue no banco); a competência anterior fica como estava. Preservado nas
+  // reimportações/recálculos — o motor aplica o cancelamento toda vez que reprocessa a série.
+  saldoZeradoManual Boolean @default(false)
+  saldoZeradoMotivo String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -744,6 +751,11 @@ model FolhaPagamento {
   empresaId      String
   empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
   competencia    String   // "MM/AAAA"
+  // "mensal" | "13_1" (13º 1ª parcela) | "13_2" (13º 2ª parcela) — o 13º convive com a folha
+  // mensal da mesma competência sem substituí-la.
+  tipo           String   @default("mensal")
+  // Relatório "simulado" do ERP (antes do fechamento) — a versão definitiva substitui.
+  simulado       Boolean  @default(false)
   nomeArquivo    String
   importadoPorId String
   createdAt      DateTime @default(now())
@@ -751,7 +763,7 @@ model FolhaPagamento {
 
   itens FolhaPagamentoItem[]
 
-  @@unique([empresaId, competencia])
+  @@unique([empresaId, competencia, tipo])
   @@index([empresaId])
   @@map("folha_pagamento")
 }
@@ -775,4 +787,45 @@ model FolhaPagamentoItem {
   @@unique([folhaId, matricula])
   @@index([folhaId])
   @@map("folha_pagamento_item")
+}
+
+// Arquivo mensal do e-Consignado (Crédito do Trabalhador) baixado do portal: um contrato por
+// linha com a parcela a descontar na competência. Comparado com o desconto da folha mensal para
+// achar quem ficou com parcela sem desconto (limite de 35%, afastamento, rescisão). Reimportar a
+// mesma empresa/competência substitui.
+model ConsignadoImportacao {
+  id             String   @id @default(cuid())
+  empresaId      String
+  empresa        Empresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  competencia    String   // "MM/AAAA"
+  // Empregador como veio no arquivo — sai no termo de ciência.
+  razaoSocial    String
+  cnpj           String
+  nomeArquivo    String
+  importadoPorId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  contratos ConsignadoContrato[]
+
+  @@unique([empresaId, competencia])
+  @@map("consignado_importacao")
+}
+
+model ConsignadoContrato {
+  id               String               @id @default(cuid())
+  importacaoId     String
+  importacao       ConsignadoImportacao @relation(fields: [importacaoId], references: [id], onDelete: Cascade)
+  banco            String
+  contrato         String
+  cpf              String   // só dígitos, 11 posições
+  nome             String
+  inicioDesconto   String   // "MM/AAAA"
+  fimDesconto      String   // "MM/AAAA"
+  totalParcelas    Int
+  valorParcela     Decimal
+  valorEmprestimo  Decimal
+
+  @@index([importacaoId])
+  @@map("consignado_contrato")
 }

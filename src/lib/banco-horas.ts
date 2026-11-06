@@ -29,6 +29,9 @@ export type CompetenciaEntrada = {
   // Funcionário afastado há mais de 30 dias nesta competência (ver src/lib/banco-horas-afastamento.ts):
   // não gera crédito líquido nem paga o saldo anterior — o saldo fica intacto até o retorno.
   congelado?: boolean;
+  // Ajuste manual do DP (BancoHorasApuracao.saldoZeradoManual): o saldo herdado do mês anterior é
+  // cancelado na entrada deste mês — não é pago aqui nem continua no banco.
+  zerarSaldo?: boolean;
 };
 
 export type ApuracaoMes = {
@@ -126,7 +129,7 @@ export function processarHistorico(
   let saldo = saldoInicialDecimal;
   const apuracoes: ApuracaoMes[] = [];
   for (const entrada of ordenadas) {
-    const resultado = processarCompetencia(saldo, entrada);
+    const resultado = processarCompetencia(entrada.zerarSaldo ? 0 : saldo, entrada);
     saldo = resultado.saldoFinalDecimal;
     apuracoes.push(resultado.apuracao);
   }

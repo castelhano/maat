@@ -11,8 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { usePodeOperar } from "@/components/permissoes-provider";
 import { paraCsv, baixarCsv } from "@/lib/csv";
 import type { Categoria, Critica, ResultadoFuncionario, StatusCritica } from "@/lib/folha/conferencia";
+import type { TipoFolha } from "@/lib/parsers/folha-pagamento";
 import { buscarAnaliseFolha, listarFolhasImportadas, type AnaliseFolha, type FolhaImportada } from "./actions";
 import { ImportadorFolha } from "./importador";
+import { ComparativoConsignadoView } from "./comparativo-consignado";
 import { StatCard } from "./stat-card";
 
 type FiltroStatus = "todos" | Exclude<StatusCritica, "info">;
@@ -46,8 +48,15 @@ function moeda(valor: number | undefined) {
   });
 }
 
-function chave(f: { empresaId: string; competencia: string }) {
-  return `${f.empresaId}|${f.competencia}`;
+function chave(f: { empresaId: string; competencia: string; tipo: TipoFolha }) {
+  return `${f.empresaId}|${f.competencia}|${f.tipo}`;
+}
+
+const ROTULO_TIPO: Record<TipoFolha, string> = { mensal: "", "13_1": "13º 1ª parcela", "13_2": "13º 2ª parcela" };
+
+function rotuloFolha(f: FolhaImportada) {
+  const tipo = f.tipo === "mensal" ? "" : ` · ${ROTULO_TIPO[f.tipo]}${f.simulado ? " (simulado)" : ""}`;
+  return `${f.competencia} · ${f.empresaNome}${tipo}`;
 }
 
 function contar(f: ResultadoFuncionario, status: StatusCritica) {
@@ -66,14 +75,15 @@ export function AnaliseFolhaCentral() {
   const [busca, setBusca] = useState("");
   const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const [mostrarOk, setMostrarOk] = useState(false);
-  const [visao, setVisao] = useState<"geral" | "banco-horas">("geral");
+  const [visao, setVisao] = useState<"geral" | "banco-horas" | "consignado">("geral");
 
   function carregar(valor: string) {
     setSelecionada(valor);
     setAbertos(new Set());
-    const [empresaId, competencia] = valor.split("|");
+    const [empresaId, competencia, tipo] = valor.split("|");
     startCarregando(async () => {
-      const result = await buscarAnaliseFolha(empresaId, competencia);
+      const result = await buscarAnaliseFolha(empresaId, competencia, (tipo as TipoFolha) || "mensal");
+      if (result.data?.tipo !== "mensal") setVisao("geral");
       setAnalise(result.data);
     });
   }
@@ -132,7 +142,7 @@ export function AnaliseFolhaCentral() {
       }
     }
     baixarCsv(
-      `criticas-folha-${analise.competencia.replace("/", "-")}`,
+      `criticas-${analise.tipo === "mensal" ? "folha" : `13-${analise.tipo.slice(3)}a-parcela`}-${analise.competencia.replace("/", "-")}`,
       paraCsv(["Matrícula", "Nome", "Função", "Situação", "Status", "Verificação", "Esperado", "Encontrado", "Detalhe"], linhas),
     );
   }
@@ -141,24 +151,32 @@ export function AnaliseFolhaCentral() {
 
   return (
     <div className="flex flex-col gap-6">
-      {podeOperar && <ImportadorFolha onImportado={(empresaId, competencia) => recarregarLista(`${empresaId}|${competencia}`)} />}
+      {podeOperar && (
+        <ImportadorFolha
+          onImportado={(empresaId, competencia, tipo) => recarregarLista(chave({ empresaId, competencia, tipo }))}
+          onConsignadoImportado={(empresaId, competencia) => {
+            setVisao("consignado");
+            recarregarLista(chave({ empresaId, competencia, tipo: "mensal" }));
+          }}
+        />
+      )}
 
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-2">
           <Label>Folha importada</Label>
           <Select value={selecionada ?? ""} onValueChange={(v) => v && carregar(v as string)}>
-            <SelectTrigger className="w-72">
+            <SelectTrigger className="w-96">
               <SelectValue placeholder={folhas === null ? "Carregando..." : "Nenhuma folha importada"}>
                 {(valor: string | null) => {
                   const f = opcoes.find((o) => chave(o) === valor);
-                  return f ? `${f.competencia} · ${f.empresaNome}` : null;
+                  return f ? rotuloFolha(f) : null;
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {opcoes.map((f) => (
                 <SelectItem key={chave(f)} value={chave(f)}>
-                  {f.competencia} · {f.empresaNome}
+                  {rotuloFolha(f)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -227,31 +245,57 @@ export function AnaliseFolhaCentral() {
             <StatCard label="INSS" value={moeda(analise.totais.inss)} cor="neutral" />
             <StatCard label="IR" value={moeda(analise.totais.ir)} cor="neutral" />
             <StatCard label="FGTS" value={moeda(analise.totais.fgts)} cor="neutral" />
-            <StatCard label="E-consignado" value={moeda(analise.totais.consignado)} cor="neutral" />
+            {analise.tipo === "mensal" && <StatCard label="E-consignado" value={moeda(analise.totais.consignado)} cor="neutral" />}
           </div>
 
-          <p className="font-mono text-[10px] tracking-[.04em] text-text-3">
-            Tabelas de INSS/IR de {analise.anoParametros}
-            {!analise.parametrosExatos && " (tabelas do ano da competência ainda não cadastradas — usando as mais recentes)"} · DSR do mês:{" "}
-            {analise.calendario.diasDsr} dia(s) de descanso ÷ {analise.calendario.diasUteis} dias úteis (feriados nacionais)
-          </p>
+          {analise.tipo === "mensal" ? (
+            <p className="font-mono text-[10px] tracking-[.04em] text-text-3">
+              Tabelas de INSS/IR de {analise.anoParametros}
+              {!analise.parametrosExatos && " (tabelas do ano da competência ainda não cadastradas — usando as mais recentes)"} · DSR do
+              mês: {analise.calendario.diasDsr} dia(s) de descanso ÷ {analise.calendario.diasUteis} dias úteis (feriados nacionais)
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <p className="font-mono text-[10px] tracking-[.04em] text-text-3">
+                {ROTULO_TIPO[analise.tipo]}
+                {analise.simulado ? " (simulado)" : ""} · tabelas de INSS/IR de {analise.anoParametros} · avos, médias e adiantamento nas
+                férias conferidos com as folhas mensais de {analise.mesesHistorico.join(", ") || "nenhum mês"}
+              </p>
+              {analise.mesesFaltando.length > 0 && (
+                <p className="font-mono text-[11px] text-warning">
+                  Faltam as folhas mensais de {analise.mesesFaltando.join(", ")} — o que depende delas aparece como pendente até serem
+                  importadas.
+                </p>
+              )}
+              {analise.tipo === "13_2" && !analise.primeiraParcelaImportada && (
+                <p className="font-mono text-[11px] text-warning">
+                  A 1ª parcela deste ano ainda não foi importada — o desconto do adiantamento fica pendente.
+                </p>
+              )}
+            </div>
+          )}
           {!analise.bancoHorasImportado && (
             <p className="font-mono text-[11px] text-warning">
               Banco de horas de {analise.competencia} ainda não importado — a hora extra 50% será conferida com ele assim que for importado.
             </p>
           )}
 
-          <div className="flex gap-2">
+          <div className={`flex gap-2 ${analise.tipo === "mensal" ? "" : "hidden"}`}>
             <Button variant={visao === "geral" ? "default" : "secondary"} size="sm" onClick={() => setVisao("geral")}>
               Conferência geral
             </Button>
             <Button variant={visao === "banco-horas" ? "default" : "secondary"} size="sm" onClick={() => setVisao("banco-horas")}>
               Hora extra x Banco de horas
             </Button>
+            <Button variant={visao === "consignado" ? "default" : "secondary"} size="sm" onClick={() => setVisao("consignado")}>
+              E-consignado x Folha
+            </Button>
           </div>
 
           {visao === "banco-horas" ? (
             <ComparativoBancoHoras analise={analise} />
+          ) : visao === "consignado" && selecionada ? (
+            <ComparativoConsignadoView empresaId={selecionada.split("|")[0]} competencia={analise.competencia} />
           ) : (
             <>
               <div className="flex flex-wrap items-end gap-3">

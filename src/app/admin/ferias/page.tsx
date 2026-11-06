@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requirePermissao } from "@/lib/session";
+import { limiteProrrogado } from "@/lib/feriados";
 import { FeriasTable } from "./ferias-table";
 
 export default async function FeriasPage() {
@@ -10,7 +11,7 @@ export default async function FeriasPage() {
       orderBy: { dataLimite: "asc" },
       include: {
         funcionario: {
-          include: { empresa: true, cargo: true },
+          include: { empresa: true, cargo: true, afastamentos: true },
         },
       },
     }),
@@ -34,36 +35,45 @@ export default async function FeriasPage() {
       p.funcionario.status !== "desligado"
   );
 
-  const periodosSerializados = periodosSemAprendiz.map((p) => ({
-    id: p.id,
-    matricula: p.funcionario.matricula,
-    nome: p.funcionario.nome,
-    funcao: p.funcionario.cargo.nome,
-    departamento: p.funcionario.cargo.departamento,
-    setor: p.funcionario.cargo.setor,
-    empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
-    salario: p.funcionario.temGratificacao
-      ? p.funcionario.salario.toNumber() * 1.4
-      : p.funcionario.salario.toNumber(),
-    periodoAquisitivoInicio: p.periodoAquisitivoInicio.toISOString(),
-    periodoAquisitivoFim: p.periodoAquisitivoFim.toISOString(),
-    dataLimite: p.dataLimite.toISOString(),
-    meses: p.meses,
-    faltas: p.faltas,
-    diasDireito: p.diasDireito,
-    mes: p.mes,
-    ano: p.ano,
-    quinzena: p.quinzena,
-    diasAbono: p.diasAbono,
-    abonoTipo: p.abonoTipo as "inicio" | "final" | null,
-    gozoInicio: p.gozoInicio?.toISOString() ?? null,
-    gozoFim: p.gozoFim?.toISOString() ?? null,
-    dataPagamento: p.dataPagamento?.toISOString() ?? null,
-    status: p.status as "pendente" | "programado" | "concluido",
-    exibirMural: p.exibirMural,
-    valorReal: p.valorReal?.toNumber() ?? null,
-    travado: p.travado,
-  }));
+  const periodosSerializados = periodosSemAprendiz.map((p) => {
+    const { limite: dataLimiteAjustada, diasProrrogados } = limiteProrrogado(
+      p.periodoAquisitivoFim,
+      p.dataLimite,
+      p.funcionario.afastamentos
+    );
+    return {
+      id: p.id,
+      matricula: p.funcionario.matricula,
+      nome: p.funcionario.nome,
+      funcao: p.funcionario.cargo.nome,
+      departamento: p.funcionario.cargo.departamento,
+      setor: p.funcionario.cargo.setor,
+      empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
+      salario: p.funcionario.temGratificacao
+        ? p.funcionario.salario.toNumber() * 1.4
+        : p.funcionario.salario.toNumber(),
+      periodoAquisitivoInicio: p.periodoAquisitivoInicio.toISOString(),
+      periodoAquisitivoFim: p.periodoAquisitivoFim.toISOString(),
+      dataLimite: p.dataLimite.toISOString(),
+      dataLimiteAjustada: dataLimiteAjustada.toISOString(),
+      diasProrrogadosPorAfastamento: diasProrrogados,
+      meses: p.meses,
+      faltas: p.faltas,
+      diasDireito: p.diasDireito,
+      mes: p.mes,
+      ano: p.ano,
+      quinzena: p.quinzena,
+      diasAbono: p.diasAbono,
+      abonoTipo: p.abonoTipo as "inicio" | "final" | null,
+      gozoInicio: p.gozoInicio?.toISOString() ?? null,
+      gozoFim: p.gozoFim?.toISOString() ?? null,
+      dataPagamento: p.dataPagamento?.toISOString() ?? null,
+      status: p.status as "pendente" | "programado" | "concluido",
+      exibirMural: p.exibirMural,
+      valorReal: p.valorReal?.toNumber() ?? null,
+      travado: p.travado,
+    };
+  });
 
   return (
     <>

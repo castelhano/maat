@@ -37,6 +37,7 @@ async function main() {
         creditoDecimal: Number(a.creditoBruto),
         debitoDecimal: Number(a.debitoBruto),
         congelado: estaCongeladoNaCompetencia(func, a.competencia),
+        zerarSaldo: a.saldoZeradoManual,
       }))
       .sort((a, b) => compararCompetencias(a.competencia, b.competencia));
 

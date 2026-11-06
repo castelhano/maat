@@ -61,3 +61,29 @@ export function diaUtilAnterior(data: Date): Date {
 export function dataPagamentoFerias(gozoInicio: Date): Date {
   return diaUtilAnterior(addDias(gozoInicio, -2));
 }
+
+// Se o colaborador entrou em afastamento durante o período concessivo (entre o vencimento do
+// período aquisitivo e o limite legal pra iniciar o gozo), a empresa fica impossibilitada de agir
+// enquanto ele estiver afastado — o prazo fica "pausado" por inteiro durante o afastamento, mesmo
+// que ele continue depois do limite original, e só volta a correr quando o colaborador retorna.
+// Por isso a prorrogação usa a duração TOTAL do afastamento, sem cortar no limite antigo.
+export function limiteProrrogado(
+  periodoAquisitivoFim: Date,
+  dataLimite: Date,
+  afastamentos: { dataInicio: Date; dataFim: Date | null }[]
+): { limite: Date; diasProrrogados: number } {
+  let diasProrrogados = 0;
+  for (const a of afastamentos) {
+    const fimAfastamento = a.dataFim ?? new Date();
+    // Só pausa o prazo se o afastamento começou dentro da janela concessiva em curso (depois do
+    // vencimento do período aquisitivo); se começou antes dela existir, ou só depois que o prazo já
+    // tinha vencido normalmente, não há o que prorrogar.
+    if (a.dataInicio.getTime() >= dataLimite.getTime() || fimAfastamento.getTime() <= periodoAquisitivoFim.getTime()) {
+      continue;
+    }
+    const inicio = a.dataInicio.getTime() > periodoAquisitivoFim.getTime() ? a.dataInicio : periodoAquisitivoFim;
+    const dias = Math.round((fimAfastamento.getTime() - inicio.getTime()) / 86_400_000);
+    if (dias > 0) diasProrrogados += dias;
+  }
+  return { limite: diasProrrogados > 0 ? addDias(dataLimite, diasProrrogados) : dataLimite, diasProrrogados };
+}

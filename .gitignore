@@ -47,3 +47,6 @@ next-env.d.ts
 /prisma/*.db-journal
 /prisma/*.db-wal
 /prisma/*.db-shm
+
+# cópias de segurança do banco
+/backups/

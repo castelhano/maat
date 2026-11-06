@@ -59,10 +59,27 @@ function fmt(valor: number): string {
   return valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// [mês, dia] por ano. Eleições de 2026: 1º turno 04/10 e 2º turno 25/10 (caem em domingo, então
+// não mudam a contagem de dias de descanso do mês — ficam aqui para registro).
+const FERIADOS_DO_ANO: Record<number, [number, number][]> = {
+  2026: [
+    [10, 4],
+    [10, 25],
+  ],
+};
+
 export function calendarioCompetencia(competencia: string): CalendarioCompetencia {
   const [mes, ano] = competencia.split("/").map(Number);
   const dias = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
-  const feriados = new Set(feriadosNacionais(ano).map((d) => d.getTime()));
+  // Carnaval é ponto facultativo, não feriado: o ERP não o conta como dia de descanso no DSR
+  // (fev/2026 fechou em 4 domingos ÷ 24 dias úteis). Corpus Christi o ERP conta (jun/2026: 5 ÷ 25).
+  const carnaval = feriadosNacionais(ano)[1].getTime();
+  const feriados = new Set(feriadosNacionais(ano).map((d) => d.getTime()).filter((t) => t !== carnaval));
+  // Feriado municipal de Cuiabá (aniversário da cidade, 08/04), onde ficam as empresas — o ERP
+  // conta no DSR (abr/2026: 7 dias de descanso ÷ 23 dias úteis).
+  feriados.add(Date.UTC(ano, 3, 8));
+  // Feriados de um ano só (eleições — pagas como feriado pelo Código Eleitoral), informados pelo DP.
+  for (const [m, d] of FERIADOS_DO_ANO[ano] ?? []) feriados.add(Date.UTC(ano, m - 1, d));
   let diasDsr = 0;
   for (let dia = 1; dia <= dias; dia++) {
     const data = new Date(Date.UTC(ano, mes - 1, dia));
@@ -265,13 +282,14 @@ export function conferirFuncionario(
         }
       : undefined;
   if (tem("00126")) {
-    const baseHe = val("00003") + val("00363");
+    // 00659 = horas extras do banco pendentes do mês anterior (ou da rescisão) — também refletem no DSR.
+    const baseHe = val("00003") + val("00363") + val("00659");
     comparar(
       "dsr",
       "DSR sobre horas extras",
       baseHe * fatorDsr,
       val("00126"),
-      `(HE 50% + HE 100%) ${fmt(baseHe)} × ${textoFator}.`,
+      `(HE 50% + HE 100%${tem("00659") ? " + HE banco de horas" : ""}) ${fmt(baseHe)} × ${textoFator}.`,
       TOLERANCIA,
       motivoDsrRescisao ?? suspensaoSemReducao(baseHe * fatorCheio, val("00126"), TOLERANCIA)
     );
@@ -322,22 +340,41 @@ export function conferirFuncionario(
     const pensao = val("00469");
     const baseCompleta = bruto - val("00451") - dependentes - pensao;
     const baseSimplificada = bruto - p.irDescontoSimplificado;
+    const baseIr = Math.max(0, Math.min(baseCompleta, baseSimplificada));
+    const esperado = calcularIr(baseIr, bruto, p);
+    // Base informada diferente, mas o IR descontado é o mesmo da base correta (ex.: VPAR jan-fev/2026,
+    // ERP sem o desconto simplificado nas bases) — não afeta o valor, fica como alerta.
+    const semImpacto =
+      Math.abs(esperado - val("00453")) <= TOLERANCIA
+        ? {
+            status: "alerta" as const,
+            motivo: `a base informada pelo ERP está diferente, mas o IR descontado (${fmt(val("00453"))}) é o mesmo calculado com a base correta — sem diferença de valor; vale ajustar o cadastro do ERP.`,
+          }
+        : undefined;
     if (tem("15501")) {
       comparar(
         "ir_base",
         "Base IR com deduções legais",
         baseCompleta,
         val("15501"),
-        `Bruto ${fmt(bruto)} − INSS ${fmt(val("00451"))}${dependentes ? ` − dependentes ${fmt(dependentes)}` : ""}${pensao ? ` − pensão ${fmt(pensao)}` : ""}.`
+        `Bruto ${fmt(bruto)} − INSS ${fmt(val("00451"))}${dependentes ? ` − dependentes ${fmt(dependentes)}` : ""}${pensao ? ` − pensão ${fmt(pensao)}` : ""}.`,
+        TOLERANCIA,
+        semImpacto
       );
     }
     if (tem("15502")) {
-      comparar("ir_base", "Base IR com desconto simplificado", baseSimplificada, val("15502"), `Bruto ${fmt(bruto)} − desconto simplificado ${fmt(p.irDescontoSimplificado)}.`);
+      comparar(
+        "ir_base",
+        "Base IR com desconto simplificado",
+        baseSimplificada,
+        val("15502"),
+        `Bruto ${fmt(bruto)} − desconto simplificado ${fmt(p.irDescontoSimplificado)}.`,
+        TOLERANCIA,
+        semImpacto
+      );
     }
-    const baseIr = Math.max(0, Math.min(baseCompleta, baseSimplificada));
-    comparar("ir_base", "Base do IR", baseIr, val("00101"), "Usa a menor base entre deduções legais e desconto simplificado.");
-    const esperado = calcularIr(val("00101"), bruto, p);
-    let explicacao = `Tabela 2026 sobre a base ${fmt(val("00101"))}`;
+    comparar("ir_base", "Base do IR", baseIr, val("00101"), "Usa a menor base entre deduções legais e desconto simplificado.", TOLERANCIA, semImpacto);
+    let explicacao = `Tabela 2026 sobre a base ${fmt(baseIr)}`;
     if (p.irRedutor && bruto <= p.irRedutor.ate) explicacao += `; rendimento ${fmt(bruto)} até ${fmt(p.irRedutor.ate)} é isento`;
     else if (p.irRedutor && bruto <= p.irRedutor.ateParcial) explicacao += `; com redução de ${fmt(p.irRedutor.valorFixo - p.irRedutor.fator * bruto)} (rendimento ${fmt(bruto)})`;
     comparar("ir", "IR", esperado, val("00453"), `${explicacao}.`);
@@ -371,20 +408,29 @@ export function conferirFuncionario(
   }
 
   // --- E-consignado -------------------------------------------------------------------------
+  // Portaria MTE 435/2025, art. 30 §2º: vencimentos com incidência de INSS − INSS − IRRF − pensão.
+  // Na rescisão o limite não se aplica quando o contrato tem garantia das verbas rescisórias.
   if (consignado > 0) {
-    const disponivel = proventos - inssTotal - irTotal;
-    const limite = arred(disponivel * p.limiteConsignado);
+    const vencimentosInss = val("00096") + val("00981") + val("00094");
+    const inssConsig = inssTotal + val("00452");
+    const pensaoConsig = val("00469") + val("00470") + val("00551");
+    const limite = arred(Math.max(0, (vencimentosInss - inssConsig - irTotal - pensaoConsig) * p.limiteConsignado));
     const excesso = arred(consignado - limite);
     criticas.push({
       regra: "consignado",
       titulo: "Limite do e-consignado (35%)",
-      status: excesso > TOLERANCIA ? "alerta" : "ok",
+      status: excesso > TOLERANCIA && !rescisao ? "alerta" : "ok",
       esperado: limite,
       encontrado: arred(consignado),
       detalhe:
-        `35% de (proventos ${fmt(proventos)} − INSS ${fmt(inssTotal)} − IR ${fmt(irTotal)}) = limite ${fmt(limite)}; ` +
+        `35% de (vencimentos c/ INSS ${fmt(vencimentosInss)} − INSS ${fmt(inssConsig)} − IR ${fmt(irTotal)}` +
+        `${pensaoConsig ? ` − pensão ${fmt(pensaoConsig)}` : ""}) = limite ${fmt(limite)}; ` +
         `descontado ${fmt(consignado)} em ${consignadoEventos.length} parcela(s).` +
-        (excesso > TOLERANCIA ? ` Excede em ${fmt(excesso)}.` : ""),
+        (excesso > TOLERANCIA
+          ? rescisao
+            ? ` Passa do limite em ${fmt(excesso)} — permitido na rescisão se o contrato tiver garantia das verbas rescisórias (conferir no portal).`
+            : ` Excede em ${fmt(excesso)}.`
+          : ""),
     });
   }
 
@@ -534,7 +580,8 @@ function piorStatus(criticas: Critica[]): ResultadoFuncionario["status"] {
 const FUNCOES_FORA_BANCO_HORAS = ["MOTORISTA ESCOL"];
 
 // A hora extra 50% (00003) da folha sai do arquivo "A Pagar" do Banco de Horas — confere as horas.
-// Na rescisão, as horas do banco vêm em HORAS EXTRAS B-H (00659) junto com o saldo que sobrou.
+// HORAS EXTRAS B-H (00659): fora da rescisão são horas pendentes do mês ANTERIOR (não entram na
+// comparação com o banco do mês); na rescisão vêm junto com o saldo que sobrou.
 function conferirBancoHoras(
   f: FuncionarioFolha,
   resultado: ResultadoFuncionario,
@@ -545,7 +592,13 @@ function conferirBancoHoras(
   if (FUNCOES_FORA_BANCO_HORAS.some((nome) => funcao.startsWith(nome))) return resultado;
 
   const ev = (codigo: string) => f.eventos.find((e) => e.codigo === codigo);
-  const horasFolha = (ev("00003")?.referencia ?? 0) + (ev("00659")?.referencia ?? 0);
+  const rescisao = resultado.categoria === "rescisao";
+  const horasPendentes = ev("00659")?.referencia ?? 0;
+  const horasFolha = (ev("00003")?.referencia ?? 0) + (rescisao ? horasPendentes : 0);
+  const notaPendentes =
+    !rescisao && horasPendentes > 0.001
+      ? ` Fora da comparação: ${fmt(horasPendentes)}h de HE do banco pendentes do mês anterior (evento 659).`
+      : "";
   const bh = bancoHoras.get(f.matricula);
   const titulo = "Hora extra 50% x Banco de horas";
   const fmtH = (h: number) => `${fmt(h)}h`;
@@ -564,7 +617,6 @@ function conferirBancoHoras(
     return { ...resultado, criticas, status: piorStatus(criticas) };
   }
 
-  const rescisao = resultado.categoria === "rescisao";
   const esperado = rescisao ? bh.aPagarRescisao : bh.aPagar;
   if (esperado < 0.001 && horasFolha < 0.001) return resultado;
 
@@ -578,7 +630,7 @@ function conferirBancoHoras(
   const diferenca = arred(horasFolha - esperado);
   const base = rescisao
     ? `Banco de horas na rescisão ${fmtH(esperado)} (a pagar no mês + saldo do banco) × folha ${fmtH(horasFolha)}.`
-    : `Banco de horas ${fmtH(esperado)} a pagar × folha ${fmtH(horasFolha)}.`;
+    : `Banco de horas ${fmtH(esperado)} a pagar × folha ${fmtH(horasFolha)}.${notaPendentes}`;
 
   if (Math.abs(diferenca) <= 0.011) {
     criticas.push({ regra: "banco_horas", titulo, status: "ok", esperado: arred(esperado), encontrado: arred(horasFolha), detalhe: base });

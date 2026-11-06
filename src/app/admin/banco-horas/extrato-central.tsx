@@ -291,7 +291,10 @@ export function ExtratoCentral() {
             <TableBody>
               {resultado.linhas.map((l) => (
                 <TableRow key={l.competencia}>
-                  <TableCell className="font-medium text-foreground">{nomeCompetencia(l.competencia)}</TableCell>
+                  <TableCell className="font-medium text-foreground">
+                    {nomeCompetencia(l.competencia)}
+                    {l.observacao && <div className="font-mono text-[10px] font-normal whitespace-normal text-warning">{l.observacao}</div>}
+                  </TableCell>
                   <TableCell className="text-right font-mono">{fmtHoras(l.saldoAnterior)}</TableCell>
                   <TableCell className="text-right font-mono">{fmtHoras(l.creditoBruto)}</TableCell>
                   <TableCell className="text-right font-mono">{fmtHoras(l.debitoBruto)}</TableCell>
