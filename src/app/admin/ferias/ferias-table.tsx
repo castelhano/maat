@@ -742,6 +742,12 @@ function CalendarioQuinzenas({
           edite as datas de início/fim de cada quinzena e clique em Salvar — quem não editar continua
           usando o padrão (dia 1 a 15 / dia 16 ao fim do mês)
         </p>
+        <a href={`/admin/ferias/calendario-pdf?ano=${ano}`} target="_blank" rel="noopener noreferrer" className="ml-auto">
+          <Button size="xs" variant="secondary">
+            <FileDown className="size-3" />
+            Imprimir
+          </Button>
+        </a>
       </div>
       <Table>
         <TableHeader>

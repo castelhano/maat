@@ -6,6 +6,12 @@ import { prisma } from "@/lib/prisma";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: "sqlite" }),
+  // Aceita o próprio endereço pelo qual o sistema foi aberto (ex.: IP da rede local),
+  // além do BETTER_AUTH_URL. Sem isso, o login por outro computador dá "Invalid origin".
+  trustedOrigins: (request) => {
+    const host = request?.headers.get("host");
+    return host ? [`http://${host}`, `https://${host}`] : [];
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 4,
