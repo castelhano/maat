@@ -36,6 +36,12 @@ export default async function ValeGasDetalhamentoPdfPage({
   const comDireito = itens.filter((i) => i.elegivel);
   const semDireito = itens.filter((i) => !i.elegivel);
 
+  // O vale gás mensal (ex.: LOGTRANS, 21 a 20) tem período diferente do bimestral (15 a 14).
+  const periodosPdf = empresa ? apuracao.periodos.filter((p) => p.empresaNome === empresa) : apuracao.periodos;
+  const periodoUnico = periodosPdf.every((p) => p.inicio === periodosPdf[0]?.inicio && p.fim === periodosPdf[0]?.fim);
+  const periodoTexto = periodoUnico
+    ? `período aquisitivo ${formatarData(periodosPdf[0]?.inicio ?? apuracao.periodoInicio)} a ${formatarData(periodosPdf[0]?.fim ?? apuracao.periodoFim)}`
+    : periodosPdf.map((p) => `${p.empresaNome}: ${formatarData(p.inicio)} a ${formatarData(p.fim)}`).join(" · ");
   const filtrosAtivos = [empresa, area].filter(Boolean);
   const emitidoEm = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
 
@@ -47,8 +53,7 @@ export default async function ValeGasDetalhamentoPdfPage({
         <div>
           <p className="text-lg font-bold tracking-tight text-neutral-900">Detalhamento — Vale Gás</p>
           <p className="text-sm text-neutral-500">
-            Entrega em {nomeCompetencia(competencia)} · período aquisitivo {formatarData(apuracao.periodoInicio)} a{" "}
-            {formatarData(apuracao.periodoFim)}
+            Competência {nomeCompetencia(competencia)} · {periodoTexto}
             {filtrosAtivos.length > 0 && ` · ${filtrosAtivos.join(" · ")}`}
           </p>
         </div>

@@ -4,7 +4,14 @@ import { prisma } from "@/lib/prisma";
 import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { competenciaEstaFechada } from "@/lib/competencia";
-import { calcularElegibilidadeValeGas, periodoAquisitivoValeGas, resolverHeranca, valeGasEhMesDeEntrega } from "@/lib/beneficios";
+import {
+  calcularElegibilidadeValeGas,
+  periodoAquisitivoValeGas,
+  resolverHeranca,
+  valeGasEhMesDeEntrega,
+  type RegraValeGas,
+} from "@/lib/beneficios";
+import { regrasDaEmpresa } from "@/lib/regras-empresa";
 
 export type ApuracaoValeGasItemDTO = {
   tipo: string;
@@ -21,12 +28,20 @@ export type ApuracaoValeGasItemDTO = {
   pecunia: boolean;
   documento: string | null;
   nomeCompleto: string | null;
+  // Empresas com valor por cidade (ex.: LOGTRANS): cidade e valor unitário do vale gás.
+  cidade: string | null;
+  valor: number | null;
 };
+
+export type PeriodoValeGasEmpresa = { empresaId: string; empresaNome: string; inicio: string; fim: string };
 
 export type ApuracaoValeGasResumo = {
   competencia: string;
   periodoInicio: string;
   periodoFim: string;
+  // Período de cada empresa com entrega nesta competência — o vale gás mensal (ex.: LOGTRANS, 21 a
+  // 20) tem período diferente do bimestral (15 a 14).
+  periodos: PeriodoValeGasEmpresa[];
   geradoEm: string | null;
   valorEntregaPorEmpresa: { empresaId: string; empresaNome: string; valorEntrega: number | null }[];
   itens: ApuracaoValeGasItemDTO[];
@@ -37,24 +52,43 @@ function parseCompetencia(competencia: string): { ano: number; mes: number } {
   return { ano, mes };
 }
 
+function regraValeGas(empresa: Parameters<typeof regrasDaEmpresa>[0]): RegraValeGas {
+  const regras = regrasDaEmpresa(empresa);
+  return { mensal: regras.valeGasMensal, periodoDiaInicio: regras.beneficioPeriodoDiaInicio };
+}
+
+// Empresas do escopo com entrega de vale gás nesta competência, com o período de cada uma.
+async function empresasComEntrega(escopo: Awaited<ReturnType<typeof escopoEmpresa>>, competencia: { ano: number; mes: number }) {
+  const empresas = await prisma.empresa.findMany({ where: { id: escopo }, orderBy: { nome: "asc" } });
+  return empresas
+    .filter((e) => valeGasEhMesDeEntrega(competencia.mes, regraValeGas(e)))
+    .map((e) => ({ empresa: e, periodo: periodoAquisitivoValeGas(competencia, regraValeGas(e)) }));
+}
+
 export async function carregarApuracaoValeGas(competencia: string): Promise<ApuracaoValeGasResumo | null> {
   const user = await requirePermissao("beneficios", "consultar");
   if (!competencia.trim()) return null;
   const { ano, mes } = parseCompetencia(competencia);
-  if (!valeGasEhMesDeEntrega(mes)) return null;
-  const periodo = periodoAquisitivoValeGas({ ano, mes });
+  const comEntrega = await empresasComEntrega(await escopoEmpresa(user), { ano, mes });
+  if (comEntrega.length === 0) return null;
+  const periodos: PeriodoValeGasEmpresa[] = comEntrega.map(({ empresa, periodo }) => ({
+    empresaId: empresa.id,
+    empresaNome: empresa.nome,
+    inicio: periodo.inicio.toISOString(),
+    fim: periodo.fim.toISOString(),
+  }));
 
   const apuracoes = await prisma.apuracaoValeGas.findMany({
-    where: { competencia, empresaId: await escopoEmpresa(user) },
+    where: { competencia, empresaId: { in: comEntrega.map((c) => c.empresa.id) } },
     include: { itens: true, empresa: true },
     orderBy: { empresa: { nome: "asc" } },
   });
 
-  const periodoInicio = periodo.inicio.toISOString();
-  const periodoFim = periodo.fim.toISOString();
+  const periodoInicio = periodos[0].inicio;
+  const periodoFim = periodos[0].fim;
 
   if (apuracoes.length === 0) {
-    return { competencia, periodoInicio, periodoFim, geradoEm: null, valorEntregaPorEmpresa: [], itens: [] };
+    return { competencia, periodoInicio, periodoFim, periodos, geradoEm: null, valorEntregaPorEmpresa: [], itens: [] };
   }
 
   const geradoEm = apuracoes.reduce<Date | null>((acc, a) => (a.geradoEm && (!acc || a.geradoEm > acc) ? a.geradoEm : acc), null);
@@ -98,6 +132,8 @@ export async function carregarApuracaoValeGas(competencia: string): Promise<Apur
           ? (docPorTerceiroId.get(i.terceiroId) ?? null)
           : null,
       nomeCompleto: i.funcionarioId ? (nomeCompletoPorFuncionarioId.get(i.funcionarioId) ?? null) : null,
+      cidade: i.cidade,
+      valor: i.valor?.toNumber() ?? null,
     }))
   );
 
@@ -107,7 +143,7 @@ export async function carregarApuracaoValeGas(competencia: string): Promise<Apur
     valorEntrega: a.valorEntrega?.toNumber() ?? null,
   }));
 
-  return { competencia, periodoInicio, periodoFim, geradoEm: geradoEm ? geradoEm.toISOString() : null, valorEntregaPorEmpresa, itens };
+  return { competencia, periodoInicio, periodoFim, periodos, geradoEm: geradoEm ? geradoEm.toISOString() : null, valorEntregaPorEmpresa, itens };
 }
 
 export async function processarApuracaoValeGas(
@@ -118,23 +154,28 @@ export async function processarApuracaoValeGas(
   if (!competencia.trim()) return { error: "Selecione a competência." };
 
   const { ano, mes } = parseCompetencia(competencia);
-  if (!valeGasEhMesDeEntrega(mes)) {
-    return { error: "Vale Gás só é apurado em meses pares (a entrega acontece em fevereiro, abril, junho, agosto, outubro e dezembro)." };
-  }
   if (competenciaEstaFechada({ ano, mes })) {
     return {
       error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 7 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
     };
   }
 
-  const periodo = periodoAquisitivoValeGas({ ano, mes });
   const escopo = await escopoEmpresa(admin);
-  const empresas = await prisma.empresa.findMany({ where: { AND: [{ id: escopo }, empresaId ? { id: empresaId } : {}] } });
+  // Só as empresas com entrega neste mês: o vale gás bimestral só sai em mês par; o mensal
+  // (ex.: LOGTRANS) sai todo mês.
+  const empresas = (await empresasComEntrega(escopo, { ano, mes })).filter((e) => !empresaId || e.empresa.id === empresaId);
+  if (empresas.length === 0) {
+    return {
+      error: `${empresaId ? "Esta empresa não tem" : "Nenhuma empresa tem"} entrega de vale gás nesta competência (o vale gás bimestral só é apurado em meses pares: fevereiro, abril, junho, agosto, outubro e dezembro).`,
+    };
+  }
 
   let empresasProcessadas = 0;
   let itensTotal = 0;
 
-  for (const empresa of empresas) {
+  for (const { empresa, periodo } of empresas) {
+    const regras = regrasDaEmpresa(empresa);
+    const valorPorCidade = new Map(regras.cidades.map((c) => [c.nome, c.valorValeGas]));
     const funcionarios = await prisma.funcionario.findMany({ where: { empresaId: empresa.id }, include: { cargo: true } });
     const terceiros = await prisma.terceiro.findMany({ where: { empresaId: empresa.id, ativo: true } });
 
@@ -178,6 +219,8 @@ export async function processarApuracaoValeGas(
       elegivel: boolean;
       motivoPerda: string | null;
       pecunia: boolean;
+      cidade: string | null;
+      valor: number | null;
     }[] = [];
 
     for (const f of funcionarios) {
@@ -192,6 +235,8 @@ export async function processarApuracaoValeGas(
           suspensoesNoPeriodo: suspensoesPorFuncionario.get(f.id) ?? 0,
           recebeValeGasResolvido,
           pecunia: f.valeGasPecunia,
+          faltasPerde: regras.faltasPerdeBeneficio,
+          regraSuspensao: regras.valeGasRegraSuspensao,
         },
         periodo,
         { ano, mes }
@@ -207,6 +252,8 @@ export async function processarApuracaoValeGas(
         elegivel: resultado.elegivel,
         motivoPerda: resultado.motivo,
         pecunia: f.valeGasPecunia,
+        cidade: regras.cidades.length > 0 ? f.cidade : null,
+        valor: f.cidade ? (valorPorCidade.get(f.cidade) ?? null) : null,
       });
     }
 
@@ -229,6 +276,8 @@ export async function processarApuracaoValeGas(
         elegivel,
         motivoPerda,
         pecunia: t.valeGasPecunia,
+        cidade: null,
+        valor: null,
       });
     }
 

@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/dialog";
 import { createEmpresa, deleteEmpresa, updateEmpresa } from "./actions";
 import { usePodeOperar } from "@/components/permissoes-provider";
+import type { RegrasEmpresa } from "@/lib/regras-empresa";
+import { RegrasDialog, type FuncionarioCidade } from "./regras-dialog";
 
 type Empresa = {
   id: string;
@@ -36,7 +38,24 @@ type Empresa = {
   abbr: string | null;
   valorCestaBasica: number | null;
   _count: { funcionarios: number };
+  regras: RegrasEmpresa;
+  funcionariosCidade: FuncionarioCidade[];
 };
+
+// Resumo do que a empresa faz diferente das regras originais.
+function resumoRegras(r: RegrasEmpresa): string {
+  const partes: string[] = [];
+  if (r.beneficioPeriodoDiaInicio !== null) partes.push(`benefícios ${r.beneficioPeriodoDiaInicio} a ${r.beneficioPeriodoDiaInicio - 1}`);
+  if (r.faltasPerdeBeneficio !== 3) partes.push(`perde com ${r.faltasPerdeBeneficio} faltas`);
+  if (r.valeGasMensal) partes.push("vale gás mensal");
+  if (!r.valeGasRegraSuspensao) partes.push("sem regra de suspensão");
+  if (r.vaRegra === "fixo") partes.push("VA fixo");
+  if (r.vaDiaMantemDesligado !== 25) partes.push(`VA desligado a partir do dia ${r.vaDiaMantemDesligado}`);
+  if (r.cidades.length > 0) partes.push(`${r.cidades.length} cidades`);
+  if (r.bancoHorasModo === "extrato") partes.push("BH pelo extrato");
+  if (r.feriasCalendario === "mensal") partes.push("férias mensal");
+  return partes.length > 0 ? partes.join(" · ") : "padrão";
+}
 
 const NUMERO_DECIMAL = /^\d+([.,]\d{1,2})?$/;
 
@@ -65,6 +84,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
   const [isPending, startTransition] = useTransition();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState<Empresa | null>(null);
+  const [regrasDe, setRegrasDe] = useState<Empresa | null>(null);
 
   const {
     register,
@@ -183,6 +203,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
             <TableHead>Nome</TableHead>
             <TableHead>Nome curto</TableHead>
             <TableHead>Cesta básica</TableHead>
+            <TableHead>Regras</TableHead>
             <TableHead>Funcionários</TableHead>
             <TableHead className="text-right">{podeOperar ? "Ações" : ""}</TableHead>
           </TableRow>
@@ -196,6 +217,7 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
               <TableCell>
                 {empresa.valorCestaBasica !== null ? formatarMoeda(empresa.valorCestaBasica) : "—"}
               </TableCell>
+              <TableCell className="font-mono text-[10px] text-text-2">{resumoRegras(empresa.regras)}</TableCell>
               <TableCell>{empresa._count.funcionarios}</TableCell>
               <TableCell className="text-right">
                 {podeOperar && (
@@ -207,6 +229,9 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
                     onClick={() => abrirEditar(empresa)}
                   >
                     Editar
+                  </Button>
+                  <Button variant="secondary" size="sm" disabled={isPending} onClick={() => setRegrasDe(empresa)}>
+                    Regras
                   </Button>
                   <Button
                     variant="destructive"
@@ -223,6 +248,15 @@ export function EmpresasTable({ empresas }: { empresas: Empresa[] }) {
           ))}
         </TableBody>
       </Table>
+
+      {regrasDe && (
+        <RegrasDialog
+          key={regrasDe.id}
+          empresa={empresas.find((e) => e.id === regrasDe.id) ?? regrasDe}
+          open
+          onOpenChange={(aberto) => !aberto && setRegrasDe(null)}
+        />
+      )}
     </div>
   );
 }

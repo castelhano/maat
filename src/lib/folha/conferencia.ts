@@ -615,7 +615,10 @@ export function conferirFolha(
   bancoHoras: BancoHorasCompetencia | null = null,
   programacao?: ProgramacaoFerias | null,
   historico?: HistoricoFolhas,
-  afastamentos?: AfastamentosPorMatricula
+  afastamentos?: AfastamentosPorMatricula,
+  // Banco de horas "pelo extrato" (ex.: LOGTRANS): o extrato do mês não traz o fechamento de quem
+  // saiu, então a rescisão vira "verificar no ERP" em vez de comparar.
+  opcoes: { bancoHorasPeloExtrato?: boolean } = {}
 ) {
   const ano = Number(competencia.split("/")[1]);
   const { parametros, exato } = parametrosDoAno(ano);
@@ -624,7 +627,7 @@ export function conferirFolha(
   const resultados = funcionarios.map((f) => {
     const resultado = conferirFuncionario(f, competencia, calendario, parametros, salarioMotorista);
     const conferido = conferirComSalarioAnterior(f, resultado, competencia, calendario, parametros, salarioMotorista) ?? resultado;
-    const comBanco = bancoHoras ? conferirBancoHoras(f, conferido, bancoHoras, parametros) : conferido;
+    const comBanco = bancoHoras ? conferirBancoHoras(f, conferido, bancoHoras, parametros, opcoes.bancoHorasPeloExtrato ?? false) : conferido;
     const comFerias = programacao === undefined ? comBanco : conferirFeriasProgramacao(f, comBanco, programacao, historico);
     return comFerias.categoria === "rescisao" ? conferirMotivoDesligamento(f, comFerias, afastamentos) : comFerias;
   });
@@ -650,7 +653,8 @@ function conferirBancoHoras(
   f: FuncionarioFolha,
   resultado: ResultadoFuncionario,
   bancoHoras: BancoHorasCompetencia,
-  p: ParametrosFolha
+  p: ParametrosFolha,
+  peloExtrato: boolean
 ): ResultadoFuncionario {
   const funcao = f.funcao.trim().toUpperCase();
   if (FUNCOES_FORA_BANCO_HORAS.some((nome) => funcao.startsWith(nome))) return resultado;
@@ -667,6 +671,20 @@ function conferirBancoHoras(
   const titulo = "Hora extra 50% x Banco de horas";
   const fmtH = (h: number) => `${fmt(h)}h`;
   const criticas = [...resultado.criticas];
+
+  // Banco pelo extrato (ex.: LOGTRANS): o extrato do mês não fecha o banco de quem saiu — o
+  // fechamento só aparece emitindo o extrato até a data do desligamento, no ERP.
+  if (rescisao && peloExtrato) {
+    if (horasFolha < 0.001 && (!bh || (bh.aPagar < 0.001 && bh.aPagarRescisao < 0.001))) return resultado;
+    criticas.push({
+      regra: "banco_horas",
+      titulo,
+      status: "pendente",
+      encontrado: arred(horasFolha),
+      detalhe: `Rescisão: verificar no ERP — a folha pagou ${fmtH(horasFolha)} de horas do banco (eventos 3 e 659). O extrato do mês não traz o fechamento de quem saiu; emita o extrato com data final igual à data do desligamento para conferir.`,
+    });
+    return { ...resultado, criticas, status: piorStatus(criticas) };
+  }
 
   if (!bh) {
     if (horasFolha > 0.001) {

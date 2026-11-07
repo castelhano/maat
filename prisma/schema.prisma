@@ -144,6 +144,39 @@ model Empresa {
   // opta por "receber a cesta no VR" em vez da cesta física.
   valorCestaBasica Decimal?
 
+  // --- Regras por empresa -------------------------------------------------------------------
+  // Os padrões abaixo são as regras originais (Pantanal/Rápido/VPAR); empresas que trabalham
+  // diferente (ex.: LOGTRANS) mudam só o que difere, na tela de Empresas.
+
+  // Período de apuração das faltas da cesta básica e do vale gás mensal: null = mês cheio da
+  // competência; um dia (ex.: 21) = do dia 21 do mês anterior ao dia 20 do mês da competência.
+  beneficioPeriodoDiaInicio Int?
+  // Perde cesta básica / vale gás com esta quantidade de faltas OU MAIS (3 = "mais de 2").
+  faltasPerdeBeneficio      Int     @default(3)
+  // false = vale gás bimestral (entrega em mês par, período aquisitivo de ~60 dias de 15 a 14);
+  // true = vale gás todo mês, no mesmo período da cesta básica.
+  valeGasMensal             Boolean @default(false)
+  // Regra combinada de suspensões + faltas no período do vale gás (4 ou mais perde).
+  valeGasRegraSuspensao     Boolean @default(true)
+  // "percentual" = 8% do salário (mín./máx. e valor fixo do cargo); "fixo" = valor fixo da
+  // empresa (vaValorFixo), com exceções por função em vaValoresPorCargo.
+  vaRegra                   String  @default("percentual")
+  vaValorFixo               Decimal?
+  // JSON: [{ "cargo": "MOT RODOVIARIO", "valor": 653.28 }]
+  vaValoresPorCargo         String?
+  // Desligado no mês mantém o VA (proporcional) se o desligamento for a partir deste dia; antes
+  // disso perde. Regra original: 25. LOGTRANS: 31 (quem sai até o dia 30 perde).
+  vaDiaMantemDesligado      Int     @default(25)
+  // JSON: [{ "codigo": "0001", "nome": "Cuiabá", "valorValeGas": 117 }] — cidade de cada
+  // funcionário pelo 2º bloco da Divisão da folha (ex.: 0011.0099.0075.0001 → "0099").
+  cidades                   String?
+  // "calculado" = o app recalcula o banco pela regra das empresas originais; "extrato" = usa a
+  // Hora Paga e o Saldo Atual do próprio extrato do ERP (fechamento dentro do mês).
+  bancoHorasModo            String  @default("calculado")
+  // "quinzena" = duas datas de férias por mês (calendário compartilhado); "mensal" = uma data
+  // por mês, calendário próprio da empresa.
+  feriasCalendario          String  @default("quinzena")
+
   funcionarios         Funcionario[]
   terceiros            Terceiro[]
   importacoes          Importacao[]
@@ -239,6 +272,10 @@ model Funcionario {
   // poucos casos. O valor pago é o mesmo "valor da entrega" lançado por empresa/competência em
   // ApuracaoValeGas, não um valor individual.
   valeGasPecunia Boolean  @default(false)
+
+  // Cidade (só para empresas com Empresa.cidades): preenchida pela Divisão ao importar a folha,
+  // ou manualmente. Define o valor do vale gás.
+  cidade String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -567,6 +604,10 @@ model ApuracaoValeGasItem {
   // arquivo bancário (o valor pago é o "valor da entrega" da empresa/competência, não um valor
   // individual).
   pecunia      Boolean @default(false)
+  // Empresas com valor de vale gás por cidade: snapshot da cidade e do valor unitário. null =
+  // usa o "valor da entrega" da apuração.
+  cidade       String?
+  valor        Decimal?
 
   createdAt DateTime @default(now())
 
@@ -728,6 +769,9 @@ model Ferias {
 // programar férias; sem registro aqui, cai no padrão dia 1/dia 16 do mês (ver `calcularDatas`).
 model QuinzenaPeriodo {
   id         String   @id @default(cuid())
+  // "padrao" = calendário de quinzenas compartilhado (empresas com feriasCalendario "quinzena");
+  // senão, o id da empresa com calendário mensal próprio (uma data por mês, sempre quinzena 1).
+  calendario String   @default("padrao")
   ano        Int
   mes        Int // 1-12
   quinzena   Int // 1 ou 2
@@ -736,7 +780,7 @@ model QuinzenaPeriodo {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@unique([ano, mes, quinzena])
+  @@unique([calendario, ano, mes, quinzena])
   @@map("quinzena_periodo")
 }
 

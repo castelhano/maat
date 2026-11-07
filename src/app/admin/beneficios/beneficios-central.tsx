@@ -32,10 +32,6 @@ function formatarDataHora(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR");
 }
 
-function mesEhPar(mes: string): boolean {
-  return Number(mes) % 2 === 0;
-}
-
 export function BeneficiosCentral() {
   const podeOperar = usePodeOperar("beneficios");
   const padrao = competenciaPadrao();
@@ -88,15 +84,12 @@ export function BeneficiosCentral() {
       const result = await carregarApuracao(comp);
       setApuracao(result);
     });
-    const [mesComp] = comp.split("/");
-    if (mesEhPar(mesComp)) {
-      startCarregando(async () => {
-        const result = await carregarApuracaoValeGas(comp);
-        setApuracaoValeGas(result);
-      });
-    } else {
-      setApuracaoValeGas(null);
-    }
+    // null = nenhuma empresa tem entrega de vale gás nesta competência (o bimestral só sai em
+    // mês par; o mensal, ex.: LOGTRANS, sai todo mês).
+    startCarregando(async () => {
+      const result = await carregarApuracaoValeGas(comp);
+      setApuracaoValeGas(result);
+    });
   }
 
   function recarregarValeGas() {
@@ -135,7 +128,7 @@ export function BeneficiosCentral() {
   const empresaSelecionadaId = filtroEmpresa === TODAS ? undefined : empresaIdPorNome.get(filtroEmpresa);
   const escopoProcessar = filtroEmpresa === TODAS ? "todas as empresas" : filtroEmpresa;
   const competenciaFechada = mes && ano ? competenciaEstaFechada({ ano: Number(ano), mes: Number(mes) }) : false;
-  const valeGasMesInvalido = aba === "valegas" && mes ? !mesEhPar(mes) : false;
+  const valeGasMesInvalido = aba === "valegas" && !!competencia && !carregando && apuracaoValeGas === null;
 
   function handleProcessar() {
     if (!competencia || competenciaFechada || valeGasMesInvalido) return;
@@ -188,7 +181,7 @@ export function BeneficiosCentral() {
           )}
           {valeGasMesInvalido && (
             <span className="font-mono text-[10px] text-warning">
-              vale gás só é apurado em meses pares (a entrega acontece em fev, abr, jun, ago, out e dez)
+              nenhuma empresa tem entrega de vale gás neste mês (o bimestral sai em fev, abr, jun, ago, out e dez)
             </span>
           )}
           {!valeGasMesInvalido && competenciaFechada && (
@@ -291,7 +284,7 @@ export function BeneficiosCentral() {
               )}
             </TabsPanel>
             <TabsPanel value="valegas" className="pt-5">
-              {!mes || mesEhPar(mes) ? (
+              {!valeGasMesInvalido ? (
                 itensValeGasFiltrados.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border-hi px-6 py-14 text-center">
                     <p className="font-mono text-[12px] text-text-2">
@@ -309,6 +302,7 @@ export function BeneficiosCentral() {
                     competencia={competencia}
                     periodoInicio={apuracaoValeGas!.periodoInicio}
                     periodoFim={apuracaoValeGas!.periodoFim}
+                    periodos={apuracaoValeGas!.periodos}
                     valorEntregaPorEmpresa={apuracaoValeGas!.valorEntregaPorEmpresa}
                     filtroEmpresa={filtroEmpresa === TODAS ? undefined : filtroEmpresa}
                     filtroArea={filtroArea === TODAS ? undefined : filtroArea}
@@ -317,7 +311,7 @@ export function BeneficiosCentral() {
                 )
               ) : (
                 <p className="py-6 text-center font-mono text-[11px] text-text-3">
-                  Vale gás só é apurado em meses pares — selecione fevereiro, abril, junho, agosto, outubro ou dezembro.
+                  Nenhuma empresa tem entrega de vale gás neste mês — o bimestral só é apurado em fevereiro, abril, junho, agosto, outubro e dezembro.
                 </p>
               )}
             </TabsPanel>

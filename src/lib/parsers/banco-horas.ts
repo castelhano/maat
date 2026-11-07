@@ -1,12 +1,19 @@
-// Extrato do banco de horas. Fonte confiável: apenas matrícula, competência, crédito e débito —
-// saldo anterior/atual e hora paga do próprio arquivo são inconsistentes e nunca são usados (o
-// motor de cálculo em src/lib/banco-horas.ts recalcula tudo a partir daqui).
+// Extrato do banco de horas. Nas empresas originais a fonte confiável é só matrícula, competência,
+// crédito e débito — saldo anterior/atual e hora paga do arquivo não batem com a regra delas e não
+// são usados (o motor em src/lib/banco-horas.ts recalcula tudo). Nas empresas com banco de horas
+// "pelo extrato" (Empresa.bancoHorasModo, ex.: LOGTRANS) a Hora Paga e o Saldo Atual SÃO a fonte.
 
 export type BancoHorasLinha = {
   matricula: string;
   competencia: string; // "MM/AAAA"
   creditoDecimal: number; // horas, ex. 7.5 = 7h30
   debitoDecimal: number;
+  // Colunas do próprio extrato — ignoradas nas empresas em que o app recalcula o banco, mas são a
+  // fonte nas empresas com banco de horas "pelo extrato" (ex.: LOGTRANS, fechamento no mês).
+  // null quando a linha não traz as 5 colunas.
+  saldoAnteriorDecimal: number | null;
+  horaPagaDecimal: number | null;
+  saldoAtualDecimal: number | null;
 };
 
 export type BancoHorasParseResult = {
@@ -20,10 +27,19 @@ const PERIODO = /Periodo:\s*(\d{2}\/\d{4})\s*a\s*(\d{2}\/\d{4})/i;
 const EMPRESA = /^Empresa\s*:\s*(\d{3})\s+(.+?)\s+\d{2}:\d{2}\s*$/m;
 const FUNCIONARIO = /^Funcionario:\s*(\d{6})\/\d{6}\s+.+$/;
 const COMPETENCIA_LINHA = /^\s*(\d{2}\/\d{4})\s+(-?\d+):(\d{2})\s+(-?\d+):(\d{2})/;
+// Linha completa: crédito, débito, saldo anterior, hora paga e saldo atual.
+const COMPETENCIA_COMPLETA = /^\s*\d{2}\/\d{4}\s+-?\d+:\d{2}\s+-?\d+:\d{2}\s+(-?\d+:\d{2})\s+(-?\d+:\d{2})\s+(-?\d+:\d{2})/;
 
 function hhmmToDecimal(sinal: string, horas: string, minutos: string): number {
   const valor = Number(horas) + Number(minutos) / 60;
   return sinal === "-" ? -valor : valor;
+}
+
+// "-00005:55" → -5.9167
+function tokenParaDecimal(token: string): number {
+  const negativo = token.startsWith("-");
+  const [h, m] = token.replace("-", "").split(":");
+  return hhmmToDecimal(negativo ? "-" : "", h, m);
 }
 
 export function parseBancoHoras(conteudo: string): BancoHorasParseResult {
@@ -57,11 +73,15 @@ export function parseBancoHoras(conteudo: string): BancoHorasParseResult {
       const [, competencia, creditoH, creditoM, debitoH, debitoM] = competenciaMatch;
       const creditoSinal = creditoH.startsWith("-") ? "-" : "";
       const debitoSinal = debitoH.startsWith("-") ? "-" : "";
+      const completa = COMPETENCIA_COMPLETA.exec(linhaBruta);
       linhas.push({
         matricula: matriculaAtual,
         competencia,
         creditoDecimal: hhmmToDecimal(creditoSinal, creditoH.replace("-", ""), creditoM),
         debitoDecimal: hhmmToDecimal(debitoSinal, debitoH.replace("-", ""), debitoM),
+        saldoAnteriorDecimal: completa ? tokenParaDecimal(completa[1]) : null,
+        horaPagaDecimal: completa ? tokenParaDecimal(completa[2]) : null,
+        saldoAtualDecimal: completa ? tokenParaDecimal(completa[3]) : null,
       });
     }
   }

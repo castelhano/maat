@@ -56,6 +56,7 @@ export default async function ProgramacaoPdfPage({
       mes: p.mes,
       ano: p.ano,
       quinzena: p.quinzena,
+      calendarioMensal: p.funcionario.empresa.feriasCalendario === "mensal",
       gozoInicio: p.gozoInicio,
       gozoFim: p.gozoFim,
     }));
@@ -136,7 +137,7 @@ export default async function ProgramacaoPdfPage({
               </td>
               <td className="px-2 py-2 text-neutral-600">{formatarData(l.dataLimite)}</td>
               <td className="px-2 py-2 text-neutral-600">
-                {l.mes ? `${MESES[l.mes - 1]}/${l.ano} · ${l.quinzena}ª quinz.` : "—"}
+                {l.mes ? `${MESES[l.mes - 1]}/${l.ano}${l.calendarioMensal ? "" : ` · ${l.quinzena}ª quinz.`}` : "—"}
               </td>
               <td className="px-2 py-2 text-neutral-600">{formatarData(l.gozoInicio)}</td>
               <td className="px-2 py-2 text-neutral-600">{formatarData(l.gozoFim)}</td>

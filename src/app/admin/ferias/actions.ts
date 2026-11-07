@@ -222,15 +222,21 @@ export type ProgramacaoInput = {
   valorReal: number | null;
 };
 
-async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
+// Calendário de férias da empresa: "padrao" = quinzenas compartilhadas; empresa com calendário
+// mensal (ex.: VPAR, LOGTRANS) tem o próprio, com uma data por mês (sempre quinzena 1).
+function calendarioDaEmpresa(empresa: { id: string; feriasCalendario: string }) {
+  return empresa.feriasCalendario === "mensal" ? empresa.id : "padrao";
+}
+
+async function calcularDatas(input: ProgramacaoInput, diasGozo: number, calendario: string) {
   if (!input.mes || !input.ano || !input.quinzena) {
     return { gozoInicio: null, gozoFim: null, dataPagamento: null };
   }
 
-  // Data de início real da quinzena: usa a data definida manualmente no Calendário de Quinzenas,
-  // se existir; senão cai no padrão dia 1 (1ª) / dia 16 (2ª) do mês.
+  // Data de início real da quinzena (ou da data do mês, no calendário mensal): usa a data definida
+  // manualmente no Calendário, se existir; senão cai no padrão dia 1 (1ª) / dia 16 (2ª) do mês.
   const custom = await prisma.quinzenaPeriodo.findUnique({
-    where: { ano_mes_quinzena: { ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
+    where: { calendario_ano_mes_quinzena: { calendario, ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
   });
   const diaBase = input.quinzena === 2 ? 16 : 1;
   let gozoInicio = custom ? custom.dataInicio : new Date(Date.UTC(input.ano, input.mes - 1, diaBase));
@@ -252,10 +258,13 @@ export async function salvarProgramacao(
 
   const ferias = await prisma.ferias.findUnique({
     where: { id: input.feriasId },
-    include: { funcionario: { include: { afastamentos: true } } },
+    include: { funcionario: { include: { afastamentos: true, empresa: true } } },
   });
   if (!ferias) return { error: "Período de férias não encontrado." };
   if (!(await podeEmpresa(user, ferias.funcionario.empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
+  const calendario = calendarioDaEmpresa(ferias.funcionario.empresa);
+  // Calendário mensal: uma data por mês — guarda sempre como "quinzena" 1.
+  if (calendario !== "padrao" && input.quinzena) input = { ...input, quinzena: 1 };
 
   if (input.diasAbono > 0 && !input.abonoTipo) {
     return { error: "Escolha se o abono fica no início ou no final do período de gozo." };
@@ -268,7 +277,7 @@ export async function salvarProgramacao(
   }
 
   const diasGozo = ferias.diasDireito - input.diasAbono;
-  const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo);
+  const { gozoInicio, gozoFim, dataPagamento } = await calcularDatas(input, diasGozo, calendario);
 
   const { limite: limiteAjustado } = limiteProrrogado(
     ferias.periodoAquisitivoFim,
@@ -309,6 +318,8 @@ export async function salvarProgramacao(
 // ---------------------------------------------------------------------------
 
 export type QuinzenaInput = {
+  // "padrao" (quinzenas compartilhadas) ou o id da empresa com calendário mensal.
+  calendario: string;
   ano: number;
   mes: number;
   quinzena: number;
@@ -317,7 +328,13 @@ export type QuinzenaInput = {
 };
 
 export async function salvarQuinzena(input: QuinzenaInput): Promise<{ error: string | null }> {
-  await requirePermissao("ferias", "operar");
+  const user = await requirePermissao("ferias", "operar");
+  if (input.calendario !== "padrao") {
+    const empresa = await prisma.empresa.findUnique({ where: { id: input.calendario }, select: { id: true, feriasCalendario: true } });
+    if (!empresa || empresa.feriasCalendario !== "mensal") return { error: "Calendário de férias não encontrado." };
+    if (!(await podeEmpresa(user, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
+    if (input.quinzena !== 1) return { error: "O calendário mensal tem uma data por mês." };
+  }
 
   const dataInicio = new Date(input.dataInicio);
   const dataFim = new Date(input.dataFim);
@@ -329,8 +346,8 @@ export async function salvarQuinzena(input: QuinzenaInput): Promise<{ error: str
   }
 
   await prisma.quinzenaPeriodo.upsert({
-    where: { ano_mes_quinzena: { ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
-    create: { ano: input.ano, mes: input.mes, quinzena: input.quinzena, dataInicio, dataFim },
+    where: { calendario_ano_mes_quinzena: { calendario: input.calendario, ano: input.ano, mes: input.mes, quinzena: input.quinzena } },
+    create: { calendario: input.calendario, ano: input.ano, mes: input.mes, quinzena: input.quinzena, dataInicio, dataFim },
     update: { dataInicio, dataFim },
   });
 

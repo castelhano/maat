@@ -58,6 +58,12 @@ export default async function ResumoPdfPage({
     mes: p.mes!,
     ano: p.ano!,
     quinzena: p.quinzena!,
+    // Calendário mensal (ex.: VPAR, LOGTRANS): grupo próprio da empresa no resumo.
+    calendario: p.funcionario.empresa.feriasCalendario === "mensal" ? p.funcionario.empresaId : "padrao",
+    rotulo:
+      p.funcionario.empresa.feriasCalendario === "mensal"
+        ? `Data do mês — ${p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome}`
+        : `${p.quinzena}ª quinzena`,
     diasDireito: p.diasDireito,
     diasAbono: p.diasAbono,
     gozoInicio: p.gozoInicio,
@@ -81,6 +87,8 @@ export default async function ResumoPdfPage({
       mes: number;
       ano: number;
       quinzena: number;
+      calendario: string;
+      rotulo: string;
       qtd: number;
       valor: number;
       comValorReal: number;
@@ -93,10 +101,10 @@ export default async function ResumoPdfPage({
   >();
   for (const l of linhas) {
     if (!l.gozoInicio || !l.dataPagamento) continue;
-    const chave = `${l.ano}-${l.mes}-${l.quinzena}`;
+    const chave = `${l.ano}-${l.mes}-${l.calendario}-${l.quinzena}`;
     const atual =
       mapa.get(chave) ??
-      { mes: l.mes, ano: l.ano, quinzena: l.quinzena, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
+      { mes: l.mes, ano: l.ano, quinzena: l.quinzena, calendario: l.calendario, rotulo: l.rotulo, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
     atual.qtd++;
     atual.valor += l.valorReal ?? calcularValorAproximado(l.salario, l.diasDireito - l.diasAbono);
     if (l.valorReal !== null) atual.comValorReal++;
@@ -108,7 +116,7 @@ export default async function ResumoPdfPage({
   }
 
   const linhasResumo = [...mapa.values()]
-    .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena)
+    .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena || a.rotulo.localeCompare(b.rotulo))
     .map((v) => {
       const maisFrequente = [...v.pares.values()].sort((a, b) => b.count - a.count)[0];
       let gozoInicio: Date;
@@ -117,7 +125,7 @@ export default async function ResumoPdfPage({
         gozoInicio = maisFrequente.gozoInicio;
         dataPagamento = maisFrequente.dataPagamento;
       } else {
-        const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
+        const custom = quinzenas.find((q) => q.calendario === v.calendario && q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
         gozoInicio = custom ? custom.dataInicio : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
         dataPagamento = dataPagamentoFerias(gozoInicio);
       }
@@ -176,11 +184,11 @@ export default async function ResumoPdfPage({
         </thead>
         <tbody>
           {linhasResumo.map((v) => (
-            <tr key={`${v.ano}-${v.mes}-${v.quinzena}`} className="border-b border-neutral-200">
+            <tr key={`${v.ano}-${v.mes}-${v.calendario}-${v.quinzena}`} className="border-b border-neutral-200">
               <td className="py-2 pr-2 font-medium text-neutral-900">
                 {MESES[v.mes - 1]}/{v.ano}
               </td>
-              <td className="px-2 py-2 text-neutral-600">{v.quinzena}ª quinzena</td>
+              <td className="px-2 py-2 text-neutral-600">{v.rotulo}</td>
               <td className="px-2 py-2 text-center text-neutral-600">{v.qtd}</td>
               <td className="px-2 py-2 text-right tabular-nums text-neutral-600">
                 {formatarMoeda(v.valor)}

@@ -2,6 +2,8 @@
 // dados já carregados do banco e devolvem o resultado calculado; quem persiste é a camada de
 // actions (src/app/admin/beneficios).
 
+import { periodoBeneficio } from "./regras-empresa";
+
 const VR_PERCENTUAL = 0.08;
 const VR_MINIMO = 225;
 const VR_MAXIMO = 520;
@@ -174,6 +176,9 @@ export function calcularElegibilidadeCesta(funcionario: {
   periodosAfastamento?: PeriodoAfastamento[];
   faltasNoMes: number;
   recebeCestaBasicaResolvido: boolean;
+  // Perde a cesta com esta quantidade de faltas ou mais (padrão 3 = "mais de 2"); a LOGTRANS
+  // perde já com 2. As faltas chegam contadas no período de apuração da empresa.
+  faltasPerde?: number;
 }, competencia: { ano: number; mes: number }): ResultadoCesta {
   const admissaoAnoMes = anoMesDe(funcionario.dataAdmissao);
   const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
@@ -233,7 +238,7 @@ export function calcularElegibilidadeCesta(funcionario: {
     }
   }
 
-  if (funcionario.faltasNoMes > 2) {
+  if (funcionario.faltasNoMes >= (funcionario.faltasPerde ?? 3)) {
     return { elegivel: false, motivo: "Faltas" };
   }
 
@@ -257,6 +262,8 @@ export function calcularVR(
     dataRetorno: Date | null;
     dataDesligamento: Date | null;
     periodosAfastamento?: PeriodoAfastamento[];
+    // Dia a partir do qual o desligado mantém o VA do mês (padrão 25; LOGTRANS 31).
+    diaMantemDesligado?: number;
   },
   competencia: { ano: number; mes: number }
 ): ResultadoVR {
@@ -275,7 +282,7 @@ export function calcularVR(
       desligamento !== null &&
       desligamento.getUTCFullYear() === competencia.ano &&
       desligamento.getUTCMonth() + 1 === competencia.mes &&
-      desligamento.getUTCDate() >= DIA_MINIMO_DESLIGAMENTO_MANTEM_VR;
+      desligamento.getUTCDate() >= (funcionario.diaMantemDesligado ?? DIA_MINIMO_DESLIGAMENTO_MANTEM_VR);
 
     if (!mantemPorDesligamentoNoFimDoMes) {
       return { elegivel: false, motivo: "Desligado", baseCalculo: null, valor: 0 };
@@ -337,11 +344,16 @@ const SUSPENSOES_MAXIMAS_VALE_GAS = 4;
 
 export type PeriodoAquisitivoValeGas = { inicio: Date; fim: Date };
 
-export function valeGasEhMesDeEntrega(mes: number): boolean {
-  return mes % 2 === 0;
+// Vale gás mensal (ex.: LOGTRANS): entrega todo mês, com o mesmo período da cesta básica da
+// empresa (ex.: 21 do mês anterior a 20 do mês da competência).
+export type RegraValeGas = { mensal: boolean; periodoDiaInicio: number | null };
+
+export function valeGasEhMesDeEntrega(mes: number, regra?: RegraValeGas): boolean {
+  return regra?.mensal ? true : mes % 2 === 0;
 }
 
-export function periodoAquisitivoValeGas(competenciaEntrega: { ano: number; mes: number }): PeriodoAquisitivoValeGas {
+export function periodoAquisitivoValeGas(competenciaEntrega: { ano: number; mes: number }, regra?: RegraValeGas): PeriodoAquisitivoValeGas {
+  if (regra?.mensal) return periodoBeneficio(competenciaEntrega, regra.periodoDiaInicio);
   if (!valeGasEhMesDeEntrega(competenciaEntrega.mes)) {
     throw new Error("Vale Gás só é apurado em meses pares (fevereiro, abril, junho, agosto, outubro, dezembro).");
   }
@@ -375,6 +387,10 @@ export function calcularElegibilidadeValeGas(
     faltasNoPeriodo: number;
     suspensoesNoPeriodo: number;
     recebeValeGasResolvido: boolean;
+    // Perde com esta quantidade de faltas ou mais (padrão 3 = "mais de 2").
+    faltasPerde?: number;
+    // Regra combinada de suspensões + faltas (padrão ligada).
+    regraSuspensao?: boolean;
     // Recebe o valor da entrega em dinheiro em vez da quantidade de vale — quem converteu não
     // entra na contagem de quantidade (mesmo cumprindo o período aquisitivo), já que o
     // pagamento é feito à parte, em pecúnia.
@@ -416,13 +432,17 @@ export function calcularElegibilidadeValeGas(
     return { elegivel: false, motivo: "Afastado no período aquisitivo" };
   }
 
-  if (funcionario.faltasNoPeriodo > FALTAS_MAXIMAS_VALE_GAS) {
-    return { elegivel: false, motivo: `Mais de ${FALTAS_MAXIMAS_VALE_GAS} faltas no período` };
+  const faltasPerde = funcionario.faltasPerde ?? FALTAS_MAXIMAS_VALE_GAS + 1;
+  if (funcionario.faltasNoPeriodo >= faltasPerde) {
+    return {
+      elegivel: false,
+      motivo: faltasPerde === FALTAS_MAXIMAS_VALE_GAS + 1 ? `Mais de ${FALTAS_MAXIMAS_VALE_GAS} faltas no período` : `${faltasPerde} ou mais faltas no período`,
+    };
   }
 
   // Suspensão conta junto com falta pro limite combinado (ex.: 3 suspensões + 1 falta já perde,
   // mesmo cada uma sozinha estando dentro do próprio limite).
-  if (funcionario.suspensoesNoPeriodo + funcionario.faltasNoPeriodo >= SUSPENSOES_MAXIMAS_VALE_GAS) {
+  if ((funcionario.regraSuspensao ?? true) && funcionario.suspensoesNoPeriodo + funcionario.faltasNoPeriodo >= SUSPENSOES_MAXIMAS_VALE_GAS) {
     return { elegivel: false, motivo: `Mais de ${SUSPENSOES_MAXIMAS_VALE_GAS} suspensões no período` };
   }
 

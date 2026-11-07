@@ -169,11 +169,47 @@ export async function confirmarExtratoBancoHoras(
   let funcionariosTocados = 0;
   const alertasCongelamento: AlertaCongelamento[] = [];
 
+  // Banco de horas "pelo extrato" (ex.: LOGTRANS): o ERP já fecha o banco dentro do mês — grava a
+  // Hora Paga e o Saldo Atual do arquivo como estão, sem passar pelo motor de cálculo.
+  const peloExtrato = empresa.bancoHorasModo === "extrato";
+  if (peloExtrato) {
+    const semColunas = parsed.linhas.filter((l) => l.horaPagaDecimal === null || l.saldoAtualDecimal === null);
+    if (semColunas.length > 0) {
+      return {
+        error: `O extrato não trouxe as colunas Hora Paga e Saldo Atual (matrícula ${semColunas[0].matricula}) — essa empresa usa o banco de horas direto do extrato do ERP.`,
+      };
+    }
+  }
+
   await prisma.$transaction(
     async (tx) => {
       for (const [matricula, novasLinhas] of linhasPorMatricula) {
         const func = funcPorMatricula.get(matricula);
         if (!func || cargoForaDoBancoDeHoras(func.cargo.nome)) continue;
+
+        if (peloExtrato) {
+          for (const l of novasLinhas) {
+            const saldoAtual = l.saldoAtualDecimal!;
+            const dados = {
+              creditoBruto: l.creditoDecimal,
+              debitoBruto: l.debitoDecimal,
+              creditoLiquido: l.creditoDecimal,
+              pagoNoMes: l.horaPagaDecimal!,
+              saldoPositivo: Math.max(saldoAtual, 0),
+              saldoNegativo: Math.min(saldoAtual, 0),
+              saldoFinal: saldoAtual,
+              congelado: false,
+            };
+            await tx.bancoHorasApuracao.upsert({
+              where: { funcionarioId_competencia: { funcionarioId: func.id, competencia: l.competencia } },
+              create: { funcionarioId: func.id, competencia: l.competencia, ...dados },
+              update: dados,
+            });
+            competenciasRecalculadas++;
+          }
+          funcionariosTocados++;
+          continue;
+        }
 
         const saldoInicial = await tx.bancoHorasSaldoInicial.findUnique({ where: { funcionarioId: func.id } });
 

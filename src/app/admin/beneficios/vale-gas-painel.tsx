@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { ExportCard } from "./export-card";
 import { paraCsv, baixarCsv, baixarTxt } from "@/lib/csv";
 import { usePodeOperar } from "@/components/permissoes-provider";
-import { salvarValorEntregaValeGas, type ApuracaoValeGasItemDTO } from "./vale-gas-actions";
+import { salvarValorEntregaValeGas, type ApuracaoValeGasItemDTO, type PeriodoValeGasEmpresa } from "./vale-gas-actions";
 
 const COR_ELEGIVEL = "#0d9488";
 const COR_NAO_ELEGIVEL = "#ef4444";
@@ -124,11 +124,18 @@ function ValorEntregaForm({
   );
 }
 
+// Valor unitário do vale gás da pessoa: o valor da cidade (empresas com valor por cidade, ex.:
+// LOGTRANS) ou o "valor da entrega" lançado para a empresa na competência.
+function valorDoItem(i: ApuracaoValeGasItemDTO, valorPorEmpresa: Map<string, number | null>): number | null {
+  return i.valor ?? valorPorEmpresa.get(i.empresaId) ?? null;
+}
+
 export function ValeGasPainel({
   itens,
   competencia,
   periodoInicio,
   periodoFim,
+  periodos,
   valorEntregaPorEmpresa,
   filtroEmpresa,
   filtroArea,
@@ -138,6 +145,7 @@ export function ValeGasPainel({
   competencia: string;
   periodoInicio: string;
   periodoFim: string;
+  periodos: PeriodoValeGasEmpresa[];
   valorEntregaPorEmpresa: { empresaId: string; empresaNome: string; valorEntrega: number | null }[];
   filtroEmpresa?: string;
   filtroArea?: string;
@@ -191,8 +199,23 @@ export function ValeGasPainel({
       porArea = [...porArea.slice(0, 10), { area: "Outras áreas", areaCompleta: "Outras áreas", ...resto }];
     }
 
-    return { elegiveis, naoElegiveis, terceiros, motivos, porEmpresa, porArea };
+    // Empresas com valor por cidade (ex.: LOGTRANS): quantidade e total de quem tem direito.
+    const cidadeMap = new Map<string, { quantidade: number; total: number; semValor: number }>();
+    for (const i of elegiveis) {
+      if (!i.cidade && i.valor === null) continue;
+      const chave = `${i.empresaAbbr} · ${i.cidade ?? "Sem cidade"}`;
+      const atual = cidadeMap.get(chave) ?? { quantidade: 0, total: 0, semValor: 0 };
+      atual.quantidade++;
+      if (i.valor !== null) atual.total += i.valor;
+      else atual.semValor++;
+      cidadeMap.set(chave, atual);
+    }
+    const porCidade = [...cidadeMap.entries()].map(([cidade, v]) => ({ cidade, ...v })).sort((a, b) => a.cidade.localeCompare(b.cidade));
+
+    return { elegiveis, naoElegiveis, terceiros, motivos, porEmpresa, porArea, porCidade };
   }, [itens]);
+  const temCidade = itens.some((i) => i.cidade !== null || i.valor !== null);
+  const periodosVisiveis = filtroEmpresa ? periodos.filter((p) => p.empresaNome === filtroEmpresa) : periodos;
 
   const itensDetalhamento = useMemo(() => {
     const nome = buscaNome.trim().toLowerCase();
@@ -205,11 +228,12 @@ export function ValeGasPainel({
     });
   }, [itens, buscaNome, buscaMatricula]);
 
-  const csvHeaders = ["Matrícula", "Nome", "Empresa", "Cargo", "Admissão", "Situação", "Motivo", "Pecúnia"];
+  const csvHeaders = ["Matrícula", "Nome", "Empresa", ...(temCidade ? ["Cidade", "Valor"] : []), "Cargo", "Admissão", "Situação", "Motivo", "Pecúnia"];
   const csvLinhas = itensDetalhamento.map((i) => [
     i.matricula ?? "",
     i.nome,
     i.empresaNome,
+    ...(temCidade ? [i.cidade ?? "", i.valor !== null ? i.valor.toFixed(2).replace(".", ",") : ""] : []),
     i.cargo ?? "",
     formatarData(i.dataAdmissao),
     i.elegivel ? "Com direito" : "Sem direito",
@@ -235,7 +259,7 @@ export function ValeGasPainel({
   function gerarArquivoBancario() {
     const valorPorEmpresa = new Map(valorEntregaPorEmpresa.map((v) => [v.empresaId, v.valorEntrega]));
     const beneficiarios = itens.filter((i) => i.pecunia && i.motivoPerda === "Convertida em Pecúnia");
-    const semValor = beneficiarios.filter((i) => (valorPorEmpresa.get(i.empresaId) ?? null) === null);
+    const semValor = beneficiarios.filter((i) => valorDoItem(i, valorPorEmpresa) === null);
     if (semValor.length > 0) {
       toast.error(
         `Lance o valor da entrega da empresa antes de gerar o arquivo — falta pra ${semValor.length} colaborador(es) em pecúnia.`
@@ -245,7 +269,7 @@ export function ValeGasPainel({
     const linhas = beneficiarios.map((i) => [
       i.nomeCompleto ?? i.nome,
       i.documento ? `="${i.documento}"` : "",
-      valorPorEmpresa.get(i.empresaId) ?? 0,
+      valorDoItem(i, valorPorEmpresa) ?? 0,
       "VALE GAS",
     ]);
     baixarCsv(`arquivo-bancario-vale-gas-${competencia.replace("/", "-")}`, paraCsv(["Nome", "Documento", "  Valor R$  ", "Benefício"], linhas));
@@ -261,13 +285,15 @@ export function ValeGasPainel({
     const beneficiarios = itens.filter(
       (i) => i.tipo === "funcionario" && i.matricula && (i.elegivel || (i.pecunia && i.motivoPerda === "Convertida em Pecúnia"))
     );
-    const semValor = beneficiarios.filter((i) => (valorPorEmpresa.get(i.empresaId) ?? null) === null);
+    const semValor = beneficiarios.filter((i) => valorDoItem(i, valorPorEmpresa) === null);
     if (semValor.length > 0) {
-      toast.error(`Lance o valor da entrega da empresa antes de gerar o arquivo — falta pra ${semValor.length} colaborador(es).`);
+      toast.error(
+        `Falta o valor do vale gás de ${semValor.length} colaborador(es) — lance o valor da entrega da empresa ou, nas empresas com valor por cidade, confira a cidade no cadastro do funcionário.`
+      );
       return;
     }
     const linhas = beneficiarios.map((i) => {
-      const valor = valorPorEmpresa.get(i.empresaId) ?? 0;
+      const valor = valorDoItem(i, valorPorEmpresa) ?? 0;
       return `${i.matricula}\t ${valor.toFixed(2).replace(".", ",")} `;
     });
     baixarTxt(`arquivo-erp-vale-gas-${competencia.replace("/", "-")}`, linhas.join("\n"));
@@ -290,9 +316,19 @@ export function ValeGasPainel({
         </Button>
       </div>
 
-      <p className="font-mono text-[10px] text-text-3">
-        Período aquisitivo: {formatarData(periodoInicio)} a {formatarData(periodoFim)} — entrega em {competencia}
-      </p>
+      {periodosVisiveis.length <= 1 || periodosVisiveis.every((p) => p.inicio === periodosVisiveis[0].inicio && p.fim === periodosVisiveis[0].fim) ? (
+        <p className="font-mono text-[10px] text-text-3">
+          Período aquisitivo: {formatarData(periodosVisiveis[0]?.inicio ?? periodoInicio)} a {formatarData(periodosVisiveis[0]?.fim ?? periodoFim)} — competência {competencia}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {periodosVisiveis.map((p) => (
+            <p key={p.empresaId} className="font-mono text-[10px] text-text-3">
+              {p.empresaNome}: período aquisitivo {formatarData(p.inicio)} a {formatarData(p.fim)}
+            </p>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <StatTile label="Total avaliado" value={String(itens.length)} />
@@ -329,6 +365,36 @@ export function ValeGasPainel({
           )}
         </div>
       </ExportCard>
+
+      {dados.porCidade.length > 0 && (
+        <ExportCard
+          titulo="Valor por cidade — vale gás"
+          descricao="empresas com valor de vale gás por cidade — só quem tem direito"
+          arquivo={`${arquivoBase}-por-cidade`}
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Empresa · cidade</TableHead>
+                <TableHead className="text-right">Com direito</TableHead>
+                <TableHead className="text-right">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dados.porCidade.map((c) => (
+                <TableRow key={c.cidade}>
+                  <TableCell>{c.cidade}</TableCell>
+                  <TableCell className="text-right">{c.quantidade}</TableCell>
+                  <TableCell className="text-right">
+                    {formatarMoeda(c.total)}
+                    {c.semValor > 0 && <span className="ml-2 text-warning">({c.semValor} sem valor)</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </ExportCard>
+      )}
 
       <ExportCard
         titulo="Motivos de perda — vale gás"
@@ -410,6 +476,7 @@ export function ValeGasPainel({
                 <TableHead>Matrícula</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Empresa</TableHead>
+                {temCidade && <TableHead>Cidade</TableHead>}
                 <TableHead>Cargo</TableHead>
                 <TableHead>Admissão</TableHead>
                 <TableHead>Situação</TableHead>
@@ -434,6 +501,12 @@ export function ValeGasPainel({
                     )}
                   </TableCell>
                   <TableCell>{i.empresaNome}</TableCell>
+                  {temCidade && (
+                    <TableCell>
+                      {i.cidade ?? "—"}
+                      {i.valor !== null && <span className="ml-1.5 text-text-3">{formatarMoeda(i.valor)}</span>}
+                    </TableCell>
+                  )}
                   <TableCell>{i.cargo ?? "—"}</TableCell>
                   <TableCell>{formatarData(i.dataAdmissao)}</TableCell>
                   <TableCell>

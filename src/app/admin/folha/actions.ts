@@ -15,6 +15,7 @@ import {
 import { conferirFolha13, type Contexto13, type MesHistorico } from "@/lib/folha/conferencia-13";
 import { CODIGOS_MEDIA_FERIAS, type HistoricoFolhas, type ProgramacaoFerias } from "@/lib/folha/ferias-programacao";
 import type { AfastamentosPorMatricula } from "@/lib/folha/rescisao-motivo";
+import { cidadeDaDivisao, regrasDaEmpresa } from "@/lib/regras-empresa";
 
 // O TXT é lido no navegador (passaria do limite de envio do servidor) e chega aqui já separado
 // por funcionário — validamos o formato antes de gravar.
@@ -257,7 +258,9 @@ export async function previewFolha(
   if (folha.tipo === "mensal") {
     bancoHoras = await carregarBancoHoras(empresa.id, folha.competencia);
     const [programacao, { historico, afastamentos }] = await Promise.all([carregarProgramacaoFerias(empresa.id), carregarHistoricoFolhas(empresa.id)]);
-    resultados = conferirFolha(folha.funcionarios, folha.competencia, bancoHoras, programacao, historico, afastamentos).resultados;
+    resultados = conferirFolha(folha.funcionarios, folha.competencia, bancoHoras, programacao, historico, afastamentos, {
+      bancoHorasPeloExtrato: empresa.bancoHorasModo === "extrato",
+    }).resultados;
   } else {
     const contexto = await carregarContexto13(empresa.id, folha.competencia, folha.tipo);
     resultados = conferirFolha13(folha.funcionarios, folha.competencia, folha.tipo, contexto).resultados;
@@ -331,6 +334,22 @@ export async function confirmarFolha(
         atualizados: 0,
       },
     });
+
+    // Empresas com cidades (ex.: LOGTRANS, Cuiabá/Rondonópolis): a cidade de cada funcionário vem
+    // do 2º bloco da Divisão. Divisão com código não cadastrado não mexe na cidade (preserva o
+    // ajuste manual até o ERP ser corrigido).
+    const cidades = regrasDaEmpresa(empresa).cidades;
+    if (folha.tipo === "mensal" && cidades.length > 0) {
+      const porCidade = new Map<string, string[]>();
+      for (const f of folha.funcionarios) {
+        const cidade = cidadeDaDivisao(f.divisao, cidades);
+        if (!cidade) continue;
+        porCidade.set(cidade.nome, [...(porCidade.get(cidade.nome) ?? []), f.matricula]);
+      }
+      for (const [cidade, matriculas] of porCidade) {
+        await tx.funcionario.updateMany({ where: { empresaId: empresa.id, matricula: { in: matriculas } }, data: { cidade } });
+      }
+    }
   });
 
   await logAction(user.id, "folha_pagamento.importar", empresa.id, {
@@ -411,7 +430,7 @@ export async function buscarAnaliseFolha(
   if (!(await podeEmpresa(user, empresaId))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
   const folha = await prisma.folhaPagamento.findUnique({
     where: { empresaId_competencia_tipo: { empresaId, competencia, tipo } },
-    include: { empresa: { select: { nome: true, abbr: true } }, itens: { orderBy: { matricula: "asc" } } },
+    include: { empresa: { select: { nome: true, abbr: true, bancoHorasModo: true } }, itens: { orderBy: { matricula: "asc" } } },
   });
   if (!folha) return { data: null, error: null };
 
@@ -427,7 +446,9 @@ export async function buscarAnaliseFolha(
   if (tipo === "mensal") {
     bancoHoras = await carregarBancoHoras(empresaId, competencia);
     const [programacao, { historico, afastamentos }] = await Promise.all([carregarProgramacaoFerias(empresaId), carregarHistoricoFolhas(empresaId)]);
-    ({ resultados, calendario, anoParametros, parametrosExatos } = conferirFolha(funcionarios, competencia, bancoHoras, programacao, historico, afastamentos));
+    ({ resultados, calendario, anoParametros, parametrosExatos } = conferirFolha(funcionarios, competencia, bancoHoras, programacao, historico, afastamentos, {
+      bancoHorasPeloExtrato: folha.empresa.bancoHorasModo === "extrato",
+    }));
   } else {
     const contexto = await carregarContexto13(empresaId, competencia, tipo);
     ({ resultados, anoParametros, parametrosExatos } = conferirFolha13(funcionarios, competencia, tipo, contexto));

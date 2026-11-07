@@ -6,9 +6,10 @@ import { FeriasTable } from "./ferias-table";
 export default async function FeriasPage() {
   const user = await requirePermissao("ferias", "consultar");
 
-  const [periodos, quinzenas] = await Promise.all([
+  const escopo = await escopoEmpresa(user);
+  const [periodos, quinzenas, empresas] = await Promise.all([
     prisma.ferias.findMany({
-      where: { funcionario: { empresaId: await escopoEmpresa(user) } },
+      where: { funcionario: { empresaId: escopo } },
       orderBy: { dataLimite: "asc" },
       include: {
         funcionario: {
@@ -17,9 +18,20 @@ export default async function FeriasPage() {
       },
     }),
     prisma.quinzenaPeriodo.findMany(),
+    prisma.empresa.findMany({ where: { id: escopo }, select: { id: true, nome: true, abbr: true, feriasCalendario: true }, orderBy: { nome: "asc" } }),
   ]);
 
+  // Calendários de férias: o de quinzenas (compartilhado) e um próprio para cada empresa com uma
+  // data por mês (ex.: VPAR, LOGTRANS).
+  const nomeEmpresa = (e: { nome: string; abbr: string | null }) => e.abbr ?? e.nome;
+  const empresasQuinzena = empresas.filter((e) => e.feriasCalendario !== "mensal");
+  const calendarios = [
+    ...(empresasQuinzena.length > 0 ? [{ id: "padrao", nome: `Quinzenas — ${empresasQuinzena.map(nomeEmpresa).join(", ")}`, mensal: false }] : []),
+    ...empresas.filter((e) => e.feriasCalendario === "mensal").map((e) => ({ id: e.id, nome: nomeEmpresa(e), mensal: true })),
+  ];
+
   const quinzenasSerializadas = quinzenas.map((q) => ({
+    calendario: q.calendario,
     ano: q.ano,
     mes: q.mes,
     quinzena: q.quinzena,
@@ -50,6 +62,8 @@ export default async function FeriasPage() {
       departamento: p.funcionario.cargo.departamento,
       setor: p.funcionario.cargo.setor,
       empresa: p.funcionario.empresa.abbr ?? p.funcionario.empresa.nome,
+      calendario: p.funcionario.empresa.feriasCalendario === "mensal" ? p.funcionario.empresaId : "padrao",
+      calendarioMensal: p.funcionario.empresa.feriasCalendario === "mensal",
       salario: p.funcionario.temGratificacao
         ? p.funcionario.salario.toNumber() * 1.4
         : p.funcionario.salario.toNumber(),
@@ -86,7 +100,7 @@ export default async function FeriasPage() {
           importação do relatório do ERP, programação por colaborador e emissão para mural/gestores
         </p>
       </div>
-      <FeriasTable periodos={periodosSerializados} quinzenasIniciais={quinzenasSerializadas} />
+      <FeriasTable periodos={periodosSerializados} quinzenasIniciais={quinzenasSerializadas} calendarios={calendarios} />
     </>
   );
 }

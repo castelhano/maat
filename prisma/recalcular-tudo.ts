@@ -20,7 +20,9 @@ function compararCompetencias(a: string, b: string): number {
 
 async function main() {
   const funcionarios = await prisma.funcionario.findMany({
-    where: { bancoHorasApuracoes: { some: {} } },
+    // Empresas com banco de horas pelo extrato do ERP (ex.: LOGTRANS) não passam pelo motor — o
+    // que está gravado é a Hora Paga/Saldo Atual do próprio extrato.
+    where: { bancoHorasApuracoes: { some: {} }, empresa: { bancoHorasModo: "calculado" } },
     select: { id: true, matricula: true, nome: true, status: true, dataAfastamento: true, dataRetorno: true },
   });
 

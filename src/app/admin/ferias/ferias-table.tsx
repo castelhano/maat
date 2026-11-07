@@ -37,6 +37,8 @@ import { usePodeOperar } from "@/components/permissoes-provider";
 import { dataPagamentoFerias } from "@/lib/feriados";
 
 export type QuinzenaLinha = {
+  // "padrao" (quinzenas compartilhadas) ou o id da empresa com calendário mensal.
+  calendario: string;
   ano: number;
   mes: number;
   quinzena: number;
@@ -52,6 +54,9 @@ export type FeriasLinha = {
   departamento: string | null;
   setor: string | null;
   empresa: string;
+  // Calendário de férias da empresa: "padrao" (quinzenas) ou o id da empresa com uma data por mês.
+  calendario: string;
+  calendarioMensal: boolean;
   salario: number;
   periodoAquisitivoFim: string;
   dataLimite: string;
@@ -73,6 +78,14 @@ export type FeriasLinha = {
   valorReal: number | null;
   travado: boolean;
 };
+
+export type CalendarioFerias = { id: string; nome: string; mensal: boolean };
+
+// "11/2026 1ª" (quinzenas) ou "11/2026" (calendário mensal, uma data por mês).
+function rotuloProgramacao(p: FeriasLinha) {
+  if (!p.mes) return "—";
+  return `${String(p.mes).padStart(2, "0")}/${p.ano}${p.calendarioMensal ? "" : ` ${p.quinzena}ª`}`;
+}
 
 const MESES = [
   "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -235,7 +248,9 @@ function ProgramarDialog({
   const [open, setOpen] = useState(false);
   const [mes, setMes] = useState(periodo.mes ?? 0);
   const [ano, setAno] = useState(periodo.ano ?? new Date(periodo.dataLimite).getUTCFullYear());
-  const [quinzena, setQuinzena] = useState(periodo.quinzena ?? 0);
+  // Calendário mensal (ex.: VPAR, LOGTRANS): uma data por mês, sempre "quinzena" 1.
+  const mensal = periodo.calendarioMensal;
+  const [quinzena, setQuinzena] = useState(mensal ? 1 : (periodo.quinzena ?? 0));
   const [diasAbono, setDiasAbono] = useState(periodo.diasAbono);
   const [abonoTipo, setAbonoTipo] = useState<"inicio" | "final" | "">(periodo.abonoTipo ?? "");
   const [valorReal, setValorReal] = useState(periodo.valorReal !== null ? String(periodo.valorReal) : "");
@@ -268,7 +283,8 @@ function ProgramarDialog({
   const maxAbono = Math.floor(periodo.diasDireito / 3);
   const diasGozo = periodo.diasDireito - diasAbono;
 
-  const quinzenaCustom = quinzenas.find((q) => q.ano === ano && q.mes === mes && q.quinzena === quinzena);
+  const quinzenasDoCalendario = useMemo(() => quinzenas.filter((q) => q.calendario === periodo.calendario), [quinzenas, periodo.calendario]);
+  const quinzenaCustom = quinzenasDoCalendario.find((q) => q.ano === ano && q.mes === mes && q.quinzena === quinzena);
 
   const gozoInicioPreview = useMemo(() => {
     if (!mes || !ano || !quinzena) return null;
@@ -297,7 +313,7 @@ function ProgramarDialog({
 
   function salvar() {
     if (!mes || !ano || !quinzena) {
-      toast.error("Escolha o mês, o ano e a quinzena.");
+      toast.error(mensal ? "Escolha o mês e o ano." : "Escolha o mês, o ano e a quinzena.");
       return;
     }
     if (diasAbono > 0 && !abonoTipo) {
@@ -345,7 +361,7 @@ function ProgramarDialog({
   }
 
   function labelQuinzena(num: 1 | 2) {
-    const custom = mes ? quinzenas.find((q) => q.ano === ano && q.mes === mes && q.quinzena === num) : undefined;
+    const custom = mes ? quinzenasDoCalendario.find((q) => q.ano === ano && q.mes === mes && q.quinzena === num) : undefined;
     if (custom) {
       return `${num}ª quinzena — ${formatarData(custom.dataInicio)} a ${formatarData(custom.dataFim)}`;
     }
@@ -367,7 +383,7 @@ function ProgramarDialog({
       // que foi cancelada numa sessão anterior sem ter sido salva.
       setMes(periodo.mes ?? 0);
       setAno(periodo.ano ?? new Date(periodo.dataLimite).getUTCFullYear());
-      setQuinzena(periodo.quinzena ?? 0);
+      setQuinzena(mensal ? 1 : (periodo.quinzena ?? 0));
       setDiasAbono(periodo.diasAbono);
       setAbonoTipo(periodo.abonoTipo ?? "");
       setValorReal(periodo.valorReal !== null ? String(periodo.valorReal) : "");
@@ -413,8 +429,7 @@ function ProgramarDialog({
           {periodoAnterior && (
             <Button type="button" size="sm" variant="secondary" onClick={repetirAnterior}>
               <CalendarPlus className="size-3.5" />
-              Repetir programação anterior ({String(periodoAnterior.mes).padStart(2, "0")}/{periodoAnterior.ano} ·{" "}
-              {periodoAnterior.quinzena}ª quinz.)
+              Repetir programação anterior ({rotuloProgramacao(periodoAnterior)})
             </Button>
           )}
 
@@ -438,6 +453,18 @@ function ProgramarDialog({
             </div>
           </div>
 
+          {mensal ? (
+            <div>
+              <label className={labelCls}>Data de férias do mês</label>
+              <p className="rounded-sm border border-border-hi bg-secondary px-3 py-2.5 font-mono text-[11px] text-text-2">
+                {!mes
+                  ? "Escolha o mês para ver a data."
+                  : quinzenaCustom
+                    ? `${formatarData(quinzenaCustom.dataInicio)} a ${formatarData(quinzenaCustom.dataFim)} (calendário da empresa)`
+                    : "Dia 01 (padrão — a data deste mês ainda não foi cadastrada no Calendário da empresa)"}
+              </p>
+            </div>
+          ) : (
           <div>
             <label className={labelCls}>Quinzena</label>
             <div className="grid grid-cols-2 gap-2">
@@ -465,6 +492,7 @@ function ProgramarDialog({
               </button>
             </div>
           </div>
+          )}
 
           <div>
             <label className={labelCls}>Abono pecuniário (venda de até 1/3 das férias)</label>
@@ -551,7 +579,9 @@ function ProgramarDialog({
                 </div>
               </div>
             ) : (
-              <p className="font-mono text-[11px] text-text-3">Escolha o mês, ano e quinzena para ver as datas.</p>
+              <p className="font-mono text-[11px] text-text-3">
+                {mensal ? "Escolha o mês e o ano para ver as datas." : "Escolha o mês, ano e quinzena para ver as datas."}
+              </p>
             )}
           </div>
         </div>
@@ -614,12 +644,16 @@ function dataParaInput(iso: string) {
 }
 
 function QuinzenaCelulaEditavel({
+  calendario,
+  mensal,
   ano,
   mes,
   quinzena,
   custom,
   onSaved,
 }: {
+  calendario: string;
+  mensal: boolean;
   ano: number;
   mes: number;
   quinzena: 1 | 2;
@@ -629,9 +663,10 @@ function QuinzenaCelulaEditavel({
   const padraoInicio = custom
     ? custom.dataInicio
     : new Date(Date.UTC(ano, mes - 1, quinzena === 2 ? 16 : 1)).toISOString();
+  // Calendário mensal: padrão = mês inteiro.
   const padraoFim = custom
     ? custom.dataFim
-    : new Date(Date.UTC(ano, mes - 1, quinzena === 2 ? ultimoDiaDoMes(ano, mes) : 15)).toISOString();
+    : new Date(Date.UTC(ano, mes - 1, quinzena === 2 || mensal ? ultimoDiaDoMes(ano, mes) : 15)).toISOString();
 
   const podeOperar = usePodeOperar("ferias");
   const [dataInicio, setDataInicio] = useState(dataParaInput(padraoInicio));
@@ -657,6 +692,7 @@ function QuinzenaCelulaEditavel({
   function salvar() {
     startTransition(async () => {
       const result = await salvarQuinzena({
+        calendario,
         ano,
         mes,
         quinzena,
@@ -667,8 +703,9 @@ function QuinzenaCelulaEditavel({
         toast.error(result.error);
         return;
       }
-      toast.success(`${quinzena}ª quinzena de ${MESES[mes - 1]}/${ano} salva.`);
+      toast.success(mensal ? `Data de ${MESES[mes - 1]}/${ano} salva.` : `${quinzena}ª quinzena de ${MESES[mes - 1]}/${ano} salva.`);
       onSaved({
+        calendario,
         ano,
         mes,
         quinzena,
@@ -719,15 +756,34 @@ function QuinzenaCelulaEditavel({
 
 function CalendarioQuinzenas({
   quinzenas,
+  calendarios,
   onSaved,
 }: {
   quinzenas: QuinzenaLinha[];
+  calendarios: CalendarioFerias[];
   onSaved: (q: QuinzenaLinha) => void;
 }) {
   const [ano, setAno] = useState(new Date().getFullYear());
+  // Cada empresa segue o seu calendário: quinzenas (compartilhado) ou uma data por mês (próprio).
+  const [calendarioId, setCalendarioId] = useState(calendarios[0]?.id ?? "padrao");
+  const calendario = calendarios.find((c) => c.id === calendarioId) ?? { id: "padrao", nome: "Quinzenas", mensal: false };
+  const doCalendario = quinzenas.filter((q) => q.calendario === calendario.id);
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label className="font-mono text-[11px] text-text-3">Calendário:</label>
+        <select
+          className="h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground"
+          value={calendario.id}
+          onChange={(e) => setCalendarioId(e.target.value)}
+        >
+          {calendarios.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome}
+              {c.mensal ? " (uma data por mês)" : ""}
+            </option>
+          ))}
+        </select>
         <label className="font-mono text-[11px] text-text-3">Ano:</label>
         <select
           className="h-8 rounded-sm border border-border-hi bg-secondary px-2 font-mono text-[11px] text-foreground"
@@ -739,10 +795,16 @@ function CalendarioQuinzenas({
           ))}
         </select>
         <p className="font-mono text-[10px] text-text-3">
-          edite as datas de início/fim de cada quinzena e clique em Salvar — quem não editar continua
-          usando o padrão (dia 1 a 15 / dia 16 ao fim do mês)
+          {calendario.mensal
+            ? "edite a data de férias de cada mês e clique em Salvar — quem não editar continua usando o padrão (mês inteiro)"
+            : "edite as datas de início/fim de cada quinzena e clique em Salvar — quem não editar continua usando o padrão (dia 1 a 15 / dia 16 ao fim do mês)"}
         </p>
-        <a href={`/admin/ferias/calendario-pdf?ano=${ano}`} target="_blank" rel="noopener noreferrer" className="ml-auto">
+        <a
+          href={`/admin/ferias/calendario-pdf?ano=${ano}&calendario=${encodeURIComponent(calendario.id)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-auto"
+        >
           <Button size="xs" variant="secondary">
             <FileDown className="size-3" />
             Imprimir
@@ -753,24 +815,34 @@ function CalendarioQuinzenas({
         <TableHeader>
           <TableRow>
             <TableHead>Mês</TableHead>
-            <TableHead>1ª Quinzena</TableHead>
-            <TableHead>2ª Quinzena</TableHead>
+            <TableHead>{calendario.mensal ? "Data de férias" : "1ª Quinzena"}</TableHead>
+            {!calendario.mensal && <TableHead>2ª Quinzena</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {MESES.map((nome, i) => {
             const mes = i + 1;
-            const custom1 = quinzenas.find((q) => q.ano === ano && q.mes === mes && q.quinzena === 1);
-            const custom2 = quinzenas.find((q) => q.ano === ano && q.mes === mes && q.quinzena === 2);
+            const custom1 = doCalendario.find((q) => q.ano === ano && q.mes === mes && q.quinzena === 1);
+            const custom2 = doCalendario.find((q) => q.ano === ano && q.mes === mes && q.quinzena === 2);
             return (
-              <TableRow key={nome}>
+              <TableRow key={`${calendario.id}-${ano}-${nome}`}>
                 <TableCell className="font-medium text-foreground capitalize whitespace-nowrap">{nome}</TableCell>
                 <TableCell>
-                  <QuinzenaCelulaEditavel ano={ano} mes={mes} quinzena={1} custom={custom1} onSaved={onSaved} />
+                  <QuinzenaCelulaEditavel
+                    calendario={calendario.id}
+                    mensal={calendario.mensal}
+                    ano={ano}
+                    mes={mes}
+                    quinzena={1}
+                    custom={custom1}
+                    onSaved={onSaved}
+                  />
                 </TableCell>
-                <TableCell>
-                  <QuinzenaCelulaEditavel ano={ano} mes={mes} quinzena={2} custom={custom2} onSaved={onSaved} />
-                </TableCell>
+                {!calendario.mensal && (
+                  <TableCell>
+                    <QuinzenaCelulaEditavel calendario={calendario.id} mensal={false} ano={ano} mes={mes} quinzena={2} custom={custom2} onSaved={onSaved} />
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
@@ -934,9 +1006,11 @@ function FiltroBar({
 export function FeriasTable({
   periodos: periodosIniciais,
   quinzenasIniciais,
+  calendarios,
 }: {
   periodos: FeriasLinha[];
   quinzenasIniciais: QuinzenaLinha[];
+  calendarios: CalendarioFerias[];
 }) {
   const podeOperar = usePodeOperar("ferias");
   const [periodos, setPeriodos] = useState(periodosIniciais);
@@ -948,15 +1022,10 @@ export function FeriasTable({
 
   function atualizarQuinzena(atualizada: QuinzenaLinha) {
     setQuinzenas((prev) => {
-      const existe = prev.some(
-        (q) => q.ano === atualizada.ano && q.mes === atualizada.mes && q.quinzena === atualizada.quinzena
-      );
-      if (existe) {
-        return prev.map((q) =>
-          q.ano === atualizada.ano && q.mes === atualizada.mes && q.quinzena === atualizada.quinzena
-            ? atualizada
-            : q
-        );
+      const mesma = (q: QuinzenaLinha) =>
+        q.calendario === atualizada.calendario && q.ano === atualizada.ano && q.mes === atualizada.mes && q.quinzena === atualizada.quinzena;
+      if (prev.some(mesma)) {
+        return prev.map((q) => (mesma(q) ? atualizada : q));
       }
       return [...prev, atualizada];
     });
@@ -1068,6 +1137,8 @@ export function FeriasTable({
         mes: number;
         ano: number;
         quinzena: number;
+        calendario: string;
+        rotulo: string;
         qtd: number;
         valor: number;
         comValorReal: number;
@@ -1080,10 +1151,15 @@ export function FeriasTable({
     >();
     for (const p of filtroResumoRange) {
       if (!p.mes || !p.ano || !p.quinzena || !p.gozoInicio || !p.dataPagamento) continue;
-      const chave = `${p.ano}-${p.mes}-${p.quinzena}`;
+      // Calendário mensal (ex.: VPAR, LOGTRANS): grupo próprio da empresa, com a data dela.
+      const calendario = p.calendarioMensal ? p.calendario : "padrao";
+      const chave = `${p.ano}-${p.mes}-${calendario}-${p.quinzena}`;
+      const rotulo = p.calendarioMensal
+        ? `Data do mês — ${calendarios.find((c) => c.id === p.calendario)?.nome ?? p.empresa}`
+        : `${p.quinzena}ª quinzena`;
       const atual =
         mapa.get(chave) ??
-        { mes: p.mes, ano: p.ano, quinzena: p.quinzena, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
+        { mes: p.mes, ano: p.ano, quinzena: p.quinzena, calendario, rotulo, qtd: 0, valor: 0, comValorReal: 0, pares: new Map() };
       atual.qtd++;
       atual.valor += valorEfetivo(p);
       if (p.valorReal !== null) atual.comValorReal++;
@@ -1094,7 +1170,7 @@ export function FeriasTable({
       mapa.set(chave, atual);
     }
     return [...mapa.values()]
-      .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena)
+      .sort((a, b) => a.ano - b.ano || a.mes - b.mes || a.quinzena - b.quinzena || a.rotulo.localeCompare(b.rotulo))
       .map((v) => {
         const maisFrequente = [...v.pares.values()].sort((a, b) => b.count - a.count)[0];
         let gozoInicio: Date;
@@ -1103,7 +1179,9 @@ export function FeriasTable({
           gozoInicio = new Date(maisFrequente.gozoInicio);
           dataPagamento = new Date(maisFrequente.dataPagamento);
         } else {
-          const custom = quinzenas.find((q) => q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena);
+          const custom = quinzenas.find(
+            (q) => q.calendario === v.calendario && q.ano === v.ano && q.mes === v.mes && q.quinzena === v.quinzena
+          );
           gozoInicio = custom
             ? new Date(custom.dataInicio)
             : new Date(Date.UTC(v.ano, v.mes - 1, v.quinzena === 2 ? 16 : 1));
@@ -1112,7 +1190,7 @@ export function FeriasTable({
         const { pares: _pares, ...resto } = v;
         return { ...resto, gozoInicio, dataPagamento };
       });
-  }, [filtroResumoRange, quinzenas]);
+  }, [filtroResumoRange, quinzenas, calendarios]);
 
   const porMes = useMemo(() => {
     const mapa = new Map<string, { qtd: number; valor: number; comValorReal: number }>();
@@ -1149,8 +1227,8 @@ export function FeriasTable({
         p.departamento ?? "",
         formatarData(p.dataLimite),
         p.mes ? `${MESES[p.mes - 1]}/${p.ano}` : "",
-        p.quinzena === 1 ? "X" : "",
-        p.quinzena === 2 ? "X" : "",
+        !p.calendarioMensal && p.quinzena === 1 ? "X" : "",
+        !p.calendarioMensal && p.quinzena === 2 ? "X" : "",
         formatarData(p.gozoInicio),
         formatarData(p.gozoFim),
       ])
@@ -1164,7 +1242,7 @@ export function FeriasTable({
       porMesQuinzena.map((v) => [
         MESES[v.mes - 1],
         String(v.ano),
-        `${v.quinzena}ª quinzena`,
+        v.rotulo,
         String(v.qtd),
         v.valor.toFixed(2),
         `${v.comValorReal} de ${v.qtd}`,
@@ -1344,7 +1422,7 @@ export function FeriasTable({
                     </TableCell>
                     <TableCell className="px-2 whitespace-nowrap">{formatarData(p.dataLimite)}</TableCell>
                     <TableCell className="px-2 whitespace-nowrap">
-                      {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
+                      {rotuloProgramacao(p)}
                     </TableCell>
                     <TableCell className="px-2 whitespace-nowrap">{formatarData(p.gozoInicio)}</TableCell>
                     <TableCell className="px-2 whitespace-nowrap">{formatarData(p.gozoFim)}</TableCell>
@@ -1370,10 +1448,10 @@ export function FeriasTable({
 
       <TabsPanel value="calendario" className="flex flex-col gap-3">
         <p className="font-mono text-[11px] text-text-3">
-          Referência fixa: 1ª quinzena sempre do dia 1 ao 15; 2ª quinzena do dia 16 até o último dia do mês
-          (ajusta sozinho para meses de 28 a 31 dias).
+          Cada empresa segue o seu calendário: quinzenas (referência fixa: 1ª do dia 1 ao 15, 2ª do dia 16 ao
+          fim do mês) ou, nas empresas com uma data por mês, a data cadastrada para cada mês.
         </p>
-        <CalendarioQuinzenas quinzenas={quinzenas} onSaved={atualizarQuinzena} />
+        <CalendarioQuinzenas quinzenas={quinzenas} calendarios={calendarios} onSaved={atualizarQuinzena} />
       </TabsPanel>
 
       <TabsPanel value="resumo" className="flex flex-col gap-6">
@@ -1585,11 +1663,11 @@ export function FeriasTable({
                 </TableRow>
               ) : (
                 porMesQuinzena.map((v) => (
-                  <TableRow key={`${v.ano}-${v.mes}-${v.quinzena}`}>
+                  <TableRow key={`${v.ano}-${v.mes}-${v.calendario}-${v.quinzena}`}>
                     <TableCell className="font-medium text-foreground">
                       {MESES[v.mes - 1]}/{v.ano}
                     </TableCell>
-                    <TableCell>{v.quinzena}ª quinzena</TableCell>
+                    <TableCell>{v.rotulo}</TableCell>
                     <TableCell>{v.qtd}</TableCell>
                     <TableCell>
                       {formatarMoeda(v.valor)}
@@ -1688,7 +1766,7 @@ export function FeriasTable({
                   </TableCell>
                   <TableCell className={celClsQuebra}>{p.departamento ?? "—"}</TableCell>
                   <TableCell className={celCls}>
-                    {p.mes ? `${String(p.mes).padStart(2, "0")}/${p.ano} ${p.quinzena}ª` : "—"}
+                    {rotuloProgramacao(p)}
                   </TableCell>
                   <TableCell className={celCls}>{formatarData(p.gozoInicio)}</TableCell>
                   <TableCell className={celCls}>{formatarData(p.gozoFim)}</TableCell>

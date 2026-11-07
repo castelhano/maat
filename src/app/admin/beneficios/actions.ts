@@ -12,6 +12,7 @@ import {
   resolverHeranca,
   statusNaCompetencia,
 } from "@/lib/beneficios";
+import { periodoBeneficio, regrasDaEmpresa, valorVaFixoDaEmpresa } from "@/lib/regras-empresa";
 
 export type ApuracaoItemDTO = {
   tipo: string;
@@ -145,16 +146,11 @@ export async function processarApuracao(
     };
   }
 
-  const inicio = new Date(Date.UTC(ano, mes - 1, 1));
-  const fim = new Date(Date.UTC(ano, mes, 0, 23, 59, 59, 999));
-
   // O crédito de "cesta convertida em VR" é pago com base na elegibilidade da cesta do MÊS
   // ANTERIOR (ex.: VR de agosto olha as faltas de julho) — regra específica só desse crédito;
   // a aba de Cesta Básica em si continua mostrando a elegibilidade do mês corrente normalmente.
   const anoAnterior = mes === 1 ? ano - 1 : ano;
   const mesAnterior = mes === 1 ? 12 : mes - 1;
-  const inicioAnterior = new Date(Date.UTC(anoAnterior, mesAnterior - 1, 1));
-  const fimAnterior = new Date(Date.UTC(anoAnterior, mesAnterior, 0, 23, 59, 59, 999));
 
   const escopo = await escopoEmpresa(admin);
   const empresas = await prisma.empresa.findMany({ where: { AND: [{ id: escopo }, empresaId ? { id: empresaId } : {}] } });
@@ -163,6 +159,14 @@ export async function processarApuracao(
   let itensTotal = 0;
 
   for (const empresa of empresas) {
+    // Período das faltas: mês cheio, ou o período próprio da empresa (ex.: LOGTRANS, 21 a 20).
+    const regras = regrasDaEmpresa(empresa);
+    const { inicio, fim } = periodoBeneficio({ ano, mes }, regras.beneficioPeriodoDiaInicio);
+    const { inicio: inicioAnterior, fim: fimAnterior } = periodoBeneficio(
+      { ano: anoAnterior, mes: mesAnterior },
+      regras.beneficioPeriodoDiaInicio
+    );
+
     const todosFuncionarios = await prisma.funcionario.findMany({
       where: { empresaId: empresa.id },
       include: { cargo: true },
@@ -237,6 +241,7 @@ export async function processarApuracao(
           periodosAfastamento,
           faltasNoMes: faltasPorFuncionario.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
+          faltasPerde: regras.faltasPerdeBeneficio,
         },
         { ano, mes }
       );
@@ -245,8 +250,13 @@ export async function processarApuracao(
       // motorista = 520) — mas só quando ele não tem gratificação, porque aí o cálculo tem que
       // ser o percentual sobre salário+40% (que pode passar do valor fixo do cargo), não o valor
       // fixo. Só cai pro cálculo percentual normal se nenhum dos dois existir.
+      // Empresa com VA de valor fixo (ex.: LOGTRANS): valor da função na regra da empresa ou o
+      // valor fixo geral dela — o valor fixo do CARGO (compartilhado entre empresas) não vale aqui.
+      const valorFixoEmpresa = valorVaFixoDaEmpresa(regras, f.cargo.nome);
       const valorValeRefeicaoResolvido =
-        f.valorValeRefeicao?.toNumber() ?? (f.temGratificacao ? null : f.cargo.valorValeRefeicaoFixo?.toNumber() ?? null);
+        f.valorValeRefeicao?.toNumber() ??
+        valorFixoEmpresa ??
+        (f.temGratificacao ? null : f.cargo.valorValeRefeicaoFixo?.toNumber() ?? null);
 
       const vr = calcularVR(
         {
@@ -260,6 +270,7 @@ export async function processarApuracao(
           dataRetorno: f.dataRetorno,
           dataDesligamento: f.dataDesligamento,
           periodosAfastamento,
+          diaMantemDesligado: regras.vaDiaMantemDesligado,
         },
         { ano, mes }
       );
@@ -277,6 +288,7 @@ export async function processarApuracao(
           periodosAfastamento,
           faltasNoMes: faltasPorFuncionarioAnterior.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
+          faltasPerde: regras.faltasPerdeBeneficio,
         },
         { ano: anoAnterior, mes: mesAnterior }
       );
