@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { parseBancoHoras, type BancoHorasLinha } from "@/lib/parsers/banco-horas";
 import { processarHistorico, type CompetenciaEntrada } from "@/lib/banco-horas";
 import { cargoForaDoBancoDeHoras, funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
@@ -80,7 +80,7 @@ async function montarPreview(parsed: { empresa: { codigo: string; nome: string }
 export async function previewExtratoBancoHoras(
   conteudo: string
 ): Promise<{ data: PreviewBancoHorasResult | null; error: string | null }> {
-  await requirePermissao("banco-horas", "operar");
+  const user = await requirePermissao("banco-horas", "operar");
 
   let parsed;
   try {
@@ -96,6 +96,7 @@ export async function previewExtratoBancoHoras(
       error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   const diff = await montarPreview(parsed, empresa.id);
 
@@ -139,6 +140,7 @@ export async function confirmarExtratoBancoHoras(
       error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(admin, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const linhasPorMatricula = new Map<string, BancoHorasLinha[]>();
   for (const l of parsed.linhas) {

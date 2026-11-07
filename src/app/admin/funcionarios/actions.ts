@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 
 const funcionarioSchema = z
@@ -47,6 +47,11 @@ const funcionarioSchema = z
 
 type FuncionarioInput = z.infer<typeof funcionarioSchema>;
 
+async function podeFuncionario(user: { id: string; role: string }, id: string) {
+  const atual = await prisma.funcionario.findUnique({ where: { id }, select: { empresaId: true } });
+  return !!atual && (await podeEmpresa(user, atual.empresaId));
+}
+
 function montarDados(data: FuncionarioInput) {
   return {
     empresaId: data.empresaId,
@@ -74,6 +79,7 @@ function montarDados(data: FuncionarioInput) {
 export async function createFuncionario(input: FuncionarioInput) {
   const admin = await requirePermissao("funcionarios", "operar");
   const data = funcionarioSchema.parse(input);
+  if (!(await podeEmpresa(admin, data.empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const existente = await prisma.funcionario.findUnique({
     where: { empresaId_matricula: { empresaId: data.empresaId, matricula: data.matricula } },
@@ -92,6 +98,9 @@ export async function createFuncionario(input: FuncionarioInput) {
 export async function updateFuncionario(id: string, input: FuncionarioInput) {
   const admin = await requirePermissao("funcionarios", "operar");
   const data = funcionarioSchema.parse(input);
+  if (!(await podeFuncionario(admin, id)) || !(await podeEmpresa(admin, data.empresaId))) {
+    return { error: MSG_EMPRESA_NAO_LIBERADA };
+  }
 
   const conflito = await prisma.funcionario.findFirst({
     where: { empresaId: data.empresaId, matricula: data.matricula, NOT: { id } },
@@ -109,6 +118,7 @@ export async function updateFuncionario(id: string, input: FuncionarioInput) {
 
 export async function deleteFuncionario(id: string) {
   const admin = await requirePermissao("funcionarios", "operar");
+  if (!(await podeFuncionario(admin, id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   await prisma.funcionario.delete({ where: { id } });
   await logAction(admin.id, "funcionario.delete", id);

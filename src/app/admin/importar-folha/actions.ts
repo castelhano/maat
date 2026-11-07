@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { parseFolhaSalarios, type FolhaSalariosLinha } from "@/lib/parsers/folha-salarios";
 
@@ -100,7 +100,7 @@ async function montarDiff(linhas: FolhaSalariosLinha[], empresa: { codigo: strin
 }
 
 export async function previewImportacao(conteudo: string): Promise<{ data: PreviewResult | null; error: string | null }> {
-  await requirePermissao("funcionarios", "operar");
+  const user = await requirePermissao("funcionarios", "operar");
 
   let parsed;
   try {
@@ -110,6 +110,9 @@ export async function previewImportacao(conteudo: string): Promise<{ data: Previ
   }
 
   const diff = await montarDiff(parsed.linhas, parsed.empresa);
+  if (diff.empresaExistente && !(await podeEmpresa(user, diff.empresaExistente.id))) {
+    return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
+  }
 
   return {
     data: {
@@ -138,12 +141,19 @@ export async function confirmarImportacao(
     return { error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
   }
 
+  const empresaExistente = await prisma.empresa.findUnique({ where: { codigo: parsed.empresa.codigo } });
+  if (empresaExistente && !(await podeEmpresa(admin, empresaExistente.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
+
   const resumo = await prisma.$transaction(async (tx) => {
     const empresa = await tx.empresa.upsert({
       where: { codigo: parsed.empresa.codigo },
       create: { codigo: parsed.empresa.codigo, nome: parsed.empresa.nome, abbr: primeiraPalavra(parsed.empresa.nome) },
       update: { nome: parsed.empresa.nome },
     });
+    // Usuário restrito que importa uma empresa nova passa a ter acesso a ela.
+    if (!empresaExistente && admin.role !== "admin") {
+      await tx.userEmpresa.create({ data: { userId: admin.id, empresaId: empresa.id } });
+    }
 
     const cargoIdPorNome = new Map<string, string>();
     let criados = 0;

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 import type { ConsignadoParseResult, ContratoConsignado } from "@/lib/parsers/econsignado";
 import type { FuncionarioFolha } from "@/lib/parsers/folha-pagamento";
@@ -102,7 +102,7 @@ export type PreviewConsignado = {
 };
 
 export async function previewConsignado(dados: ConsignadoParseResult): Promise<{ data: PreviewConsignado | null; error: string | null }> {
-  await requirePermissao("folha", "operar");
+  const user = await requirePermissao("folha", "operar");
   const parsed = consignadoSchema.safeParse(dados);
   if (!parsed.success) return { data: null, error: "O conteúdo do arquivo do e-Consignado não está no formato esperado." };
   const arq = parsed.data;
@@ -110,6 +110,7 @@ export async function previewConsignado(dados: ConsignadoParseResult): Promise<{
   const empresa = await identificarEmpresa(arq.contratos);
   if (!empresa)
     return { data: null, error: "Nenhum CPF do arquivo foi encontrado no cadastro de funcionários — importe o cadastro antes." };
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   const [existente, folha, mapa] = await Promise.all([
     prisma.consignadoImportacao.findUnique({
@@ -144,6 +145,7 @@ export async function confirmarConsignado(
   const arq = parsed.data;
   const empresa = await identificarEmpresa(arq.contratos);
   if (!empresa) return { error: "Nenhum CPF do arquivo foi encontrado no cadastro de funcionários." };
+  if (!(await podeEmpresa(user, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   await prisma.$transaction(async (tx) => {
     await tx.consignadoImportacao.deleteMany({ where: { empresaId: empresa.id, competencia: arq.competencia } });
@@ -209,7 +211,10 @@ async function carregarComparativo(empresaId: string, competencia: string) {
 }
 
 export async function buscarComparativoConsignado(empresaId: string, competencia: string): Promise<ComparativoConsignado> {
-  await requirePermissao("folha", "consultar");
+  const user = await requirePermissao("folha", "consultar");
+  if (!(await podeEmpresa(user, empresaId))) {
+    return { importado: false, folhaImportada: false, nomeArquivo: null, importadoEm: null, resumo: null, linhas: [] };
+  }
   const { importacao, folha, linhas } = await carregarComparativo(empresaId, competencia);
   return {
     importado: importacao !== null,
@@ -232,7 +237,8 @@ export type DadosTermoConsignado = {
 
 // Dados para o termo de ciência de um colaborador (identificado pelo CPF do arquivo).
 export async function buscarTermoConsignado(empresaId: string, competencia: string, cpf: string): Promise<DadosTermoConsignado | null> {
-  await requirePermissao("folha", "consultar");
+  const user = await requirePermissao("folha", "consultar");
+  if (!(await podeEmpresa(user, empresaId))) return null;
   const { importacao, linhas } = await carregarComparativo(empresaId, competencia);
   const linha = linhas.find((l) => l.cpf === cpf);
   if (!importacao || !linha) return null;

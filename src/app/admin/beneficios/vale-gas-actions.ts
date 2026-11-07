@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { competenciaEstaFechada } from "@/lib/competencia";
 import { calcularElegibilidadeValeGas, periodoAquisitivoValeGas, resolverHeranca, valeGasEhMesDeEntrega } from "@/lib/beneficios";
@@ -38,14 +38,14 @@ function parseCompetencia(competencia: string): { ano: number; mes: number } {
 }
 
 export async function carregarApuracaoValeGas(competencia: string): Promise<ApuracaoValeGasResumo | null> {
-  await requirePermissao("beneficios", "consultar");
+  const user = await requirePermissao("beneficios", "consultar");
   if (!competencia.trim()) return null;
   const { ano, mes } = parseCompetencia(competencia);
   if (!valeGasEhMesDeEntrega(mes)) return null;
   const periodo = periodoAquisitivoValeGas({ ano, mes });
 
   const apuracoes = await prisma.apuracaoValeGas.findMany({
-    where: { competencia },
+    where: { competencia, empresaId: await escopoEmpresa(user) },
     include: { itens: true, empresa: true },
     orderBy: { empresa: { nome: "asc" } },
   });
@@ -128,7 +128,8 @@ export async function processarApuracaoValeGas(
   }
 
   const periodo = periodoAquisitivoValeGas({ ano, mes });
-  const empresas = await prisma.empresa.findMany({ where: empresaId ? { id: empresaId } : undefined });
+  const escopo = await escopoEmpresa(admin);
+  const empresas = await prisma.empresa.findMany({ where: { AND: [{ id: escopo }, empresaId ? { id: empresaId } : {}] } });
 
   let empresasProcessadas = 0;
   let itensTotal = 0;
@@ -256,11 +257,12 @@ export async function processarApuracaoValeGas(
 // O valor da entrega é o mesmo pras 3 empresas (orçamento único por competência), então um só
 // preenchimento grava em todas as apurações já processadas dessa competência de uma vez.
 export async function salvarValorEntregaValeGas(competencia: string, valor: number | null): Promise<{ error: string | null }> {
-  await requirePermissao("beneficios", "operar");
-  const apuracoes = await prisma.apuracaoValeGas.findMany({ where: { competencia } });
+  const user = await requirePermissao("beneficios", "operar");
+  const where = { competencia, empresaId: await escopoEmpresa(user) };
+  const apuracoes = await prisma.apuracaoValeGas.findMany({ where });
   if (apuracoes.length === 0) {
     return { error: "Processe essa competência antes de registrar o valor da entrega." };
   }
-  await prisma.apuracaoValeGas.updateMany({ where: { competencia }, data: { valorEntrega: valor } });
+  await prisma.apuracaoValeGas.updateMany({ where, data: { valorEntrega: valor } });
   return { error: null };
 }

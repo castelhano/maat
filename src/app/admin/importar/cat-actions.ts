@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, escopoEmpresa, requirePermissao } from "@/lib/session";
 import { parseCat, type CatLinha } from "@/lib/parsers/cat";
 import { competenciaPadrao } from "@/lib/competencia";
 
@@ -27,9 +27,15 @@ export type PreviewCatResult = {
   jaImportados: number;
   ambiguos: PreviewCatAmbiguo[];
   naoEncontrados: { matricula: string; nome: string; dataAcidente: string }[];
+  // Linhas de empresas não liberadas para o usuário — ignoradas.
+  outrasEmpresas: number;
 };
 
-async function montarDiff(linhas: CatLinha[]) {
+// escopo: empresas liberadas para o usuário. A busca continua em todas as empresas (senão uma
+// matrícula repetida em outra empresa casaria com a pessoa errada); só no fim as linhas que caem
+// em empresa não liberada são descartadas e contadas em `outrasEmpresas`.
+async function montarDiff(linhas: CatLinha[], escopo: { in: string[] } | undefined) {
+  const liberada = (empresaId: string) => !escopo || escopo.in.includes(empresaId);
   const matriculas = linhas.map((l) => l.matricula);
   const funcionarios = await prisma.funcionario.findMany({
     where: { matricula: { in: matriculas } },
@@ -46,6 +52,7 @@ async function montarDiff(linhas: CatLinha[]) {
   const ambiguos: PreviewCatAmbiguo[] = [];
   const naoEncontrados: { matricula: string; nome: string; dataAcidente: string }[] = [];
   let jaImportados = 0;
+  let outrasEmpresas = 0;
 
   for (const linha of linhas) {
     const candidatos = porMatricula.get(linha.matricula) ?? [];
@@ -57,12 +64,17 @@ async function montarDiff(linhas: CatLinha[]) {
       });
       continue;
     }
+    const liberados = candidatos.filter((c) => liberada(c.empresaId));
+    if (liberados.length === 0) {
+      outrasEmpresas++;
+      continue;
+    }
     if (candidatos.length > 1) {
       ambiguos.push({
         matricula: linha.matricula,
         nome: linha.nome,
         dataAcidente: linha.dataAcidente.toISOString(),
-        empresasPossiveis: candidatos.map((c) => ({ id: c.empresaId, nome: c.empresa.nome })),
+        empresasPossiveis: liberados.map((c) => ({ id: c.empresaId, nome: c.empresa.nome })),
       });
       continue;
     }
@@ -87,11 +99,11 @@ async function montarDiff(linhas: CatLinha[]) {
     });
   }
 
-  return { novos, jaImportados, ambiguos, naoEncontrados };
+  return { novos, jaImportados, ambiguos, naoEncontrados, outrasEmpresas };
 }
 
 export async function previewCat(conteudo: string): Promise<{ data: PreviewCatResult | null; error: string | null }> {
-  await requirePermissao("importar", "operar");
+  const user = await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -100,7 +112,11 @@ export async function previewCat(conteudo: string): Promise<{ data: PreviewCatRe
     return { data: null, error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
   }
 
-  const diff = await montarDiff(parsed.linhas);
+  const escopo = await escopoEmpresa(user);
+  const diff = await montarDiff(parsed.linhas, escopo);
+  if (escopo && diff.novos.length + diff.jaImportados + diff.ambiguos.length === 0 && diff.outrasEmpresas > 0) {
+    return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
+  }
 
   return {
     data: {
@@ -109,6 +125,7 @@ export async function previewCat(conteudo: string): Promise<{ data: PreviewCatRe
       jaImportados: diff.jaImportados,
       ambiguos: diff.ambiguos,
       naoEncontrados: diff.naoEncontrados,
+      outrasEmpresas: diff.outrasEmpresas,
     },
     error: null,
   };
@@ -128,7 +145,16 @@ export async function confirmarCat(
     return { error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
   }
 
-  const diff = await montarDiff(parsed.linhas);
+  const escopo = await escopoEmpresa(admin);
+  const diff = await montarDiff(parsed.linhas, escopo);
+  if (escopo && diff.novos.length + diff.jaImportados + diff.ambiguos.length === 0 && diff.outrasEmpresas > 0) {
+    return { error: MSG_EMPRESA_NAO_LIBERADA };
+  }
+  const escolhaInvalida = diff.ambiguos.some((a) => {
+    const escolhida = resolucoesAmbiguas[`${a.matricula}:${a.dataAcidente}`];
+    return escolhida && !a.empresasPossiveis.some((e) => e.id === escolhida);
+  });
+  if (escolhaInvalida) return { error: "Empresa escolhida para um registro ambíguo não é válida." };
 
   const ambiguosPendentes = diff.ambiguos.filter((a) => !resolucoesAmbiguas[`${a.matricula}:${a.dataAcidente}`]);
   if (ambiguosPendentes.length > 0) {

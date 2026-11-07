@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, escopoEmpresa, podeEmpresa, requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 import type { FolhaPagamentoParseResult, FuncionarioFolha, TipoFolha } from "@/lib/parsers/folha-pagamento";
 import {
@@ -13,6 +13,8 @@ import {
   type ResultadoFuncionario,
 } from "@/lib/folha/conferencia";
 import { conferirFolha13, type Contexto13, type MesHistorico } from "@/lib/folha/conferencia-13";
+import { CODIGOS_MEDIA_FERIAS, type HistoricoFolhas, type ProgramacaoFerias } from "@/lib/folha/ferias-programacao";
+import type { AfastamentosPorMatricula } from "@/lib/folha/rescisao-motivo";
 
 // O TXT é lido no navegador (passaria do limite de envio do servidor) e chega aqui já separado
 // por funcionário — validamos o formato antes de gravar.
@@ -64,6 +66,86 @@ async function carregarBancoHoras(empresaId: string, competencia: string): Promi
       return [a.funcionario.matricula.padStart(6, "0"), { aPagar, aPagarRescisao: aPagar + Math.max(Number(a.saldoFinal), 0) }];
     })
   );
+}
+
+// Programação de Férias da empresa (período aquisitivo, faltas, dias de direito), por matrícula.
+async function carregarProgramacaoFerias(empresaId: string): Promise<ProgramacaoFerias | null> {
+  const periodos = await prisma.ferias.findMany({
+    where: { funcionario: { empresaId } },
+    select: {
+      periodoAquisitivoInicio: true,
+      periodoAquisitivoFim: true,
+      faltas: true,
+      diasDireito: true,
+      gozoInicio: true,
+      gozoFim: true,
+      diasAbono: true,
+      funcionario: { select: { matricula: true } },
+    },
+  });
+  if (periodos.length === 0) return null;
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+  const mapa: ProgramacaoFerias = new Map();
+  for (const p of periodos) {
+    const matricula = p.funcionario.matricula.padStart(6, "0");
+    mapa.set(matricula, [
+      ...(mapa.get(matricula) ?? []),
+      {
+        inicio: iso(p.periodoAquisitivoInicio)!,
+        fim: iso(p.periodoAquisitivoFim)!,
+        faltas: p.faltas,
+        diasDireito: p.diasDireito,
+        gozoInicio: iso(p.gozoInicio),
+        gozoFim: iso(p.gozoFim),
+        diasAbono: p.diasAbono,
+      },
+    ]);
+  }
+  return mapa;
+}
+
+// Folhas mensais já importadas da empresa (salário e variáveis por mês), para as médias de férias,
+// e afastamentos (aba de afastamentos + situação "Afastado em" das folhas), para o aviso proporcional.
+async function carregarHistoricoFolhas(empresaId: string): Promise<{ historico: HistoricoFolhas; afastamentos: AfastamentosPorMatricula }> {
+  const [folhas, historicoAfastamentos] = await Promise.all([
+    prisma.folhaPagamento.findMany({
+      where: { empresaId, tipo: "mensal" },
+      select: { competencia: true, itens: { select: { matricula: true, salarioBase: true, situacao: true, eventos: true } } },
+    }),
+    prisma.afastamentoHistorico.findMany({
+      where: { funcionario: { empresaId } },
+      select: { dataInicio: true, dataFim: true, funcionario: { select: { matricula: true } } },
+    }),
+  ]);
+  const historico: HistoricoFolhas = { competencias: new Set(), porMatricula: new Map() };
+  const afastamentos: AfastamentosPorMatricula = new Map();
+  const adicionar = (matricula: string, inicio: string, fim: string | null) => {
+    const lista = afastamentos.get(matricula) ?? [];
+    const existente = lista.find((a) => a.inicio === inicio);
+    if (existente) {
+      if (fim && (!existente.fim || fim > existente.fim)) existente.fim = fim;
+    } else lista.push({ inicio, fim });
+    afastamentos.set(matricula, lista);
+  };
+  for (const a of historicoAfastamentos) {
+    adicionar(a.funcionario.matricula.padStart(6, "0"), a.dataInicio.toISOString().slice(0, 10), a.dataFim ? a.dataFim.toISOString().slice(0, 10) : null);
+  }
+  for (const folha of folhas) {
+    const [mes, ano] = folha.competencia.split("/");
+    const chave = `${ano}-${mes}`;
+    const fimDoMes = new Date(Date.UTC(Number(ano), Number(mes), 0)).toISOString().slice(0, 10);
+    historico.competencias.add(chave);
+    for (const item of folha.itens) {
+      const eventos: { codigo: string; valor: number }[] = JSON.parse(item.eventos);
+      const variaveis = eventos.filter((e) => CODIGOS_MEDIA_FERIAS.includes(e.codigo)).reduce((a, e) => a + e.valor, 0);
+      const porMes = historico.porMatricula.get(item.matricula) ?? new Map();
+      porMes.set(chave, { salario: Number(item.salarioBase), variaveis });
+      historico.porMatricula.set(item.matricula, porMes);
+      const afastado = item.situacao.match(/^Afastado em (\d{2})\/(\d{2})\/(\d{4})/i);
+      if (afastado) adicionar(item.matricula, `${afastado[3]}-${afastado[2]}-${afastado[1]}`, fimDoMes);
+    }
+  }
+  return { historico, afastamentos };
 }
 
 type ItemGravado = {
@@ -153,7 +235,7 @@ export type PreviewFolha = {
 export async function previewFolha(
   dados: FolhaPagamentoParseResult
 ): Promise<{ data: PreviewFolha | null; error: string | null }> {
-  await requirePermissao("folha", "operar");
+  const user = await requirePermissao("folha", "operar");
   const parsed = folhaSchema.safeParse(dados);
   if (!parsed.success) return { data: null, error: "O conteúdo do arquivo não está no formato esperado." };
   const folha = parsed.data;
@@ -165,6 +247,7 @@ export async function previewFolha(
       error: `Empresa ${folha.empresa.codigo} (${folha.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
   const existente = await prisma.folhaPagamento.findUnique({
     where: { empresaId_competencia_tipo: { empresaId: empresa.id, competencia: folha.competencia, tipo: folha.tipo } },
     select: { id: true },
@@ -173,7 +256,8 @@ export async function previewFolha(
   let bancoHoras: BancoHorasCompetencia | null = null;
   if (folha.tipo === "mensal") {
     bancoHoras = await carregarBancoHoras(empresa.id, folha.competencia);
-    resultados = conferirFolha(folha.funcionarios, folha.competencia, bancoHoras).resultados;
+    const [programacao, { historico, afastamentos }] = await Promise.all([carregarProgramacaoFerias(empresa.id), carregarHistoricoFolhas(empresa.id)]);
+    resultados = conferirFolha(folha.funcionarios, folha.competencia, bancoHoras, programacao, historico, afastamentos).resultados;
   } else {
     const contexto = await carregarContexto13(empresa.id, folha.competencia, folha.tipo);
     resultados = conferirFolha13(folha.funcionarios, folha.competencia, folha.tipo, contexto).resultados;
@@ -206,6 +290,7 @@ export async function confirmarFolha(
 
   const empresa = await prisma.empresa.findUnique({ where: { codigo: folha.empresa.codigo } });
   if (!empresa) return { error: `Empresa ${folha.empresa.codigo} não está cadastrada.` };
+  if (!(await podeEmpresa(user, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   await prisma.$transaction(async (tx) => {
     // Reimportar substitui a folha inteira da competência e do tipo (itens caem junto, em
@@ -268,8 +353,9 @@ export type FolhaImportada = {
 };
 
 export async function listarFolhasImportadas(): Promise<FolhaImportada[]> {
-  await requirePermissao("folha", "consultar");
+  const user = await requirePermissao("folha", "consultar");
   const folhas = await prisma.folhaPagamento.findMany({
+    where: { empresaId: await escopoEmpresa(user) },
     select: {
       empresaId: true,
       competencia: true,
@@ -321,7 +407,8 @@ export async function buscarAnaliseFolha(
   competencia: string,
   tipo: TipoFolha = "mensal"
 ): Promise<{ data: AnaliseFolha | null; error: string | null }> {
-  await requirePermissao("folha", "consultar");
+  const user = await requirePermissao("folha", "consultar");
+  if (!(await podeEmpresa(user, empresaId))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
   const folha = await prisma.folhaPagamento.findUnique({
     where: { empresaId_competencia_tipo: { empresaId, competencia, tipo } },
     include: { empresa: { select: { nome: true, abbr: true } }, itens: { orderBy: { matricula: "asc" } } },
@@ -339,7 +426,8 @@ export async function buscarAnaliseFolha(
   let primeiraParcelaImportada = false;
   if (tipo === "mensal") {
     bancoHoras = await carregarBancoHoras(empresaId, competencia);
-    ({ resultados, calendario, anoParametros, parametrosExatos } = conferirFolha(funcionarios, competencia, bancoHoras));
+    const [programacao, { historico, afastamentos }] = await Promise.all([carregarProgramacaoFerias(empresaId), carregarHistoricoFolhas(empresaId)]);
+    ({ resultados, calendario, anoParametros, parametrosExatos } = conferirFolha(funcionarios, competencia, bancoHoras, programacao, historico, afastamentos));
   } else {
     const contexto = await carregarContexto13(empresaId, competencia, tipo);
     ({ resultados, anoParametros, parametrosExatos } = conferirFolha13(funcionarios, competencia, tipo, contexto));

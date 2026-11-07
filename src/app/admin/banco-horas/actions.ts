@@ -1,15 +1,15 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao, restringirEscopo } from "@/lib/session";
 import { CARGOS_FORA_BANCO_HORAS, funcaoNaoPodeCredito } from "@/lib/banco-horas-alertas";
 
 export type FuncionarioOpcao = { id: string; matricula: string; nome: string };
 
 export async function listarFuncionariosComBancoHoras(): Promise<FuncionarioOpcao[]> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
   return prisma.funcionario.findMany({
-    where: { bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } },
+    where: { empresaId: await escopoEmpresa(user), bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } },
     select: { id: true, matricula: true, nome: true },
     orderBy: { nome: "asc" },
   });
@@ -88,16 +88,20 @@ export type ResumoMensalOpcoesFiltro = {
 };
 
 export async function listarOpcoesFiltroResumoMensal(): Promise<ResumoMensalOpcoesFiltro> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   const [empresas, cargos] = await Promise.all([
     prisma.empresa.findMany({
-      where: { funcionarios: { some: { bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } } } },
+      where: { id: escopo, funcionarios: { some: { bancoHorasApuracoes: { some: {} }, cargo: { nome: { notIn: CARGOS_FORA_BANCO_HORAS } } } } },
       select: { id: true, nome: true },
       orderBy: { nome: "asc" },
     }),
     prisma.cargo.findMany({
-      where: { nome: { notIn: CARGOS_FORA_BANCO_HORAS }, funcionarios: { some: { bancoHorasApuracoes: { some: {} } } } },
+      where: {
+        nome: { notIn: CARGOS_FORA_BANCO_HORAS },
+        funcionarios: { some: { empresaId: escopo, bancoHorasApuracoes: { some: {} } } },
+      },
       select: { departamento: true, setor: true },
     }),
   ]);
@@ -112,7 +116,8 @@ export async function buscarResumoMensal(
   competencia: string,
   filtros?: ResumoMensalFiltros
 ): Promise<{ data: ResumoMensalResult | null; error: string | null }> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   if (!competencia) return { data: null, error: "Selecione a competência." };
 
@@ -123,7 +128,7 @@ export async function buscarResumoMensal(
         // Desligados não entram no fechamento mensal dos ativos — ficam ocultos aqui mesmo com
         // apuração de banco de horas gravada (ex.: importada só pra calcular verbas rescisórias).
         status: { not: "desligado" },
-        empresaId: filtros?.empresaId || undefined,
+        empresaId: restringirEscopo(escopo, filtros?.empresaId),
         cargo: {
           nome: { notIn: CARGOS_FORA_BANCO_HORAS },
           departamento: filtros?.departamento || undefined,
@@ -254,8 +259,9 @@ export type EvolucaoResult = {
 };
 
 export async function listarCompetenciasDisponiveis(): Promise<string[]> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
   const rows = await prisma.bancoHorasApuracao.findMany({
+    where: { funcionario: { empresaId: await escopoEmpresa(user) } },
     select: { competencia: true },
     distinct: ["competencia"],
   });
@@ -267,7 +273,8 @@ export async function buscarEvolucao(
   competenciaFim: string,
   filtros?: ResumoMensalFiltros
 ): Promise<{ data: EvolucaoResult | null; error: string | null }> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   if (!competenciaInicio || !competenciaFim) return { data: null, error: "Selecione o período." };
   if (compararCompetencias(competenciaInicio, competenciaFim) > 0) {
@@ -277,7 +284,7 @@ export async function buscarEvolucao(
   const apuracoes = await prisma.bancoHorasApuracao.findMany({
     where: {
       funcionario: {
-        empresaId: filtros?.empresaId || undefined,
+        empresaId: restringirEscopo(escopo, filtros?.empresaId),
         cargo: {
           nome: { notIn: CARGOS_FORA_BANCO_HORAS },
           departamento: filtros?.departamento || undefined,
@@ -354,10 +361,10 @@ export async function buscarExtratoColaborador(
   competenciaFim: string,
   opcoes?: { completo?: boolean }
 ): Promise<{ data: ExtratoResult | null; error: string | null }> {
-  await requirePermissao("banco-horas", "consultar");
+  const user = await requirePermissao("banco-horas", "consultar");
 
-  const funcionario = await prisma.funcionario.findUnique({
-    where: { id: funcionarioId },
+  const funcionario = await prisma.funcionario.findFirst({
+    where: { id: funcionarioId, empresaId: await escopoEmpresa(user) },
     select: { matricula: true, nome: true },
   });
   if (!funcionario) return { data: null, error: "Funcionário não encontrado." };

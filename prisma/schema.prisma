@@ -30,6 +30,7 @@ model User {
   sessions        Session[]
   accounts        Account[]
   permissoes      UserPermissao[]
+  empresas        UserEmpresa[]
 
   @@unique([email])
   @@unique([username])
@@ -49,6 +50,21 @@ model UserPermissao {
 
   @@unique([userId, modulo])
   @@map("user_permissao")
+}
+
+// Empresas liberadas para usuários não-admin (admin acessa todas). Vale para todas as rotinas:
+// telas, relatórios e importações só mostram/gravam dados dessas empresas.
+// Sem nenhuma linha = nenhuma empresa liberada.
+model UserEmpresa {
+  userId    String
+  empresaId String
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  empresa Empresa @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+
+  @@id([userId, empresaId])
+  @@index([empresaId])
+  @@map("user_empresa")
 }
 
 model Session {
@@ -138,6 +154,7 @@ model Empresa {
   consignadoImportacoes ConsignadoImportacao[]
   indicadoresMensais   IndicadorMensal[]
   rateiosTotais        RateioTotalCampo[]
+  usuarios             UserEmpresa[]
 
   @@unique([codigo])
   @@map("empresa")

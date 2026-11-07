@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao, restringirEscopo } from "@/lib/session";
 import { chaveCompetencia, diasUteisNoMes, labelMotivoFalta } from "@/lib/indicadores";
 
 const DESDE_COMPETENCIA = "01/2026";
@@ -26,7 +26,8 @@ function competenciaDaData(data: Date): string {
 export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: string }): Promise<{
   meses: AbsenteismoMes[];
 }> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   const [mesInicio, anoInicio] = DESDE_COMPETENCIA.split("/").map(Number);
 
@@ -34,7 +35,7 @@ export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: 
     where: {
       data: { gte: new Date(Date.UTC(anoInicio, mesInicio - 1, 1)) },
       funcionario: {
-        ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
+        empresaId: restringirEscopo(escopo, filtro.empresaId),
         ...(filtro.setor ? { cargo: { setor: filtro.setor } } : {}),
       },
     },
@@ -43,7 +44,7 @@ export async function carregarAbsenteismo(filtro: { empresaId?: string; setor?: 
 
   const indicadores = await prisma.indicadorMensal.findMany({
     where: {
-      ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
+      empresaId: restringirEscopo(escopo, filtro.empresaId),
       ...(filtro.setor ? { setor: filtro.setor } : {}),
     },
     select: { competencia: true, ativos: true },

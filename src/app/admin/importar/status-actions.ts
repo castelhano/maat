@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 
 export type StatusImportacaoTipo = {
   empresasImportadas: { id: string; nome: string; importadoEm: string }[];
@@ -10,11 +10,11 @@ export type StatusImportacaoTipo = {
 export type StatusImportacoes = Record<string, StatusImportacaoTipo>;
 
 export async function statusImportacoes(competencia: string): Promise<StatusImportacoes> {
-  await requirePermissao("importar", "consultar");
+  const user = await requirePermissao("importar", "consultar");
   if (!competencia.trim()) return {};
 
   const importacoes = await prisma.importacao.findMany({
-    where: { competencia },
+    where: { competencia, empresaId: await escopoEmpresa(user) },
     include: { empresa: true },
     orderBy: { createdAt: "desc" },
   });

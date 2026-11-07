@@ -1,14 +1,14 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao, restringirEscopo } from "@/lib/session";
 
 export type OpcaoEmpresaCat = { id: string; nome: string };
 
 export async function listarEmpresasComCat(): Promise<OpcaoEmpresaCat[]> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
   const empresas = await prisma.empresa.findMany({
-    where: { funcionarios: { some: { cats: { some: {} } } } },
+    where: { id: await escopoEmpresa(user), funcionarios: { some: { cats: { some: {} } } } },
     select: { id: true, nome: true },
     orderBy: { nome: "asc" },
   });
@@ -28,12 +28,13 @@ export async function carregarAcidentes(filtro: {
   empresaId?: string;
   setor?: string;
 }): Promise<{ linhas: AcidenteLinha[] }> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   const registros = await prisma.cat.findMany({
     where: {
       funcionario: {
-        ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
+        empresaId: restringirEscopo(escopo, filtro.empresaId),
         ...(filtro.setor ? { cargo: { setor: filtro.setor } } : {}),
       },
     },

@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { parseFerias, diasDireitoPorFaltas, type FeriasLinha } from "@/lib/parsers/ferias";
 import { dataPagamentoFerias, limiteProrrogado } from "@/lib/feriados";
 
@@ -76,10 +76,18 @@ async function montarDiff(linhas: FeriasLinha[], codigoEmpresa: string) {
   return { empresa, novos, atualizados, semMudanca, naoEncontrados };
 }
 
+async function podeFerias(user: { id: string; role: string }, feriasId: string) {
+  const ferias = await prisma.ferias.findUnique({
+    where: { id: feriasId },
+    select: { funcionario: { select: { empresaId: true } } },
+  });
+  return !!ferias && (await podeEmpresa(user, ferias.funcionario.empresaId));
+}
+
 export async function previewImportacaoFerias(
   conteudo: string
 ): Promise<{ data: PreviewResult | null; error: string | null }> {
-  await requirePermissao("ferias", "operar");
+  const user = await requirePermissao("ferias", "operar");
 
   let parsed;
   try {
@@ -89,6 +97,7 @@ export async function previewImportacaoFerias(
   }
 
   const diff = await montarDiff(parsed.linhas, parsed.empresa.codigo);
+  if (diff.empresa && !(await podeEmpresa(user, diff.empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   return {
     data: {
@@ -122,6 +131,7 @@ export async function confirmarImportacaoFerias(
       error: `Empresa "${parsed.empresa.nome}" (código ${parsed.empresa.codigo}) ainda não está cadastrada. Importe a folha de salários dessa empresa primeiro.`,
     };
   }
+  if (!(await podeEmpresa(admin, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const resumo = await prisma.$transaction(async (tx) => {
     const funcionarios = await tx.funcionario.findMany({ where: { empresaId: empresa.id } });
@@ -238,13 +248,14 @@ async function calcularDatas(input: ProgramacaoInput, diasGozo: number) {
 export async function salvarProgramacao(
   input: ProgramacaoInput
 ): Promise<{ error: string | null }> {
-  await requirePermissao("ferias", "operar");
+  const user = await requirePermissao("ferias", "operar");
 
   const ferias = await prisma.ferias.findUnique({
     where: { id: input.feriasId },
     include: { funcionario: { include: { afastamentos: true } } },
   });
   if (!ferias) return { error: "Período de férias não encontrado." };
+  if (!(await podeEmpresa(user, ferias.funcionario.empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   if (input.diasAbono > 0 && !input.abonoTipo) {
     return { error: "Escolha se o abono fica no início ou no final do período de gozo." };
@@ -334,7 +345,8 @@ export async function alternarExibirMural(
   feriasId: string,
   exibirMural: boolean
 ): Promise<{ error: string | null }> {
-  await requirePermissao("ferias", "operar");
+  const user = await requirePermissao("ferias", "operar");
+  if (!(await podeFerias(user, feriasId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
   await prisma.ferias.update({ where: { id: feriasId }, data: { exibirMural } });
   return { error: null };
 }
@@ -348,7 +360,8 @@ export async function alternarTravamento(
   feriasId: string,
   travado: boolean
 ): Promise<{ error: string | null }> {
-  await requirePermissao("ferias", "operar");
+  const user = await requirePermissao("ferias", "operar");
+  if (!(await podeFerias(user, feriasId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
   await prisma.ferias.update({ where: { id: feriasId }, data: { travado } });
   return { error: null };
 }

@@ -144,6 +144,11 @@ export function SituacaoImportador({
               <StatCard label="Cargos VR" value={preview.cargosVR.length} cor="blue" />
               <StatCard label="Não encontrados" value={preview.naoEncontrados.length} cor="red" />
             </div>
+            {preview.outrasEmpresas > 0 && (
+              <p className="font-mono text-[11px] text-text-3">
+                {preview.outrasEmpresas} linha(s) de empresas não liberadas para você foram ignoradas.
+              </p>
+            )}
           </div>
 
           {preview.funcoesNaoCadastradas.length > 0 && (

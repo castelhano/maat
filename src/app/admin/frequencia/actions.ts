@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 
 // A análise de frequência é feita toda no navegador e não fica gravada; o relatório só traz o
 // código do colaborador, então buscamos aqui o nome no cadastro da empresa.
@@ -14,8 +14,8 @@ const entradaSchema = z.object({
 export async function buscarNomesFrequencia(
   empresaCodigo: string,
   matriculas: string[]
-): Promise<{ empresaNome: string | null; nomes: Record<string, string> }> {
-  await requirePermissao("frequencia", "consultar");
+): Promise<{ empresaNome: string | null; nomes: Record<string, string>; error?: string }> {
+  const user = await requirePermissao("frequencia", "consultar");
   const parsed = entradaSchema.safeParse({ empresaCodigo, matriculas });
   if (!parsed.success) return { empresaNome: null, nomes: {} };
 
@@ -24,6 +24,7 @@ export async function buscarNomesFrequencia(
     select: { id: true, nome: true, abbr: true },
   });
   if (!empresa) return { empresaNome: null, nomes: {} };
+  if (!(await podeEmpresa(user, empresa.id))) return { empresaNome: null, nomes: {}, error: MSG_EMPRESA_NAO_LIBERADA };
 
   const procuradas = new Set(parsed.data.matriculas);
   const funcionarios = await prisma.funcionario.findMany({

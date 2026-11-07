@@ -1,13 +1,14 @@
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { limiteProrrogado } from "@/lib/feriados";
 import { FeriasTable } from "./ferias-table";
 
 export default async function FeriasPage() {
-  await requirePermissao("ferias", "consultar");
+  const user = await requirePermissao("ferias", "consultar");
 
   const [periodos, quinzenas] = await Promise.all([
     prisma.ferias.findMany({
+      where: { funcionario: { empresaId: await escopoEmpresa(user) } },
       orderBy: { dataLimite: "asc" },
       include: {
         funcionario: {

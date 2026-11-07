@@ -4,6 +4,8 @@
 import type { EventoFolha, FuncionarioFolha } from "../parsers/folha-pagamento";
 import { feriadosNacionais } from "../feriados";
 import { parametrosDoAno, type ParametrosFolha } from "./parametros";
+import { conferirFeriasProgramacao, type HistoricoFolhas, type ProgramacaoFerias } from "./ferias-programacao";
+import { conferirMotivoDesligamento, type AfastamentosPorMatricula } from "./rescisao-motivo";
 
 export type StatusCritica = "ok" | "erro" | "alerta" | "pendente" | "info";
 
@@ -110,6 +112,11 @@ export function calcularIr(baseIr: number, rendimentoBruto: number, p: Parametro
   }
   imposto = arred(imposto);
   return imposto < p.irMinimoRetencao ? 0 : imposto;
+}
+
+function dataBr(s: string): [number, number, number] {
+  const [d, m, a] = s.split("/").map(Number);
+  return [a, m - 1, d];
 }
 
 function diasNaCompetencia(inicio: string, fim: string, competencia: string): number {
@@ -267,10 +274,7 @@ export function conferirFuncionario(
 
   // --- DSR sobre horas extras e sobre adicional noturno ------------------------------------
   const dsrPerdidos = ev("00509")?.referencia ?? 0;
-  const fatorDsr = (calendario.diasDsr - dsrPerdidos) / calendario.diasUteis;
-  const textoFator = `${calendario.diasDsr - dsrPerdidos} dia(s) de descanso ÷ ${calendario.diasUteis} dias úteis`;
-  // Na rescisão o DSR é proporcional aos dias trabalhados até o desligamento.
-  const motivoDsrRescisao = rescisao ? "na rescisão o DSR é proporcional ao período trabalhado; será conferido com o histórico." : undefined;
+  // Na rescisão o DSR usa o mês completo, como nos outros meses; só diminui com faltas (confirmado pelo DP).
   // Suspensão com desconto de DSR: não há regra clara se o reflexo das horas extras no DSR também
   // cai. Se o ERP pagou pelo mês cheio (sem reduzir), vira alerta para a empresa confirmar o critério.
   const fatorCheio = calendario.diasDsr / calendario.diasUteis;
@@ -281,36 +285,51 @@ export function conferirFuncionario(
           motivo: `houve suspensão no mês e o ERP pagou o DSR pelo mês cheio (${calendario.diasDsr} dias), sem reduzir o dia descontado. Não há regra clara na lei — confirmar o critério da empresa.`,
         }
       : undefined;
+  // Na rescisão o 00509 nem sempre vem (ou vem diferente): o ERP tira 1 DSR por semana com falta.
+  // Se o valor não bate com o 00509, aceita de 1 até o nº de faltas (00508) de DSR a menos.
+  const faltasRescisao = rescisao ? (ev("00508")?.referencia ?? 0) : 0;
+  const diasDsrUsados = (calcular: (dias: number) => number, encontrado: number, tolerancia: number) => {
+    const padrao = calendario.diasDsr - dsrPerdidos;
+    if (faltasRescisao <= 0 || Math.abs(calcular(padrao) - encontrado) <= tolerancia) return { dias: padrao, nota: "" };
+    for (let k = 1; k <= Math.min(Math.ceil(faltasRescisao), calendario.diasDsr); k++) {
+      if (Math.abs(calcular(calendario.diasDsr - k) - encontrado) <= tolerancia)
+        return { dias: calendario.diasDsr - k, nota: ` Rescisão com ${fmt(faltasRescisao)} falta(s): ${k} DSR a menos (um por semana com falta).` };
+    }
+    return { dias: padrao, nota: "" };
+  };
+  const textoDias = (dias: number) => `${dias} dia(s) de descanso ÷ ${calendario.diasUteis} dias úteis`;
   if (tem("00126")) {
     // 00659 = horas extras do banco pendentes do mês anterior (ou da rescisão) — também refletem no DSR.
     const baseHe = val("00003") + val("00363") + val("00659");
+    const usados = diasDsrUsados((dias) => (baseHe * dias) / calendario.diasUteis, val("00126"), TOLERANCIA);
     comparar(
       "dsr",
       "DSR sobre horas extras",
-      baseHe * fatorDsr,
+      (baseHe * usados.dias) / calendario.diasUteis,
       val("00126"),
-      `(HE 50% + HE 100%${tem("00659") ? " + HE banco de horas" : ""}) ${fmt(baseHe)} × ${textoFator}.`,
+      `(HE 50% + HE 100%${tem("00659") ? " + HE banco de horas" : ""}) ${fmt(baseHe)} × ${textoDias(usados.dias)}.${usados.nota}`,
       TOLERANCIA,
-      motivoDsrRescisao ?? suspensaoSemReducao(baseHe * fatorCheio, val("00126"), TOLERANCIA)
+      suspensaoSemReducao(baseHe * fatorCheio, val("00126"), TOLERANCIA)
     );
   }
   const dsrNoturno = ev("00119");
   const noturno = ev("00004");
   if (dsrNoturno && noturno?.referencia) {
     const divisor = divisorHoras ?? divisorFixo ?? p.divisoresHora[0];
-    const horasDsr = noturno.referencia * fatorDsr;
     // O ERP calcula o DSR do noturno sobre a hora sem o adicional de insalubridade/periculosidade.
     const valorHoraNoturna = (f.salarioBase / divisor) * p.adicionalNoturno;
-    const esperado = horasDsr * valorHoraNoturna;
     const tolerancia = Math.max(TOLERANCIA, valorHoraNoturna * 0.005 + 0.01);
+    const calcular = (dias: number) => ((noturno.referencia! * dias) / calendario.diasUteis) * valorHoraNoturna;
+    const usados = diasDsrUsados(calcular, dsrNoturno.valor, tolerancia);
+    const horasDsr = (noturno.referencia * usados.dias) / calendario.diasUteis;
     comparar(
       "dsr",
       "DSR sobre adicional noturno",
-      esperado,
+      calcular(usados.dias),
       dsrNoturno.valor,
-      `${fmt(noturno.referencia)} h noturnas × ${textoFator} = ${fmt(horasDsr)} h × (${fmt(f.salarioBase)} ÷ ${divisor}) × 20%.`,
+      `${fmt(noturno.referencia)} h noturnas × ${textoDias(usados.dias)} = ${fmt(horasDsr)} h × (${fmt(f.salarioBase)} ÷ ${divisor}) × 20%.${usados.nota}`,
       tolerancia,
-      motivoDsrRescisao ?? suspensaoSemReducao(noturno.referencia * fatorCheio * valorHoraNoturna, dsrNoturno.valor, tolerancia)
+      suspensaoSemReducao(noturno.referencia * fatorCheio * valorHoraNoturna, dsrNoturno.valor, tolerancia)
     );
   }
 
@@ -333,7 +352,7 @@ export function conferirFuncionario(
 
   // --- IR -----------------------------------------------------------------------------------
   if (rescisao) {
-    if (tem("00453") || tem("00101")) pendente("ir", "IR da rescisão", "Conferência do IR da rescisão será liberada junto com o histórico e os motivos de desligamento.");
+    if (tem("00453") || tem("00101")) pendente("ir", "IR da rescisão", "O IR da rescisão ainda não é conferido pelo sistema (próxima etapa) — conferir no Praxio.");
   } else if (tem("00096") && tem("00101")) {
     const bruto = val("00096");
     const dependentes = val("00800");
@@ -379,8 +398,42 @@ export function conferirFuncionario(
     else if (p.irRedutor && bruto <= p.irRedutor.ateParcial) explicacao += `; com redução de ${fmt(p.irRedutor.valorFixo - p.irRedutor.fator * bruto)} (rendimento ${fmt(bruto)})`;
     comparar("ir", "IR", esperado, val("00453"), `${explicacao}.`);
   }
+  // IR das férias pela base 00109. O recibo é calculado inteiro (todos os dias de gozo); quando o
+  // gozo passa de um mês para o outro, a folha traz só a parte do mês (bases 00109/00981) e o IR vem
+  // inteiro no 1º mês (Rápido, VPAR) ou dividido pelos dias de cada mês (Pantanal) — aceita os dois.
   if (tem("00481")) {
-    pendente("ir_ferias", "IR das férias", "O IR das férias é calculado no recibo de férias (pode cobrir dois meses) — precisa do histórico para conferir.");
+    const irFerias = val("00481");
+    const totalDias =
+      f.gozoInicio && f.gozoFim
+        ? Math.round((Date.UTC(...dataBr(f.gozoFim)) - Date.UTC(...dataBr(f.gozoInicio))) / 86_400_000) + 1
+        : 0;
+    const diasMes = f.gozoInicio && f.gozoFim ? diasNaCompetencia(f.gozoInicio, f.gozoFim, competencia) : 0;
+    const fracao = totalDias > 0 && diasMes > 0 ? diasMes / totalDias : 1;
+    const semMinimo = { ...p, irMinimoRetencao: 0 };
+    const irRecibo = calcularIr(val("00109") / fracao, val("00981") / fracao, semMinimo);
+    const irDoMes = arred(irRecibo * fracao);
+    const textoBase =
+      fracao < 1
+        ? `Recibo inteiro (${totalDias} dias de gozo): base ${fmt(val("00109") / fracao)} → IR ${fmt(irRecibo)}; ${diasMes} dia(s) neste mês → ${fmt(irDoMes)}`
+        : `Tabela sobre a base das férias (109) ${fmt(val("00109"))}, rendimento ${fmt(val("00981"))} → IR ${fmt(irRecibo)}`;
+    if (Math.abs(irDoMes - irFerias) <= TOLERANCIA) {
+      criticas.push({ regra: "ir_ferias", titulo: "IR das férias", status: "ok", esperado: irDoMes, encontrado: arred(irFerias), detalhe: `${textoBase}.` });
+    } else if (fracao < 1 && Math.abs(irRecibo - irFerias) <= TOLERANCIA) {
+      criticas.push({
+        regra: "ir_ferias",
+        titulo: "IR das férias",
+        status: "ok",
+        esperado: irRecibo,
+        encontrado: arred(irFerias),
+        detalhe: `${textoBase}. O ERP lançou o IR do recibo inteiro neste mês.`,
+      });
+    } else {
+      pendente(
+        "ir_ferias",
+        "IR das férias",
+        `${textoBase}; descontado ${fmt(irFerias)}. Não bateu pela base 109${tem("00213") ? " — há abono pecuniário no recibo, que muda a divisão entre os meses" : ""}; conferir no recibo de férias.`
+      );
+    }
   }
 
   // --- FGTS ---------------------------------------------------------------------------------
@@ -481,7 +534,7 @@ export function conferirFuncionario(
     }
   }
   if (tem("00084") || tem("00215")) {
-    pendente("ferias_medias", "Médias de férias", "Médias de horas extras/adicionais dos últimos 12 meses — precisa do histórico das folhas.");
+    pendente("ferias_medias", "Médias de férias", "Médias do período aquisitivo (HE, noturno e DSRs corrigidos pelo salário atual ÷ 12) — o período não está na Programação de Férias (já foi gozado) ou faltam folhas dele no sistema.");
   }
   if (tem("00358") || tem("00359") || tem("00360")) {
     pendente("ferias_medias", "Adicional de insalubridade nas férias", "Depende da base de insalubridade do período aquisitivo — precisa do histórico.");
@@ -554,7 +607,16 @@ export type BancoHorasCompetencia = Map<string, { aPagar: number; aPagarRescisao
 
 // `bancoHoras` null = o banco de horas da competência ainda não foi importado; aí a conferência
 // da hora extra 50% não é feita (a tela avisa) e entra sozinha quando ele for importado.
-export function conferirFolha(funcionarios: FuncionarioFolha[], competencia: string, bancoHoras: BancoHorasCompetencia | null = null) {
+// `programacao`: períodos da Programação de Férias (null = empresa sem programação importada;
+// undefined = não conferir).
+export function conferirFolha(
+  funcionarios: FuncionarioFolha[],
+  competencia: string,
+  bancoHoras: BancoHorasCompetencia | null = null,
+  programacao?: ProgramacaoFerias | null,
+  historico?: HistoricoFolhas,
+  afastamentos?: AfastamentosPorMatricula
+) {
   const ano = Number(competencia.split("/")[1]);
   const { parametros, exato } = parametrosDoAno(ano);
   const calendario = calendarioCompetencia(competencia);
@@ -562,7 +624,9 @@ export function conferirFolha(funcionarios: FuncionarioFolha[], competencia: str
   const resultados = funcionarios.map((f) => {
     const resultado = conferirFuncionario(f, competencia, calendario, parametros, salarioMotorista);
     const conferido = conferirComSalarioAnterior(f, resultado, competencia, calendario, parametros, salarioMotorista) ?? resultado;
-    return bancoHoras ? conferirBancoHoras(f, conferido, bancoHoras, parametros) : conferido;
+    const comBanco = bancoHoras ? conferirBancoHoras(f, conferido, bancoHoras, parametros) : conferido;
+    const comFerias = programacao === undefined ? comBanco : conferirFeriasProgramacao(f, comBanco, programacao, historico);
+    return comFerias.categoria === "rescisao" ? conferirMotivoDesligamento(f, comFerias, afastamentos) : comFerias;
   });
   return { resultados, calendario, anoParametros: parametros.ano, parametrosExatos: exato, salarioMotorista };
 }

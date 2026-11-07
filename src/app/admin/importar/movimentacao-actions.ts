@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { parseAdmitidosDesligados, MOTIVO_TRANSFERENCIA_COM_ONUS, type EventoLinha } from "@/lib/parsers/admitidos-desligados";
 
 const FUNCAO_APRENDIZ = "APRENDIZ";
@@ -51,7 +51,10 @@ function competenciaParaData(competencia: string): Date {
   return new Date(Date.UTC(ano, mes - 1, 1));
 }
 
-async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimentacaoResult | null; error: string | null }> {
+async function montarPreview(
+  conteudo: string,
+  user: { id: string; role: string }
+): Promise<{ data: PreviewMovimentacaoResult | null; error: string | null }> {
   let parsed;
   try {
     parsed = parseAdmitidosDesligados(conteudo);
@@ -66,6 +69,7 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
       error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   const setor = await resolverSetorAprendiz();
   if (!setor) {
@@ -194,8 +198,8 @@ async function montarPreview(conteudo: string): Promise<{ data: PreviewMovimenta
 export async function previewMovimentacaoAprendiz(
   conteudo: string
 ): Promise<{ data: PreviewMovimentacaoResult | null; error: string | null }> {
-  await requirePermissao("importar", "operar");
-  return montarPreview(conteudo);
+  const user = await requirePermissao("importar", "operar");
+  return montarPreview(conteudo, user);
 }
 
 export async function confirmarMovimentacaoAprendiz(
@@ -220,7 +224,7 @@ export async function confirmarMovimentacaoAprendiz(
     return { error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
   }
 
-  const preview = await montarPreview(conteudo);
+  const preview = await montarPreview(conteudo, admin);
   if (preview.error || !preview.data) return { error: preview.error ?? "Erro ao processar o arquivo." };
 
   const { empresaId, tipo, linhas, syncFuncionarios, transferenciaComOnus } = preview.data;

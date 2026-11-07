@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { parseFaltas, type FaltaLinha } from "@/lib/parsers/faltas";
 
 export type PreviewFaltaLinha = {
@@ -45,7 +45,7 @@ async function montarDiff(linhas: FaltaLinha[], empresaId: string, periodo: { in
 }
 
 export async function previewFaltas(conteudo: string): Promise<{ data: PreviewFaltasResult | null; error: string | null }> {
-  await requirePermissao("importar", "operar");
+  const user = await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -61,6 +61,7 @@ export async function previewFaltas(conteudo: string): Promise<{ data: PreviewFa
       error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   const diff = await montarDiff(parsed.linhas, empresa.id, parsed.periodo);
 
@@ -106,6 +107,7 @@ export async function confirmarFaltas(
       error: `Empresa ${parsed.empresa.codigo} (${parsed.empresa.nome}) ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(admin, empresa.id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const resumo = await prisma.$transaction(async (tx) => {
     const funcionarios = await tx.funcionario.findMany({

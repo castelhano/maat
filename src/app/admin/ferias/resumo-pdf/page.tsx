@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { dataPagamentoFerias } from "@/lib/feriados";
 import { ImprimirButton } from "./imprimir-button";
 
@@ -32,12 +32,13 @@ export default async function ResumoPdfPage({
     mesFim?: string;
   }>;
 }) {
-  await requirePermissao("ferias", "consultar");
+  const user = await requirePermissao("ferias", "consultar");
+  const escopo = await escopoEmpresa(user);
   const { empresa, area, mes, ano, mesInicio, mesFim } = await searchParams;
 
   const [periodos, quinzenas] = await Promise.all([
     prisma.ferias.findMany({
-      where: { gozoInicio: { not: null }, funcionario: { status: { not: "desligado" } } },
+      where: { gozoInicio: { not: null }, funcionario: { status: { not: "desligado" }, empresaId: escopo } },
       include: { funcionario: { include: { empresa: true, cargo: true } } },
     }),
     prisma.quinzenaPeriodo.findMany(),

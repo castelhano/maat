@@ -2,7 +2,7 @@
 
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { competenciaEstaFechada } from "@/lib/competencia";
 import {
@@ -49,11 +49,11 @@ function parseCompetencia(competencia: string): { ano: number; mes: number } {
 }
 
 export async function carregarApuracao(competencia: string): Promise<ApuracaoResumo | null> {
-  await requirePermissao("beneficios", "consultar");
+  const user = await requirePermissao("beneficios", "consultar");
   if (!competencia.trim()) return null;
 
   const apuracoes = await prisma.apuracao.findMany({
-    where: { competencia },
+    where: { competencia, empresaId: await escopoEmpresa(user) },
     include: { itens: true, empresa: true },
     orderBy: { empresa: { nome: "asc" } },
   });
@@ -156,7 +156,8 @@ export async function processarApuracao(
   const inicioAnterior = new Date(Date.UTC(anoAnterior, mesAnterior - 1, 1));
   const fimAnterior = new Date(Date.UTC(anoAnterior, mesAnterior, 0, 23, 59, 59, 999));
 
-  const empresas = await prisma.empresa.findMany({ where: empresaId ? { id: empresaId } : undefined });
+  const escopo = await escopoEmpresa(admin);
+  const empresas = await prisma.empresa.findMany({ where: { AND: [{ id: escopo }, empresaId ? { id: empresaId } : {}] } });
 
   let empresasProcessadas = 0;
   let itensTotal = 0;

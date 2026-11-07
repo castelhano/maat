@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { primeiraPalavra } from "@/lib/utils";
 import { parseCadastro, type CadastroLinha, type CadastroSituacao } from "@/lib/parsers/cadastro";
 
@@ -128,13 +128,16 @@ async function montarDiff(conteudo: string) {
 export async function previewCadastro(
   conteudo: string
 ): Promise<{ data: PreviewCadastroResult | null; error: string | null }> {
-  await requirePermissao("importar", "operar");
+  const user = await requirePermissao("importar", "operar");
 
   let diff;
   try {
     diff = await montarDiff(conteudo);
   } catch (e) {
     return { data: null, error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
+  }
+  if (diff.empresaExistente && !(await podeEmpresa(user, diff.empresaExistente.id))) {
+    return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
   }
 
   return {
@@ -169,6 +172,9 @@ export async function confirmarCadastro(
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Erro ao processar o arquivo." };
   }
+  if (diff.empresaExistente && !(await podeEmpresa(admin, diff.empresaExistente.id))) {
+    return { error: MSG_EMPRESA_NAO_LIBERADA };
+  }
   const { parsed, linhas, vr } = diff;
 
   const resumo = await prisma.$transaction(async (tx) => {
@@ -177,6 +183,10 @@ export async function confirmarCadastro(
       create: { codigo: parsed.empresa.codigo, nome: parsed.empresa.nome, abbr: primeiraPalavra(parsed.empresa.nome) },
       update: {},
     });
+    // Usuário restrito que importa uma empresa nova passa a ter acesso a ela.
+    if (!diff.empresaExistente && admin.role !== "admin") {
+      await tx.userEmpresa.create({ data: { userId: admin.id, empresaId: empresa.id } });
+    }
 
     const cargoIdPorNome = new Map<string, string>();
     for (const [nome, recebeValeRefeicao] of vr) {

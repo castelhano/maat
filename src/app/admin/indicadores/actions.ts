@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, escopoEmpresa, podeEmpresa, requirePermissao, restringirEscopo } from "@/lib/session";
 import {
   CAMPOS_INDICADOR,
   RATEIO_CAMPOS,
@@ -29,9 +29,9 @@ export type IndicadorLinha = {
 export type OpcaoEmpresa = { id: string; nome: string };
 
 export async function listarEmpresasIndicadores(): Promise<OpcaoEmpresa[]> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
   const empresas = await prisma.empresa.findMany({
-    where: { indicadoresMensais: { some: {} } },
+    where: { id: await escopoEmpresa(user), indicadoresMensais: { some: {} } },
     select: { id: true, nome: true },
     orderBy: { nome: "asc" },
   });
@@ -65,14 +65,15 @@ export async function carregarIndicadores(filtro: {
   empresaId?: string;
   setor?: string;
 }): Promise<{ linhas: IndicadorLinha[] }> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
+  const escopo = await escopoEmpresa(user);
 
   // Busca sem limitar por competência aqui — o IRRF "do mês" de jan/2026 depende do irrfNormal
   // lançado em dez/2025, então precisa desse histórico completo antes de cortar a partir de
   // DESDE_COMPETENCIA no resultado final.
   const registros = await prisma.indicadorMensal.findMany({
     where: {
-      ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}),
+      empresaId: restringirEscopo(escopo, filtro.empresaId),
       ...(filtro.setor ? { setor: filtro.setor } : {}),
     },
     include: { empresa: { select: { nome: true, abbr: true } } },
@@ -84,7 +85,7 @@ export async function carregarIndicadores(filtro: {
   // área específica está selecionada na tela).
   const registrosTodasAreas = filtro.setor
     ? await prisma.indicadorMensal.findMany({
-        where: { ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}) },
+        where: { empresaId: restringirEscopo(escopo, filtro.empresaId) },
         select: { empresaId: true, competencia: true, ativos: true },
       })
     : registros;
@@ -96,7 +97,7 @@ export async function carregarIndicadores(filtro: {
   }
 
   const rateiosTotais = await prisma.rateioTotalCampo.findMany({
-    where: { ...(filtro.empresaId ? { empresaId: filtro.empresaId } : {}) },
+    where: { empresaId: restringirEscopo(escopo, filtro.empresaId) },
   });
   const rateioTotalPorChave = new Map<string, number>();
   for (const p of rateiosTotais) {
@@ -192,7 +193,8 @@ export async function carregarRateioTotal(
   competencia: string,
   campo: CampoRateio
 ): Promise<{ valor: number }> {
-  await requirePermissao("indicadores", "consultar");
+  const user = await requirePermissao("indicadores", "consultar");
+  if (!(await podeEmpresa(user, empresaId))) return { valor: 0 };
   const registro = await prisma.rateioTotalCampo.findUnique({
     where: { empresaId_competencia_campo: { empresaId, competencia, campo } },
   });
@@ -205,7 +207,8 @@ export async function atualizarRateioTotal(
   campo: CampoRateio,
   valor: number
 ): Promise<{ error: string | null }> {
-  await requirePermissao("indicadores", "operar");
+  const user = await requirePermissao("indicadores", "operar");
+  if (!(await podeEmpresa(user, empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
   if (!RATEIO_CAMPOS.includes(campo)) return { error: "Campo inválido." };
   if (Number.isNaN(valor) || valor < 0) return { error: "Valor inválido." };
 
@@ -222,7 +225,9 @@ export async function atualizarCampoIndicador(
   campo: CampoIndicador,
   valor: number
 ): Promise<{ error: string | null }> {
-  await requirePermissao("indicadores", "operar");
+  const user = await requirePermissao("indicadores", "operar");
+  const registro = await prisma.indicadorMensal.findUnique({ where: { id }, select: { empresaId: true } });
+  if (!registro || !(await podeEmpresa(user, registro.empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   if (!CAMPOS_INDICADOR.includes(campo)) return { error: "Campo inválido." };
   if (RATEIO_CAMPOS.includes(campo as CampoRateio)) {

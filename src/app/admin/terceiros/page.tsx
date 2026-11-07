@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { TerceirosTable } from "./terceiros-table";
 
 export default async function TerceirosPage() {
-  await requirePermissao("terceiros", "consultar");
+  const user = await requirePermissao("terceiros", "consultar");
+  const escopo = await escopoEmpresa(user);
   const [terceiros, empresas] = await Promise.all([
-    prisma.terceiro.findMany({ orderBy: { nome: "asc" }, include: { empresa: true } }),
-    prisma.empresa.findMany({ orderBy: { nome: "asc" } }),
+    prisma.terceiro.findMany({ where: { empresaId: escopo }, orderBy: { nome: "asc" }, include: { empresa: true } }),
+    prisma.empresa.findMany({ where: { id: escopo }, orderBy: { nome: "asc" } }),
   ]);
 
   const terceirosSerializados = terceiros.map((t) => ({

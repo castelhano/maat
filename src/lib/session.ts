@@ -50,6 +50,41 @@ export const getPermissoes = cache(async (userId: string, role: string): Promise
   return mapa;
 });
 
+// Empresas liberadas para o usuário; null = todas (admin). Memoizado por requisição.
+export const getEmpresasPermitidas = cache(async (userId: string, role: string): Promise<string[] | null> => {
+  if (role === "admin") return null;
+  const linhas = await prisma.userEmpresa.findMany({ where: { userId }, select: { empresaId: true } });
+  return linhas.map((l) => l.empresaId);
+});
+
+type UsuarioEscopo = { id: string; role: string };
+
+// Filtro de empresa para usar direto no `where` do Prisma, ex.: `{ empresaId: await escopoEmpresa(user) }`
+// ou `{ id: await escopoEmpresa(user) }` na própria tabela de empresas. undefined = sem filtro (admin).
+export async function escopoEmpresa(user: UsuarioEscopo): Promise<{ in: string[] } | undefined> {
+  const ids = await getEmpresasPermitidas(user.id, user.role);
+  return ids === null ? undefined : { in: ids };
+}
+
+// Junta o escopo do usuário com uma empresa escolhida num filtro da tela (opcional).
+// Empresa fora do escopo = filtro que não encontra nada.
+export function restringirEscopo(
+  escopo: { in: string[] } | undefined,
+  empresaId?: string | null,
+): string | { in: string[] } | undefined {
+  if (!empresaId) return escopo;
+  if (!escopo || escopo.in.includes(empresaId)) return empresaId;
+  return { in: [] };
+}
+
+export async function podeEmpresa(user: UsuarioEscopo, empresaId: string): Promise<boolean> {
+  const ids = await getEmpresasPermitidas(user.id, user.role);
+  return ids === null || ids.includes(empresaId);
+}
+
+// Mensagem padrão quando um arquivo/ação cai numa empresa não liberada.
+export const MSG_EMPRESA_NAO_LIBERADA = "Você não tem acesso a essa empresa. Fale com um administrador.";
+
 // Exige acesso à rotina. Vale para páginas e para ações do servidor:
 // sem permissão, a pessoa é levada de volta ao painel.
 export async function requirePermissao(modulo: Modulo, nivel: Nivel) {

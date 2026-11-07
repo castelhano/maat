@@ -2,12 +2,12 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { escopoEmpresa, requirePermissao } from "@/lib/session";
 import { ImportacaoCentral } from "./central";
 
 export default async function ImportarPage() {
-  await requirePermissao("importar", "consultar");
-  const empresas = await prisma.empresa.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true } });
+  const user = await requirePermissao("importar", "consultar");
+  const empresas = await prisma.empresa.findMany({ where: { id: await escopoEmpresa(user) }, orderBy: { nome: "asc" }, select: { id: true, nome: true } });
 
   return (
     <>

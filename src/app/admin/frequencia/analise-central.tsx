@@ -148,9 +148,14 @@ export function AnaliseFrequenciaCentral() {
         limpar();
         return;
       }
-      const { empresaNome, nomes } = await buscarNomesFrequencia(arquivo.empresa.codigo, [
+      const { empresaNome, nomes, error } = await buscarNomesFrequencia(arquivo.empresa.codigo, [
         ...new Set(arquivo.dias.map((d) => d.matricula)),
       ]);
+      if (error) {
+        toast.error(error);
+        limpar();
+        return;
+      }
       setAbertos(new Set());
       setFiltroTipo("todos");
       setLido({

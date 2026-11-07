@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { extrairTextoPdf } from "@/lib/pdf";
 import { parseResumoGerencial } from "@/lib/parsers/resumo-gerencial";
 import { CAMPOS_INDICADOR, type CampoIndicador } from "@/lib/indicadores";
@@ -21,7 +21,7 @@ export type PreviewIndicadoresResult = {
 export async function previewIndicadores(
   pdfBase64: string
 ): Promise<{ data: PreviewIndicadoresResult | null; error: string | null }> {
-  await requirePermissao("importar", "operar");
+  const user = await requirePermissao("importar", "operar");
 
   let parsed;
   try {
@@ -39,6 +39,7 @@ export async function previewIndicadores(
       error: `Empresa ${parsed.empresaCodigo} ainda não está cadastrada — importe o cadastro dela antes.`,
     };
   }
+  if (!(await podeEmpresa(user, empresa.id))) return { data: null, error: MSG_EMPRESA_NAO_LIBERADA };
 
   // O PDF não traz aprendizes nem transferências com ônus — em vez de deixar zerado, preenche com
   // o que o cadastro já sabe (admissão, desligamento e motivo), ainda editável na conferência.
@@ -128,6 +129,7 @@ export async function confirmarIndicadores(
   linhas: IndicadorLinhaEditada[]
 ): Promise<{ error: string | null; resumo?: { gravados: number } }> {
   const admin = await requirePermissao("importar", "operar");
+  if (!(await podeEmpresa(admin, empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   if (!competencia.trim()) return { error: "Competência não informada." };
   if (linhas.length === 0) return { error: "Nenhuma área pra gravar." };

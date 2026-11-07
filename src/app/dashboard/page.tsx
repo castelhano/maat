@@ -1,6 +1,6 @@
 import { Building2, Briefcase, Users, UploadCloud, HandCoins, UserRoundCog, Clock, CalendarDays, BarChart3, Calculator, CalendarClock } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { getPermissoes, requireUser } from "@/lib/session";
+import { escopoEmpresa, getPermissoes, requireUser } from "@/lib/session";
 import type { Modulo } from "@/lib/permissoes";
 import { ProjectCard } from "@/components/project-card";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,18 +10,19 @@ export default async function DashboardPage() {
   const permissoes = await getPermissoes(user.id, user.role);
   const pode = (m: Modulo) => permissoes[m] !== undefined;
   const contar = <T,>(m: Modulo, consulta: () => Promise<T>) => (pode(m) ? consulta() : null);
+  const escopo = await escopoEmpresa(user);
 
   const [funcionarios, cargos, empresas, importacoes, terceiros, feriasPendentes, indicadores] =
     await Promise.all([
-      contar("funcionarios", () => prisma.funcionario.count()),
+      contar("funcionarios", () => prisma.funcionario.count({ where: { empresaId: escopo } })),
       contar("cargos", () => prisma.cargo.count()),
-      contar("empresas", () => prisma.empresa.count()),
-      contar("importar", () => prisma.importacao.count()),
-      contar("terceiros", () => prisma.terceiro.count()),
+      contar("empresas", () => prisma.empresa.count({ where: { id: escopo } })),
+      contar("importar", () => prisma.importacao.count({ where: { empresaId: escopo } })),
+      contar("terceiros", () => prisma.terceiro.count({ where: { empresaId: escopo } })),
       contar("ferias", () =>
         prisma.ferias
           .findMany({
-            where: { gozoInicio: null, funcionario: { status: { not: "desligado" } } },
+            where: { gozoInicio: null, funcionario: { status: { not: "desligado" }, empresaId: escopo } },
             select: { funcionario: { select: { cargo: { select: { nome: true } } } } },
           })
           .then(
@@ -29,7 +30,7 @@ export default async function DashboardPage() {
               lista.filter((p) => !p.funcionario.cargo.nome.trim().toUpperCase().includes("APRENDIZ")).length
           )
       ),
-      contar("indicadores", () => prisma.indicadorMensal.count()),
+      contar("indicadores", () => prisma.indicadorMensal.count({ where: { empresaId: escopo } })),
     ]);
   const algumaRotina = Object.keys(permissoes).length > 0;
 

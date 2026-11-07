@@ -145,10 +145,22 @@ const permissoesSchema = z.array(
   }),
 );
 
-// Substitui todas as permissões do usuário de uma vez.
-export async function setUserPermissoes(userId: string, input: z.infer<typeof permissoesSchema>) {
+const empresasSchema = z.array(z.string().min(1));
+
+// Substitui todas as permissões do usuário de uma vez: rotinas e empresas liberadas.
+export async function setUserPermissoes(
+  userId: string,
+  input: z.infer<typeof permissoesSchema>,
+  inputEmpresas: z.infer<typeof empresasSchema>,
+) {
   const admin = await requireAdmin();
   const permissoes = permissoesSchema.parse(input);
+  const empresaIds = [...new Set(empresasSchema.parse(inputEmpresas))];
+
+  const existentes = await prisma.empresa.count({ where: { id: { in: empresaIds } } });
+  if (existentes !== empresaIds.length) {
+    return { error: "Empresa não encontrada. Recarregue a página e tente de novo." };
+  }
 
   const modulos = new Set(permissoes.map((p) => p.modulo));
   if (modulos.size !== permissoes.length) {
@@ -160,9 +172,12 @@ export async function setUserPermissoes(userId: string, input: z.infer<typeof pe
     prisma.userPermissao.createMany({
       data: permissoes.map((p) => ({ userId, modulo: p.modulo, nivel: p.nivel })),
     }),
+    prisma.userEmpresa.deleteMany({ where: { userId } }),
+    prisma.userEmpresa.createMany({ data: empresaIds.map((empresaId) => ({ userId, empresaId })) }),
   ]);
   await logAction(admin.id, "user.permissions_update", userId, {
     permissoes: Object.fromEntries(permissoes.map((p) => [p.modulo, p.nivel])),
+    empresas: empresaIds,
   });
 
   revalidatePath("/admin/usuarios");

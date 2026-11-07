@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requirePermissao } from "@/lib/session";
+import { MSG_EMPRESA_NAO_LIBERADA, podeEmpresa, requirePermissao } from "@/lib/session";
 import { logAction } from "@/lib/audit";
 import { primeiraPalavra } from "@/lib/utils";
 
@@ -31,6 +31,10 @@ export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
       valorCestaBasica: data.valorCestaBasica ?? null,
     },
   });
+  // Usuário restrito que cadastra uma empresa passa a ter acesso a ela.
+  if (admin.role !== "admin") {
+    await prisma.userEmpresa.create({ data: { userId: admin.id, empresaId: empresa.id } });
+  }
   await logAction(admin.id, "empresa.create", empresa.id, data);
 
   revalidatePath("/admin/empresas");
@@ -40,6 +44,7 @@ export async function createEmpresa(input: z.infer<typeof empresaSchema>) {
 export async function updateEmpresa(id: string, input: z.infer<typeof empresaSchema>) {
   const admin = await requirePermissao("empresas", "operar");
   const data = empresaSchema.parse(input);
+  if (!(await podeEmpresa(admin, id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const conflito = await prisma.empresa.findFirst({ where: { codigo: data.codigo, NOT: { id } } });
   if (conflito) {
@@ -63,6 +68,7 @@ export async function updateEmpresa(id: string, input: z.infer<typeof empresaSch
 
 export async function deleteEmpresa(id: string) {
   const admin = await requirePermissao("empresas", "operar");
+  if (!(await podeEmpresa(admin, id))) return { error: MSG_EMPRESA_NAO_LIBERADA };
 
   const funcionarios = await prisma.funcionario.count({ where: { empresaId: id } });
   if (funcionarios > 0) {

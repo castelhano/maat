@@ -54,7 +54,10 @@ type User = {
   trocarSenha: boolean;
   createdAt: Date;
   permissoes: { modulo: string; nivel: string }[];
+  empresas: string[];
 };
+
+type Empresa = { id: string; nome: string };
 
 const createUserSchema = z.object({
   name: z.string().min(1, "Informe o nome"),
@@ -92,6 +95,14 @@ function paraMapa(permissoes: User["permissoes"]): MapaPermissoes {
   return Object.fromEntries(permissoes.map((p) => [p.modulo, p.nivel])) as MapaPermissoes;
 }
 
+function resumoEmpresas(user: User, total: number) {
+  if (user.role === "admin") return "todas";
+  const n = user.empresas.length;
+  if (n === 0) return "nenhuma";
+  if (n === total) return "todas";
+  return `${n} de ${total}`;
+}
+
 function resumoRotinas(user: User) {
   if (user.role === "admin") return "todas";
   const n = user.permissoes.length;
@@ -101,9 +112,11 @@ function resumoRotinas(user: User) {
 
 export function UsersTable({
   users,
+  empresas,
   currentUserId,
 }: {
   users: User[];
+  empresas: Empresa[];
   currentUserId: string;
 }) {
   const router = useRouter();
@@ -199,7 +212,7 @@ export function UsersTable({
             <DialogHeader>
               <DialogTitle>Novo usuário</DialogTitle>
               <DialogDescription>
-                Crie um acesso. As rotinas liberadas são definidas depois, em Permissões.
+                Crie um acesso. As rotinas e as empresas liberadas são definidas depois, em Permissões.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit(onCreate)} className="flex flex-col gap-4">
@@ -257,6 +270,7 @@ export function UsersTable({
             <TableHead>Usuário</TableHead>
             <TableHead>Perfil</TableHead>
             <TableHead>Rotinas</TableHead>
+            <TableHead>Empresas</TableHead>
             <TableHead>Situação</TableHead>
             <TableHead>Criado em</TableHead>
             <TableHead className="text-right">Ações</TableHead>
@@ -285,6 +299,7 @@ export function UsersTable({
                   </Select>
                 </TableCell>
                 <TableCell>{resumoRotinas(user)}</TableCell>
+                <TableCell>{resumoEmpresas(user, empresas.length)}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant={user.ativo ? "success" : "destructive"}>{user.ativo ? "Ativo" : "Inativo"}</Badge>
@@ -298,7 +313,7 @@ export function UsersTable({
                       variant="secondary"
                       size="sm"
                       disabled={user.role === "admin" || isPending}
-                      title={user.role === "admin" ? "Administrador acessa todas as rotinas" : undefined}
+                      title={user.role === "admin" ? "Administrador acessa todas as rotinas e empresas" : undefined}
                       onClick={() => setPermissoesUser(user)}
                     >
                       Permissões
@@ -380,15 +395,19 @@ export function UsersTable({
         <PermissoesDialog
           key={permissoesUser.id}
           user={permissoesUser}
-          outros={users.filter((u) => u.id !== permissoesUser.id && u.role !== "admin" && u.permissoes.length > 0)}
+          empresas={empresas}
+          outros={users.filter(
+            (u) => u.id !== permissoesUser.id && u.role !== "admin" && (u.permissoes.length > 0 || u.empresas.length > 0),
+          )}
           isPending={isPending}
           onClose={() => setPermissoesUser(null)}
-          onSalvar={(mapa) =>
+          onSalvar={(mapa, empresaIds) =>
             executar(
               () =>
                 setUserPermissoes(
                   permissoesUser.id,
                   Object.entries(mapa).map(([modulo, nivel]) => ({ modulo, nivel: nivel as Nivel })),
+                  empresaIds,
                 ),
               "Permissões salvas",
               () => setPermissoesUser(null),
@@ -411,18 +430,30 @@ function CheckboxTrocaSenha(props: React.ComponentProps<"input">) {
 
 function PermissoesDialog({
   user,
+  empresas,
   outros,
   isPending,
   onClose,
   onSalvar,
 }: {
   user: User;
+  empresas: Empresa[];
   outros: User[];
   isPending: boolean;
   onClose: () => void;
-  onSalvar: (mapa: MapaPermissoes) => void;
+  onSalvar: (mapa: MapaPermissoes, empresaIds: string[]) => void;
 }) {
   const [mapa, setMapa] = useState<MapaPermissoes>(() => paraMapa(user.permissoes));
+  const [empresasLiberadas, setEmpresasLiberadas] = useState<Set<string>>(() => new Set(user.empresas));
+
+  function alternarEmpresa(id: string) {
+    setEmpresasLiberadas((prev) => {
+      const nova = new Set(prev);
+      if (nova.has(id)) nova.delete(id);
+      else nova.add(id);
+      return nova;
+    });
+  }
 
   function definir(modulo: Modulo, nivel: Nivel | "nenhum") {
     setMapa((prev) => {
@@ -441,7 +472,9 @@ function PermissoesDialog({
 
   function copiarDe(userId: string) {
     const origem = outros.find((u) => u.id === userId);
-    if (origem) setMapa(paraMapa(origem.permissoes));
+    if (!origem) return;
+    setMapa(paraMapa(origem.permissoes));
+    setEmpresasLiberadas(new Set(origem.empresas));
   }
 
   return (
@@ -450,7 +483,8 @@ function PermissoesDialog({
         <DialogHeader>
           <DialogTitle>Permissões — {user.name}</DialogTitle>
           <DialogDescription>
-            Consultar: ver telas e baixar relatórios. Operar: também importar, processar e editar.
+            Consultar: ver telas e baixar relatórios. Operar: também importar, processar e editar. As rotinas só
+            mostram dados das empresas marcadas abaixo.
           </DialogDescription>
         </DialogHeader>
 
@@ -507,11 +541,52 @@ function PermissoesDialog({
           })}
         </div>
 
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Label>Empresas liberadas</Label>
+            <div className="flex gap-1.5">
+              <Button
+                type="button"
+                size="xs"
+                variant="secondary"
+                onClick={() => setEmpresasLiberadas(new Set(empresas.map((e) => e.id)))}
+              >
+                Todas
+              </Button>
+              <Button type="button" size="xs" variant="secondary" onClick={() => setEmpresasLiberadas(new Set())}>
+                Nenhuma
+              </Button>
+            </div>
+          </div>
+          {empresas.length === 0 ? (
+            <p className="font-mono text-[11px] text-text-3">Nenhuma empresa cadastrada ainda.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-x-3 gap-y-1.5 rounded-md border border-border px-3 py-2 sm:grid-cols-2">
+              {empresas.map((e) => (
+                <label key={e.id} className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="size-3.5 accent-primary"
+                    checked={empresasLiberadas.has(e.id)}
+                    onChange={() => alternarEmpresa(e.id)}
+                  />
+                  <span className="font-mono text-[12px] text-foreground">{e.nome}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {empresasLiberadas.size === 0 && Object.keys(mapa).length > 0 && (
+            <p className="font-mono text-[10px] text-destructive">
+              Sem nenhuma empresa marcada, o usuário entra nas rotinas mas não vê dado nenhum.
+            </p>
+          )}
+        </div>
+
         <DialogFooter>
           <Button type="button" variant="secondary" onClick={onClose} disabled={isPending}>
             Cancelar
           </Button>
-          <Button type="button" onClick={() => onSalvar(mapa)} disabled={isPending}>
+          <Button type="button" onClick={() => onSalvar(mapa, [...empresasLiberadas])} disabled={isPending}>
             {isPending ? "Salvando..." : "Salvar permissões"}
           </Button>
         </DialogFooter>
