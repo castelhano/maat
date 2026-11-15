@@ -19,6 +19,9 @@ export type IndicadorLinha = {
   setor: string;
   empresaId: string;
   empresaNome: string;
+  // Empresa com desoneração da folha (CPRB) — ver Empresa.desoneracaoFolha. Usado no indicador de
+  // Custo Mensal do Empregador pra trocar a rubrica INSS Patronal por CPRB (1,2% da receita).
+  desoneracaoFolha: boolean;
   // IRRF "do mês", já combinado (não é um campo cru — ver comentário abaixo).
   irrf: number;
   // Valor total de cada campo de RATEIO_CAMPOS naquela empresa+competência (o que foi editado em
@@ -76,7 +79,7 @@ export async function carregarIndicadores(filtro: {
       empresaId: restringirEscopo(escopo, filtro.empresaId),
       ...(filtro.setor ? { setor: filtro.setor } : {}),
     },
-    include: { empresa: { select: { nome: true, abbr: true } } },
+    include: { empresa: { select: { nome: true, abbr: true, desoneracaoFolha: true } } },
   });
 
   // Os campos de RATEIO_CAMPOS são rateados por área a partir de um valor TOTAL da empresa (ver
@@ -152,6 +155,7 @@ export async function carregarIndicadores(filtro: {
         setor: r.setor,
         empresaId: r.empresaId,
         empresaNome: r.empresa.abbr ?? r.empresa.nome,
+        desoneracaoFolha: r.empresa.desoneracaoFolha,
         ...campos,
         irrf: r.irrfFerias.toNumber() + irrfNormalMesAnterior,
         totaisRateio,
@@ -236,5 +240,47 @@ export async function atualizarCampoIndicador(
   if (Number.isNaN(valor)) return { error: "Valor inválido." };
 
   await prisma.indicadorMensal.update({ where: { id }, data: { [campo]: valor } });
+  return { error: null };
+}
+
+export type OperacaoMensalLinha = { empresaId: string; competencia: string; kmRodado: number; receita: number };
+
+// Km rodado e receita bruta mensal (lançamento manual) — base dos indicadores de custo/receita
+// por Km e da CPRB das empresas com desoneração da folha.
+export async function carregarOperacoesMensais(filtro: { empresaId?: string }): Promise<{ linhas: OperacaoMensalLinha[] }> {
+  const user = await requirePermissao("indicadores", "consultar");
+  const escopo = await escopoEmpresa(user);
+
+  const registros = await prisma.operacaoMensal.findMany({
+    where: { empresaId: restringirEscopo(escopo, filtro.empresaId) },
+  });
+
+  return {
+    linhas: registros.map((r) => ({
+      empresaId: r.empresaId,
+      competencia: r.competencia,
+      kmRodado: r.kmRodado.toNumber(),
+      receita: r.receita.toNumber(),
+    })),
+  };
+}
+
+export async function atualizarOperacaoMensal(
+  empresaId: string,
+  competencia: string,
+  kmRodado: number,
+  receita: number
+): Promise<{ error: string | null }> {
+  const user = await requirePermissao("indicadores", "operar");
+  if (!(await podeEmpresa(user, empresaId))) return { error: MSG_EMPRESA_NAO_LIBERADA };
+  if (Number.isNaN(kmRodado) || kmRodado < 0 || Number.isNaN(receita) || receita < 0) {
+    return { error: "Valor inválido." };
+  }
+
+  await prisma.operacaoMensal.upsert({
+    where: { empresaId_competencia: { empresaId, competencia } },
+    create: { empresaId, competencia, kmRodado, receita },
+    update: { kmRodado, receita },
+  });
   return { error: null };
 }

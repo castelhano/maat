@@ -58,6 +58,7 @@ export type FeriasLinha = {
   calendario: string;
   calendarioMensal: boolean;
   salario: number;
+  periodoAquisitivoInicio: string;
   periodoAquisitivoFim: string;
   dataLimite: string;
   dataLimiteAjustada: string;
@@ -353,6 +354,7 @@ function ProgramarDialog({
         abonoTipo: diasAbono > 0 ? (abonoTipo || null) : null,
         gozoInicio: gozoInicioPreview?.toISOString() ?? null,
         gozoFim: gozoFimPreview?.toISOString() ?? null,
+        dataPagamento: pagamentoPreview?.toISOString() ?? null,
         status: "programado",
         valorReal: valorRealNum,
       });
@@ -405,6 +407,11 @@ function ProgramarDialog({
         <DialogHeader>
           <DialogTitle>Programar férias — {periodo.nome}</DialogTitle>
           <DialogDescription>
+            Período aquisitivo:{" "}
+            <span className="font-bold text-foreground">
+              {formatarData(periodo.periodoAquisitivoInicio)} a {formatarData(periodo.periodoAquisitivoFim)}
+            </span>
+            <br />
             Matrícula {periodo.matricula} · {periodo.funcao} · {periodo.faltas} falta(s) no período →{" "}
             <span className="font-bold text-primary">{periodo.diasDireito} dias de direito</span> · limite para
             iniciar o gozo:{" "}

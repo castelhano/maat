@@ -14,7 +14,7 @@ export default async function IndicadoresPage() {
         <h1 className="font-mono text-[22px] font-bold tracking-[.08em] text-foreground">Indicadores</h1>
         <p className="font-mono text-[11px] tracking-[.06em] text-text-3">
           headcount, custo de pessoal, absenteísmo, benefícios, encargos e segurança do trabalho — por área, a partir de
-          jan/2026
+          jun/2026
         </p>
       </div>
       <IndicadoresPainel empresas={empresas} empresasCat={empresasCat} />

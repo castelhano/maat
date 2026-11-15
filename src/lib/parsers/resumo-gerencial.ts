@@ -37,6 +37,10 @@ export type ResumoGerencialLinha = {
   // Encargos patronais: "INSS da Empresa" (parte patronal), "Acidente de Trabalho" (RAT/SAT — não
   // confundir com "Acidente de Trabalho Ag.Nocivo", linha separada) e "Terceiros".
   inssPatronal: number | null;
+  // Fica sempre null aqui (não tem linha própria por ÁREA no relatório, só no total da empresa) —
+  // preenchido pelo importador via rateio (ver indicadores-actions.ts e
+  // ResumoGerencialParseResult.inssPatronalDesoneracao).
+  cprbDesoneracao: number | null;
   acidenteTrabalho: number | null;
   terceiros: number | null;
   // Descontos por código (o nome do fornecedor de farmácia varia por empresa, por isso vai pelo
@@ -57,12 +61,24 @@ export type ResumoGerencialLinha = {
   cafeManha: number | null;
   refeitorio: number | null;
   proSaude: number | null;
+  // Verbas de rescisão dos desligados do mês (ver CODIGOS_RESCISAO) — coluna DESLIGADOS, não o
+  // TOTAL (que somaria com quem continua ativo). O manual (Reclamatória/CCP) nunca vem do PDF,
+  // igual folhaSuplementar/proSaude — sempre null aqui, editável à parte.
+  custoRescisaoAutomatico: number | null;
+  custoRescisaoManual: number | null;
 };
 
 export type ResumoGerencialParseResult = {
   empresaCodigo: string;
   competencia: string; // "mm/yyyy"
   linhas: ResumoGerencialLinha[];
+  // Empresas com desoneração da folha (CPRB — Lei 12.546) trazem uma linha própria "INSS Patronal
+  // (Desoneracao)" com o valor REAL pago (1,2% da receita bruta), só no nível "TOTAL DA EMPRESA" —
+  // não por divisão/área, por isso fica fora de `linhas` e é rateado por área na importação (ver
+  // indicadores-actions.ts), mesmo padrão de RATEIO_CAMPOS. Pra empresa sem desoneração essa linha
+  // não existe no relatório, e fica null (o `inssPatronal` de cada linha já veio certo de "INSS da
+  // Empresa").
+  inssPatronalDesoneracao: number | null;
 };
 
 // Só essas 4 áreas interessam ao dashboard — o relatório pode trazer outras divisões
@@ -115,6 +131,61 @@ function ultimoNumeroAposRotulo(texto: string, rotulo: RegExp, rotuloCorte?: Reg
   return null;
 }
 
+// Mesma ideia de `ultimoNumeroAposRotulo`, mas pega o PENÚLTIMO número da linha — nas linhas de
+// provento/desconto o relatório traz ATIVOS, DESLIGADOS, TOTAL (nessa ordem, às vezes com REFER
+// antes de ATIVOS); TOTAL é sempre o último número e ATIVOS+DESLIGADOS=TOTAL, então o penúltimo é
+// sempre a coluna DESLIGADOS, com ou sem REFER na frente.
+function penultimoNumeroAposRotulo(texto: string, rotulo: RegExp): number | null {
+  for (const linha of texto.split(/\r?\n/)) {
+    const m = rotulo.exec(linha);
+    if (!m) continue;
+    const trecho = linhaAteProximoCodigo(linha, m.index + m[0].length);
+    const numeros = numerosNaLinha(trecho);
+    if (numeros.length >= 2) return numeros[numeros.length - 2];
+  }
+  return null;
+}
+
+// Códigos de verbas de rescisão (coluna DESLIGADOS) que compõem o custo de rotatividade: férias
+// indenizadas (00009), férias proporcionais (00014), 13º proporcional (00024), saldo de salário
+// (00188), 1/3 de férias rescisório (00433/00434), VR rescisório (00626), aviso prévio indenizado
+// (00211) e seus reflexos — 1/12 de férias (00166) e 1/12 de 13º (00212) sobre o aviso. Validado
+// contra o Resumo Gerencial de jul/2026 da Rápido (R$ 28.857,12 nas 7 primeiras verbas + R$ 5.968,25
+// de aviso prévio e reflexos).
+const CODIGOS_RESCISAO = [
+  /\b00009\b/,
+  /\b00014\b/,
+  /\b00024\b/,
+  /\b00188\b/,
+  /\b00433\b/,
+  /\b00434\b/,
+  /\b00626\b/,
+  /\b00211\b/,
+  /\b00166\b/,
+  /\b00212\b/,
+];
+
+function somaRescisao(texto: string): number | null {
+  let total = 0;
+  let achou = false;
+  for (const codigo of CODIGOS_RESCISAO) {
+    const valor = penultimoNumeroAposRotulo(texto, codigo);
+    if (valor !== null) {
+      achou = true;
+      total += valor;
+    }
+  }
+  // Multa de FGTS (40% padrão, ou 20% em acordo/CCP) — não tem código de provento/desconto, vem do
+  // bloco "RESUMO DA GRRF" do relatório, na linha "Recolhimento FGTS" (penúltimo número = coluna
+  // MULTA, mesma lógica das verbas acima: ANTERIOR, RESCISAO, VERBAS IND, MULTA, TOTAL).
+  const multa = penultimoNumeroAposRotulo(texto, /Recolhimento FGTS/i);
+  if (multa !== null) {
+    achou = true;
+    total += multa;
+  }
+  return achou ? total : null;
+}
+
 function inteiroAposRotulo(texto: string, rotulo: RegExp): number | null {
   for (const linha of texto.split(/\r?\n/)) {
     const m = rotulo.exec(linha);
@@ -161,8 +232,10 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const inssRetido = ultimoNumeroAposRotulo(texto, /INSS Retido dos Funcionarios/i);
   // Soma "Deposito FGTS" + "Deposito FGTS (Categoria 07)" — exclui só a linha "(Contr. Social)".
   const fgts = somarPorDescricao(texto, /Deposito FGTS(?!\s*\(Contr)/)?.total ?? null;
-  // INSS da Empresa (parte patronal, distinta do INSS Retido dos Funcionários acima).
+  // INSS da Empresa (parte patronal, distinta do INSS Retido dos Funcionários acima) — sempre um
+  // custo real, nunca substituído pela CPRB (ver cprbDesoneracao, campo separado).
   const inssPatronal = ultimoNumeroAposRotulo(texto, /INSS da Empresa/i);
+  const cprbDesoneracao = null;
   // "Acidente de Trabalho" (RAT/SAT) — não pode casar com a linha separada "Acidente de Trabalho
   // Ag.Nocivo" logo abaixo dela no relatório.
   const acidenteTrabalho = ultimoNumeroAposRotulo(texto, /Acidente de Trabalho(?!\s*Ag)/i);
@@ -204,6 +277,9 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
   const refeitorio = null;
   const proSaude = null;
 
+  const custoRescisaoAutomatico = somaRescisao(texto);
+  const custoRescisaoManual = null;
+
   return {
     setor,
     ativos,
@@ -227,6 +303,7 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     inssRetido,
     fgts,
     inssPatronal,
+    cprbDesoneracao,
     acidenteTrabalho,
     terceiros,
     farmacia,
@@ -240,6 +317,8 @@ function extrairCampos(setor: string, texto: string): ResumoGerencialLinha {
     cafeManha,
     refeitorio,
     proSaude,
+    custoRescisaoAutomatico,
+    custoRescisaoManual,
   };
 }
 
@@ -288,5 +367,8 @@ export function parseResumoGerencial(conteudo: string): ResumoGerencialParseResu
     extrairCampos(setor, textoPorSetor.get(setor)!)
   );
 
-  return { empresaCodigo, competencia, linhas };
+  // Extraído do texto INTEIRO (não por setor) — só aparece uma vez, no resumo "TOTAL DA EMPRESA".
+  const inssPatronalDesoneracao = ultimoNumeroAposRotulo(conteudo, /INSS Patronal \(Desoneracao\)/i);
+
+  return { empresaCodigo, competencia, linhas, inssPatronalDesoneracao };
 }

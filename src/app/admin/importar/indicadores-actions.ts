@@ -44,7 +44,7 @@ export async function previewIndicadores(
   // O PDF não traz aprendizes nem transferências com ônus — em vez de deixar zerado, preenche com
   // o que o cadastro já sabe (admissão, desligamento e motivo), ainda editável na conferência.
   const movimentacao = await movimentacaoDoCadastro(empresa.id, parsed.competencia);
-  const linhas = parsed.linhas.map((l) => {
+  let linhas = parsed.linhas.map((l) => {
     const calc = movimentacao.get(l.setor);
     const preenchida = { ...l };
     for (const campo of CAMPOS_DO_CADASTRO) {
@@ -52,6 +52,22 @@ export async function previewIndicadores(
     }
     return preenchida;
   });
+
+  // Empresa com desoneração da folha: durante a reoneração gradual (2026-2028, Lei 14.973/2024) a
+  // CPRB (1,2% da receita este ano) é paga JUNTO com o INSS Patronal normal sobre a folha (10%
+  // este ano), não no lugar dele — `inssPatronal` (extraído acima, "INSS da Empresa") já é o valor
+  // certo. A CPRB só aparece uma vez no relatório, no total da empresa ("INSS Patronal
+  // (Desoneracao)") — rateia por área: ativos da área ÷ total de ativos × valor total, mesma
+  // lógica de RATEIO_CAMPOS, mas aplicada aqui (não na leitura) porque ainda falta decidir setor a
+  // setor antes da conferência manual na tela.
+  if (empresa.desoneracaoFolha && parsed.inssPatronalDesoneracao !== null) {
+    const totalAtivos = linhas.reduce((soma, l) => soma + (l.ativos ?? 0), 0);
+    const cprbTotal = parsed.inssPatronalDesoneracao;
+    linhas = linhas.map((l) => ({
+      ...l,
+      cprbDesoneracao: totalAtivos > 0 ? (cprbTotal * (l.ativos ?? 0)) / totalAtivos : 0,
+    }));
+  }
 
   return {
     data: { empresaId: empresa.id, empresaNome: empresa.nome, competencia: parsed.competencia, linhas },

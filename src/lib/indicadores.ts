@@ -28,6 +28,7 @@ export const CAMPOS_INDICADOR = [
   "inssRetido",
   "fgts",
   "inssPatronal",
+  "cprbDesoneracao",
   "acidenteTrabalho",
   "terceiros",
   "farmacia",
@@ -41,6 +42,8 @@ export const CAMPOS_INDICADOR = [
   "cafeManha",
   "refeitorio",
   "proSaude",
+  "custoRescisaoAutomatico",
+  "custoRescisaoManual",
 ] as const;
 
 export type CampoIndicador = (typeof CAMPOS_INDICADOR)[number];
@@ -49,7 +52,13 @@ export type CampoIndicador = (typeof CAMPOS_INDICADOR)[number];
 // valor TOTAL por empresa+competência (ver model RateioTotalCampo) em vez de por área — o rateio
 // por área acontece na leitura: ativos da área / total de ativos da empresa × valor total (ver
 // carregarIndicadores).
-export const RATEIO_CAMPOS = ["folhaSuplementar", "cafeManha", "refeitorio", "proSaude"] as const satisfies readonly CampoIndicador[];
+export const RATEIO_CAMPOS = [
+  "folhaSuplementar",
+  "cafeManha",
+  "refeitorio",
+  "proSaude",
+  "custoRescisaoManual",
+] as const satisfies readonly CampoIndicador[];
 export type CampoRateio = (typeof RATEIO_CAMPOS)[number];
 
 export const CAMPO_LABEL: Record<CampoIndicador, string> = {
@@ -74,6 +83,7 @@ export const CAMPO_LABEL: Record<CampoIndicador, string> = {
   inssRetido: "INSS retido (R$)",
   fgts: "FGTS (R$)",
   inssPatronal: "INSS patronal (R$)",
+  cprbDesoneracao: "CPRB desoneração (1,2% receita) (R$)",
   acidenteTrabalho: "RAT (R$)",
   terceiros: "Terceiros (R$)",
   farmacia: "Farmácia (R$)",
@@ -87,6 +97,8 @@ export const CAMPO_LABEL: Record<CampoIndicador, string> = {
   cafeManha: "Café da manhã (R$)",
   refeitorio: "Refeitório (R$)",
   proSaude: "Pró-saúde trab. (R$)",
+  custoRescisaoAutomatico: "Rescisão — verbas (R$)",
+  custoRescisaoManual: "Rescisão — Reclamatória/CCP (R$)",
 };
 
 // Mesmos valores usados em Cargo.setor — a área "OPERACAO MOTORISTA" tem que vir testada antes de
@@ -123,6 +135,8 @@ export type ComDerivados<T> = T & {
   custoPorFuncionario: number;
   percentualEncargos: number;
   taxaRotatividade: number;
+  custoRotatividade: number;
+  custoRotatividadePorDesligado: number;
 };
 
 // `irrf` já vem pronto (montado por quem chama, combinando competências — ver
@@ -133,21 +147,36 @@ export type ComDerivados<T> = T & {
 //
 // Custo total do empregador = folha bruta (já inclui hora extra e comissão — são rubricas do
 // próprio relatório) + folha suplementar (processada à parte, não está na folha bruta) + FGTS +
-// INSS patronal + Acidente de Trabalho (RAT/SAT) + Terceiros (Sistema S, INCRA, salário educação
-// etc.) + benefícios. O INSS retido do funcionário NÃO entra aqui (é descontado do salário dele,
-// não é custo do empregador) — só entra no indicador de Encargos.
+// INSS patronal + CPRB (empresas com desoneração da folha — ver Empresa.desoneracaoFolha; durante
+// a reoneração gradual de 2026-2028 as duas coexistem, não se substituem) + Acidente de Trabalho
+// (RAT/SAT) + Terceiros (Sistema S, INCRA, salário educação etc.) + benefícios. O INSS retido do
+// funcionário NÃO entra aqui (é descontado do salário dele, não é custo do empregador) — só entra
+// no indicador de Encargos.
 //
-// Encargos = INSS retido do funcionário + FGTS + IRRF + INSS patronal + RAT + Terceiros — é uma
-// visão diferente do mesmo relatório (o que é "imposto/contribuição" sobre a folha), por isso
+// Encargos = INSS retido do funcionário + FGTS + IRRF + INSS patronal + CPRB + RAT + Terceiros — é
+// uma visão diferente do mesmo relatório (o que é "imposto/contribuição" sobre a folha), por isso
 // alguns campos aparecem tanto aqui quanto em custoTotalEmpregador.
 export function calcularDerivados<T extends Record<CampoIndicador, number> & { irrf: number }>(
   l: T
 ): ComDerivados<T> {
   const custoBeneficios = l.cestaBasica + l.valeGas + l.valeAlimentacao + l.cafeManha + l.refeitorio + l.proSaude;
   const custoTotalEmpregador =
-    l.folhaBruta + l.folhaSuplementar + l.fgts + l.inssPatronal + l.acidenteTrabalho + l.terceiros + custoBeneficios;
-  const encargos = l.inssRetido + l.fgts + l.irrf + l.inssPatronal + l.acidenteTrabalho + l.terceiros;
+    l.folhaBruta +
+    l.folhaSuplementar +
+    l.fgts +
+    l.inssPatronal +
+    l.cprbDesoneracao +
+    l.acidenteTrabalho +
+    l.terceiros +
+    custoBeneficios;
+  const encargos = l.inssRetido + l.fgts + l.irrf + l.inssPatronal + l.cprbDesoneracao + l.acidenteTrabalho + l.terceiros;
   const diasAusencia = l.faltasDias + l.atestadosDias;
+  // Custo de rotatividade = verbas de rescisão extraídas do relatório (coluna DESLIGADOS) + valor
+  // manual de Reclamatória/CCP (acordos que saem zerados no relatório — ver CAMPO_LABEL). Dividido
+  // pelos MESMOS desligados que entram no turnover (sem aprendiz/transferência com ônus — ver
+  // taxaTurnover), pra dar o custo médio por desligamento "de verdade".
+  const custoRotatividade = l.custoRescisaoAutomatico + l.custoRescisaoManual;
+  const desligadosRotatividade = l.desligados - l.aprendizesDesligados - l.desligadosTransferencia;
   return {
     ...l,
     diasAusencia,
@@ -157,6 +186,8 @@ export function calcularDerivados<T extends Record<CampoIndicador, number> & { i
     custoPorFuncionario: l.ativos > 0 ? custoTotalEmpregador / l.ativos : 0,
     percentualEncargos: l.folhaBruta > 0 ? (encargos / l.folhaBruta) * 100 : 0,
     taxaRotatividade: taxaTurnover(l),
+    custoRotatividade,
+    custoRotatividadePorDesligado: desligadosRotatividade > 0 ? custoRotatividade / desligadosRotatividade : 0,
   };
 }
 

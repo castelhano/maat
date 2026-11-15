@@ -56,6 +56,13 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
   const [linhas, setLinhas] = useState<LinhaEdicao[]>([]);
   const [isPending, startTransition] = useTransition();
 
+  // Fila de arquivos selecionados de uma vez (ex.: vários meses/empresas juntos) — processados um
+  // por vez, cada um com sua própria conferência antes de gravar (não é importação em lote "sem
+  // olhar"). `fila` guarda só os que ainda faltam vir depois do `file` atual.
+  const [fila, setFila] = useState<File[]>([]);
+  const [totalLote, setTotalLote] = useState(0);
+  const posicaoNoLote = file ? totalLote - fila.length : 0;
+
   async function handleFile(f: File) {
     setFile(f);
     setPreview(null);
@@ -65,13 +72,37 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
     startTransition(async () => {
       const result = await previewIndicadores(base64);
       if (result.error) {
-        toast.error(result.error);
-        setFile(null);
+        toast.error(`${f.name}: ${result.error}`);
+        avancarFila();
         return;
       }
       setPreview(result.data);
       setLinhas(linhasParaEdicao(result.data!));
     });
+  }
+
+  function handleFiles(arquivos: File[]) {
+    if (arquivos.length === 0) return;
+    const [primeiro, ...resto] = arquivos;
+    setTotalLote(arquivos.length);
+    setFila(resto);
+    handleFile(primeiro);
+  }
+
+  // Avança pro próximo arquivo da fila (depois de confirmar ou pular o atual) — se a fila estiver
+  // vazia, volta ao estado inicial (nenhum arquivo selecionado).
+  function avancarFila() {
+    if (fila.length === 0) {
+      setFile(null);
+      setPreview(null);
+      setLinhas([]);
+      setTotalLote(0);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    const [proximo, ...restante] = fila;
+    setFila(restante);
+    handleFile(proximo);
   }
 
   function handleCampoChange(setor: string, campo: CampoIndicador, valor: string) {
@@ -96,15 +127,19 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
         return;
       }
       toast.success(`Indicadores gravados: ${result.resumo?.gravados} área(s) — competência ${preview.competencia}.`);
-      handleCancelar();
+      avancarFila();
       onImportado?.();
     });
   }
 
+  // Cancela o arquivo atual E o resto da fila (interrompe o lote todo). Pra só pular este arquivo e
+  // seguir pro próximo, ver `avancarFila`.
   function handleCancelar() {
     setFile(null);
     setPreview(null);
     setLinhas([]);
+    setFila([]);
+    setTotalLote(0);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -116,7 +151,7 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
             ETAPA 01
           </span>
           <span className="font-mono text-[11px] font-medium tracking-[.08em] text-text-2 uppercase">
-            Selecionar arquivo
+            Selecionar arquivo(s)
           </span>
           <div className="h-px flex-1 bg-border" />
         </div>
@@ -132,17 +167,22 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
             ref={inputRef}
             type="file"
             accept=".pdf"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
+              if (e.target.files) handleFiles(Array.from(e.target.files));
             }}
           />
           {file ? <CheckCircle2 className="size-[22px] text-success" /> : <Upload className="size-[22px] text-text-3" />}
           <strong className="text-xs font-medium text-foreground">
-            {file ? "Arquivo carregado" : "Clique para selecionar o Resumo Gerencial Analítico (.PDF)"}
+            {file ? "Arquivo carregado" : "Clique para selecionar um ou vários Resumo Gerencial Analítico (.PDF)"}
           </strong>
-          {file && <span className="font-mono text-[10px] text-success">{file.name}</span>}
+          {file && (
+            <span className="font-mono text-[10px] text-success">
+              {file.name}
+              {totalLote > 1 && ` — arquivo ${posicaoNoLote} de ${totalLote}`}
+            </span>
+          )}
         </label>
       </div>
 
@@ -225,8 +265,13 @@ export function IndicadoresImportador({ onImportado }: { onImportado?: () => voi
                 <FileText />
                 {isPending ? "Gravando..." : "Confirmar importação"}
               </Button>
+              {fila.length > 0 && (
+                <Button variant="secondary" onClick={avancarFila} disabled={isPending}>
+                  Pular este arquivo
+                </Button>
+              )}
               <Button variant="secondary" onClick={handleCancelar} disabled={isPending}>
-                Cancelar
+                {fila.length > 0 ? "Cancelar lote" : "Cancelar"}
               </Button>
             </div>
           </div>
