@@ -79,6 +79,7 @@ export function RegrasDialog({
   const [vaRegra, setVaRegra] = useState(r.vaRegra);
   const [vaValorFixo, setVaValorFixo] = useState(numeroBr(r.vaValorFixo));
   const [vaDiaDesligado, setVaDiaDesligado] = useState(String(r.vaDiaMantemDesligado));
+  const [cestaDiaDesligado, setCestaDiaDesligado] = useState(r.cestaDiaMantemDesligado !== null ? String(r.cestaDiaMantemDesligado) : "");
   const [vaExcecoes, setVaExcecoes] = useState(r.vaValoresPorCargo.map((v) => `${v.cargo} = ${numeroBr(v.valor)}`).join("\n"));
   const [cidades, setCidades] = useState(
     r.cidades.map((c) => `${c.codigo} = ${c.nome}${c.valorValeGas !== null ? ` = ${numeroBr(c.valorValeGas)}` : ""}`).join("\n")
@@ -116,6 +117,11 @@ export function RegrasDialog({
       toast.error("VA de desligado: informe um dia entre 1 e 31 (32 = desligado nunca mantém).");
       return;
     }
+    const cestaDia = cestaDiaDesligado.trim() ? Number(cestaDiaDesligado) : null;
+    if (cestaDia !== null && (!Number.isInteger(cestaDia) || cestaDia < 1 || cestaDia > 31)) {
+      toast.error("Cesta de desligado: informe um dia entre 1 e 31 (ou vazio = desligado perde).");
+      return;
+    }
     const excecoes = lerExcecoes(vaExcecoes);
     if (typeof excecoes === "string") {
       toast.error(excecoes);
@@ -136,6 +142,7 @@ export function RegrasDialog({
         vaValorFixo: valorFixo,
         vaValoresPorCargo: excecoes,
         vaDiaMantemDesligado: diaDesligado,
+        cestaDiaMantemDesligado: cestaDia,
         cidades: listaCidades,
         bancoHorasModo,
         feriasCalendario,
@@ -193,6 +200,11 @@ export function RegrasDialog({
                   <option value="mensal">Todo mês (mesmo período da cesta)</option>
                 </select>
               </div>
+              <div>
+                <label className={labelCls}>Desligado recebe a cesta se sair a partir do dia</label>
+                <Input value={cestaDiaDesligado} onChange={(e) => setCestaDiaDesligado(e.target.value)} placeholder="vazio = desligado perde" inputMode="numeric" />
+                <p className={ajudaCls}>vazio = regra original (desligado perde); ex.: 28</p>
+              </div>
               <div className="flex items-end pb-2">
                 <label className="flex items-center gap-2 font-mono text-[11px] text-text-2">
                   <input type="checkbox" checked={regraSuspensao} onChange={(e) => setRegraSuspensao(e.target.checked)} />
@@ -215,7 +227,7 @@ export function RegrasDialog({
               <div>
                 <label className={labelCls}>Desligado mantém o VA se sair a partir do dia</label>
                 <Input value={vaDiaDesligado} onChange={(e) => setVaDiaDesligado(e.target.value)} inputMode="numeric" />
-                <p className={ajudaCls}>25 = regra original; 31 = quem sai até o dia 30 perde</p>
+                <p className={ajudaCls}>25 = regra original; 32 = desligado nunca mantém (pago na rescisão)</p>
               </div>
               {vaRegra === "fixo" && (
                 <div>

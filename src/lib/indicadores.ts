@@ -133,17 +133,19 @@ export type ComDerivados<T> = T & {
 //
 // Custo total do empregador = folha bruta (já inclui hora extra e comissão — são rubricas do
 // próprio relatório) + folha suplementar (processada à parte, não está na folha bruta) + FGTS +
-// benefícios. O INSS aqui é só o retido do funcionário (não tem a parte patronal separada no
-// relatório), por isso fica de fora do custo do empregador e só entra no indicador de encargos.
+// INSS patronal + Acidente de Trabalho (RAT/SAT) + Terceiros (Sistema S, INCRA, salário educação
+// etc.) + benefícios. O INSS retido do funcionário NÃO entra aqui (é descontado do salário dele,
+// não é custo do empregador) — só entra no indicador de Encargos.
 //
-// Encargos = INSS retido do funcionário + FGTS + IRRF + INSS patronal + Acidente de Trabalho
-// (RAT/SAT) + Terceiros (Sistema S, INCRA, salário educação etc.) — os 3 últimos são encargos
-// patronais extraídos do relatório (ver resumo-gerencial.ts).
+// Encargos = INSS retido do funcionário + FGTS + IRRF + INSS patronal + RAT + Terceiros — é uma
+// visão diferente do mesmo relatório (o que é "imposto/contribuição" sobre a folha), por isso
+// alguns campos aparecem tanto aqui quanto em custoTotalEmpregador.
 export function calcularDerivados<T extends Record<CampoIndicador, number> & { irrf: number }>(
   l: T
 ): ComDerivados<T> {
   const custoBeneficios = l.cestaBasica + l.valeGas + l.valeAlimentacao + l.cafeManha + l.refeitorio + l.proSaude;
-  const custoTotalEmpregador = l.folhaBruta + l.folhaSuplementar + l.fgts + custoBeneficios;
+  const custoTotalEmpregador =
+    l.folhaBruta + l.folhaSuplementar + l.fgts + l.inssPatronal + l.acidenteTrabalho + l.terceiros + custoBeneficios;
   const encargos = l.inssRetido + l.fgts + l.irrf + l.inssPatronal + l.acidenteTrabalho + l.terceiros;
   const diasAusencia = l.faltasDias + l.atestadosDias;
   return {

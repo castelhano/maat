@@ -142,7 +142,7 @@ export async function processarApuracao(
 
   if (competenciaEstaFechada({ ano, mes })) {
     return {
-      error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 7 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
+      error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 14 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
     };
   }
 
@@ -174,9 +174,15 @@ export async function processarApuracao(
     // Desligado só entra na apuração da competência em que o desligamento aconteceu — a partir
     // do mês seguinte ele já saiu da folha de verdade, então não faz sentido continuar
     // aparecendo indefinidamente como "Desligado" em toda competência processada depois.
+    // Empresas com período de benefícios próprio (ex.: LOGTRANS, 21 a 20) apuram a competência
+    // já dentro do mês seguinte: quem foi desligado DEPOIS do mês da competência ainda trabalhou
+    // nela inteira e entra como ativo (statusNaCompetencia, abaixo). As demais seguem como sempre.
+    const desligadoDepoisContaComoAtivo = regras.beneficioPeriodoDiaInicio !== null;
+    const competenciaAnoMes = ano * 12 + (mes - 1);
     const funcionarios = todosFuncionarios.filter((f) => {
       if (f.status !== "desligado" || !f.dataDesligamento) return true;
-      return f.dataDesligamento.getUTCFullYear() === ano && f.dataDesligamento.getUTCMonth() + 1 === mes;
+      const anoMesDesligamento = f.dataDesligamento.getUTCFullYear() * 12 + f.dataDesligamento.getUTCMonth();
+      return desligadoDepoisContaComoAtivo ? anoMesDesligamento >= competenciaAnoMes : anoMesDesligamento === competenciaAnoMes;
     });
     const terceiros = await prisma.terceiro.findMany({ where: { empresaId: empresa.id, ativo: true } });
 
@@ -231,9 +237,12 @@ export async function processarApuracao(
       const recebeVRResolvido = resolverHeranca(f.recebeValeRefeicao, f.cargo.recebeValeRefeicao);
       const periodosAfastamento = periodosPorFuncionario.get(f.id) ?? [];
 
+      // Situação no mês da competência (desligado/afastado só depois dela = ainda ativo nela) — só
+      // nas empresas com período próprio; as demais usam a situação atual, como sempre.
+      const statusCompetencia = desligadoDepoisContaComoAtivo ? statusNaCompetencia(f, { ano, mes }) : f.status;
       const cesta = calcularElegibilidadeCesta(
         {
-          status: f.status,
+          status: statusCompetencia,
           dataAdmissao: f.dataAdmissao,
           dataAfastamento: f.dataAfastamento,
           dataRetorno: f.dataRetorno,
@@ -242,6 +251,8 @@ export async function processarApuracao(
           faltasNoMes: faltasPorFuncionario.get(f.id) ?? 0,
           recebeCestaBasicaResolvido: recebeCestaResolvido,
           faltasPerde: regras.faltasPerdeBeneficio,
+          dataDesligamento: f.dataDesligamento,
+          diaMantemDesligado: regras.cestaDiaMantemDesligado,
         },
         { ano, mes }
       );
@@ -260,7 +271,7 @@ export async function processarApuracao(
 
       const vr = calcularVR(
         {
-          status: f.status,
+          status: statusCompetencia,
           salario: f.salario.toNumber(),
           temGratificacao: f.temGratificacao,
           valorValeRefeicao: valorValeRefeicaoResolvido,

@@ -156,7 +156,7 @@ export async function processarApuracaoValeGas(
   const { ano, mes } = parseCompetencia(competencia);
   if (competenciaEstaFechada({ ano, mes })) {
     return {
-      error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 7 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
+      error: `A competência ${competencia} já está fechada pra reprocessamento (o prazo vai até o dia 14 do mês seguinte). Se precisar corrigir algum valor específico, peça ajuste manual em vez de reprocessar.`,
     };
   }
 

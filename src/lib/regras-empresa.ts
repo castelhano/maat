@@ -15,6 +15,7 @@ export type RegrasEmpresa = {
   vaValorFixo: number | null;
   vaValoresPorCargo: ValorVaCargo[];
   vaDiaMantemDesligado: number;
+  cestaDiaMantemDesligado: number | null;
   cidades: CidadeEmpresa[];
   bancoHorasModo: "calculado" | "extrato";
   feriasCalendario: "quinzena" | "mensal";
@@ -29,6 +30,7 @@ type EmpresaComRegras = {
   vaValorFixo: { toNumber(): number } | null;
   vaValoresPorCargo: string | null;
   vaDiaMantemDesligado: number;
+  cestaDiaMantemDesligado: number | null;
   cidades: string | null;
   bancoHorasModo: string;
   feriasCalendario: string;
@@ -60,6 +62,7 @@ export function regrasDaEmpresa(e: EmpresaComRegras): RegrasEmpresa {
     vaValorFixo: e.vaValorFixo?.toNumber() ?? null,
     vaValoresPorCargo: lerJson(e.vaValoresPorCargo, ehValorCargo),
     vaDiaMantemDesligado: e.vaDiaMantemDesligado,
+    cestaDiaMantemDesligado: e.cestaDiaMantemDesligado,
     cidades: lerJson(e.cidades, ehCidade).map((c) => ({ ...c, valorValeGas: typeof c.valorValeGas === "number" ? c.valorValeGas : null })),
     bancoHorasModo: e.bancoHorasModo === "extrato" ? "extrato" : "calculado",
     feriasCalendario: e.feriasCalendario === "mensal" ? "mensal" : "quinzena",

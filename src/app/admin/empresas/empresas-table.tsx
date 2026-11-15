@@ -50,7 +50,9 @@ function resumoRegras(r: RegrasEmpresa): string {
   if (r.valeGasMensal) partes.push("vale gás mensal");
   if (!r.valeGasRegraSuspensao) partes.push("sem regra de suspensão");
   if (r.vaRegra === "fixo") partes.push("VA fixo");
-  if (r.vaDiaMantemDesligado !== 25) partes.push(`VA desligado a partir do dia ${r.vaDiaMantemDesligado}`);
+  if (r.cestaDiaMantemDesligado !== null) partes.push(`cesta desligado a partir do dia ${r.cestaDiaMantemDesligado}`);
+  if (r.vaDiaMantemDesligado > 31) partes.push("VA: desligado perde");
+  else if (r.vaDiaMantemDesligado !== 25) partes.push(`VA desligado a partir do dia ${r.vaDiaMantemDesligado}`);
   if (r.cidades.length > 0) partes.push(`${r.cidades.length} cidades`);
   if (r.bancoHorasModo === "extrato") partes.push("BH pelo extrato");
   if (r.feriasCalendario === "mensal") partes.push("férias mensal");

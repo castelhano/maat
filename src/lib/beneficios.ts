@@ -179,6 +179,10 @@ export function calcularElegibilidadeCesta(funcionario: {
   // Perde a cesta com esta quantidade de faltas ou mais (padrão 3 = "mais de 2"); a LOGTRANS
   // perde já com 2. As faltas chegam contadas no período de apuração da empresa.
   faltasPerde?: number;
+  // Desligado no mês da competência a partir deste dia ainda recebe a cesta física (LOGTRANS: 28).
+  // Ausente = desligado sempre perde (regra original).
+  dataDesligamento?: Date | null;
+  diaMantemDesligado?: number | null;
 }, competencia: { ano: number; mes: number }): ResultadoCesta {
   const admissaoAnoMes = anoMesDe(funcionario.dataAdmissao);
   const competenciaAnoMes = competencia.ano * 12 + (competencia.mes - 1);
@@ -191,7 +195,13 @@ export function calcularElegibilidadeCesta(funcionario: {
   }
 
   if (funcionario.status === "desligado") {
-    return { elegivel: false, motivo: "Desligado" };
+    const d = funcionario.dataDesligamento;
+    const mantem =
+      funcionario.diaMantemDesligado != null &&
+      d != null &&
+      anoMesDe(d) === competenciaAnoMes &&
+      d.getUTCDate() >= funcionario.diaMantemDesligado;
+    if (!mantem) return { elegivel: false, motivo: "Desligado" };
   }
 
   // Considera o afastamento mesmo se o status já voltou pra "ativo" (retornou dentro do próprio

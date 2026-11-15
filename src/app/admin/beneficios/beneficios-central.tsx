@@ -186,7 +186,7 @@ export function BeneficiosCentral() {
           )}
           {!valeGasMesInvalido && competenciaFechada && (
             <span className="font-mono text-[10px] text-warning">
-              competência fechada pra reprocessamento (prazo era até o dia 7 do mês seguinte)
+              competência fechada pra reprocessamento (prazo era até o dia 14 do mês seguinte)
             </span>
           )}
           {!valeGasMesInvalido && !competenciaFechada && geradoEmAba && (

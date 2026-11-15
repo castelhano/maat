@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ExportCard } from "../beneficios/export-card";
 import { usePodeOperar } from "@/components/permissoes-provider";
+import { AcidentesPainel } from "./acidentes-painel";
+import { type OpcaoEmpresaCat } from "./acidentes-actions";
 import {
   carregarIndicadores,
   atualizarCampoIndicador,
@@ -79,6 +81,11 @@ const META_TURNOVER = 1.5;
 const META_ABSENTEISMO = 1.5;
 const COR_ABSENTEISMO = "#0d9488";
 const CORES_MOTIVO = ["#0d9488", "#f97316", "#64748b", "#facc15", "#3b82f6", "#7c3aed", "#ef4444"];
+
+// Rubricas que compõem o Custo Mensal do Empregador (mesma soma de custoTotalEmpregador, ver
+// lib/indicadores.ts) — ordem fixa garante cor consistente entre meses no gráfico empilhado.
+const RUBRICAS_CUSTO = ["Folha bruta", "FGTS", "INSS Patronal", "RAT", "Terceiros", "Benefícios"];
+const CORES_RUBRICA = ["#0d9488", "#3b82f6", "#d97706", "#ef4444", "#7c3aed", "#facc15"];
 
 const TOOLTIP_STYLE = {
   background: "#131619",
@@ -188,7 +195,7 @@ function Legenda({ itens }: { itens: { cor: string; label: string }[] }) {
   );
 }
 
-export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
+export function IndicadoresPainel({ empresas, empresasCat }: { empresas: OpcaoEmpresa[]; empresasCat: OpcaoEmpresaCat[] }) {
   const podeOperar = usePodeOperar("indicadores");
   const [empresaId, setEmpresaId] = useState<string>(TODOS);
   const [setor, setSetor] = useState<string>(TODOS);
@@ -196,6 +203,8 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
   const [absenteismoMeses, setAbsenteismoMeses] = useState<AbsenteismoMes[]>([]);
   const [carregando, startCarregando] = useTransition();
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
+  const [indicadorAtivo, setIndicadorAtivo] = useState("turnover");
+  const [mostrarDadosBrutos, setMostrarDadosBrutos] = useState(false);
 
   function carregar(overrides: { empresaId?: string; setor?: string }) {
     const e = overrides.empresaId ?? empresaId;
@@ -282,6 +291,31 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
   }, [dadosAbsenteismo, dadosAbsenteismoPct]);
   const dadosBeneficios = useMemo(() => pivotPorArea(dados, "custoBeneficios"), [dados]);
   const dadosEncargos = useMemo(() => pivotPorArea(dados, "encargos"), [dados]);
+  // Custo mensal do empregador por rubrica (não por área) — soma tudo que compõe
+  // custoTotalEmpregador, quebrado em Folha/FGTS/INSS Patronal/RAT/Terceiros/Benefícios.
+  const dadosCustoMensal = useMemo(() => {
+    const vazio = () => Object.fromEntries(RUBRICAS_CUSTO.map((r) => [r, 0])) as Record<string, number>;
+    const porCompetencia = new Map<string, Record<string, number>>();
+    for (const l of dados) {
+      const b = porCompetencia.get(l.competencia) ?? vazio();
+      b["Folha bruta"] += l.folhaBruta + l.folhaSuplementar;
+      b.FGTS += l.fgts;
+      b["INSS Patronal"] += l.inssPatronal;
+      b.RAT += l.acidenteTrabalho;
+      b.Terceiros += l.terceiros;
+      b["Benefícios"] += l.custoBeneficios;
+      porCompetencia.set(l.competencia, b);
+    }
+    return [...porCompetencia.entries()]
+      .sort((a, b) => chaveCompetencia(a[0]) - chaveCompetencia(b[0]))
+      .map(
+        ([competencia, v]) =>
+          ({ competencia: nomeCompetencia(competencia), ...v, Total: Object.values(v).reduce((s, n) => s + n, 0) }) as {
+            competencia: string;
+            Total: number;
+          } & Record<string, number>
+      );
+  }, [dados]);
 
   const competenciasTabela = useMemo(
     () => [...new Set(dados.map((l) => l.competencia))].sort((a, b) => chaveCompetencia(a) - chaveCompetencia(b)),
@@ -400,6 +434,516 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
     ...(setor !== TODOS ? { setor } : {}),
   }).toString();
 
+  // Registro dos indicadores do menu lateral — cada um carrega seu próprio gráfico/tabela, já
+  // montados a partir dos dados calculados acima. Trocar de indicador só troca qual `render()` é
+  // chamado; nenhum cálculo é refeito.
+  const secoes: { id: string; grupo: string; label: string; descricao: string; render: () => React.ReactNode }[] = [
+    {
+      id: "turnover",
+      grupo: "Pessoas",
+      label: "Turnover",
+      descricao: `(Admitidos + Desligados) / 2 / Total de colaboradores × 100 — meta ${META_TURNOVER.toLocaleString("pt-BR")}%`,
+      render: () => (
+        <ExportCard
+          titulo="Turnover — admissões x desligamentos"
+          descricao={`(Admitidos + Desligados) / 2 / Total de colaboradores × 100 — meta ${META_TURNOVER.toLocaleString("pt-BR")}%`}
+          arquivo="indicadores-turnover"
+          csv={{
+            headers: ["Competência", "Admitidos", "Desligados", "Total Colab.", "Turnover %"],
+            linhas: dadosTurnover.map((d) => [d.competencia, d.Admitidos, d.Desligados, d["Total Colab."], d.Turnover]),
+          }}
+        >
+          <Legenda
+            itens={[
+              { cor: COR_ADMITIDOS, label: "Admitidos" },
+              { cor: COR_DESLIGADOS, label: "Desligados" },
+              { cor: COR_TURNOVER, label: "Turnover %" },
+              { cor: COR_META, label: `Meta ${META_TURNOVER.toLocaleString("pt-BR")}%` },
+            ]}
+          />
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={dadosTurnover} margin={{ left: 8, right: 8, top: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+              <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+              <YAxis yAxisId="qtd" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
+              <YAxis
+                yAxisId="pct"
+                orientation="right"
+                tick={{ fontSize: 10, fill: "#7590a8" }}
+                stroke="#2a3038"
+                width={48}
+                tickFormatter={(v) => `${v}%`}
+                domain={[0, (max: number) => Math.max(max, META_TURNOVER * 1.2)]}
+              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, nome) => (nome === "Turnover" ? `${Number(v).toFixed(2)}%` : v)} />
+              <Bar yAxisId="qtd" dataKey="Admitidos" fill={COR_ADMITIDOS} maxBarSize={28} radius={[3, 3, 0, 0]} />
+              <Bar yAxisId="qtd" dataKey="Desligados" fill={COR_DESLIGADOS} maxBarSize={28} radius={[3, 3, 0, 0]} />
+              <Line yAxisId="pct" type="monotone" dataKey="Turnover" stroke={COR_TURNOVER} strokeWidth={2} dot={{ r: 3 }} />
+              <ReferenceLine
+                yAxisId="pct"
+                y={META_TURNOVER}
+                stroke={COR_META}
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                label={{ value: `Meta ${META_TURNOVER.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+
+          <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
+            <table className="w-full table-fixed border-collapse font-mono text-[10px]">
+              <colgroup>
+                <col className="w-20" />
+                {dadosTurnover.map((d) => (
+                  <col key={d.competencia} />
+                ))}
+                <col />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-2 py-1.5 text-left text-text-3">—</th>
+                  {dadosTurnover.map((d) => (
+                    <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
+                      {d.competencia}
+                    </th>
+                  ))}
+                  <th className="px-2 py-1.5 text-right font-bold text-foreground">Média</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border/50">
+                  <td className="px-2 py-1.5 text-text-2">Admitidos</td>
+                  {dadosTurnover.map((d) => (
+                    <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                      {d.Admitidos}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                    {media(dadosTurnover.map((d) => d.Admitidos)).toFixed(2)}
+                  </td>
+                </tr>
+                <tr className="border-b border-border/50">
+                  <td className="px-2 py-1.5 text-text-2">Desligados</td>
+                  {dadosTurnover.map((d) => (
+                    <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                      {d.Desligados}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                    {media(dadosTurnover.map((d) => d.Desligados)).toFixed(2)}
+                  </td>
+                </tr>
+                <tr className="border-b border-border/50">
+                  <td className="px-2 py-1.5 text-text-2">Total Colab.</td>
+                  {dadosTurnover.map((d) => (
+                    <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                      {d["Total Colab."]}
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                    {media(dadosTurnover.map((d) => d["Total Colab."])).toFixed(2)}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-2 py-1.5 font-bold text-warning">Turnover</td>
+                  {dadosTurnover.map((d) => (
+                    <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-warning">
+                      {d.Turnover.toFixed(2)}%
+                    </td>
+                  ))}
+                  <td className="px-2 py-1.5 text-right font-bold text-warning">
+                    {media(dadosTurnover.map((d) => d.Turnover)).toFixed(2)}%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </ExportCard>
+      ),
+    },
+    {
+      id: "headcount",
+      grupo: "Pessoas",
+      label: "Headcount",
+      descricao: "colaboradores ativos ao fim de cada competência, por área",
+      render: () => (
+        <ExportCard
+          titulo="Headcount (ativos) por área"
+          descricao="colaboradores ativos ao fim de cada competência"
+          arquivo="indicadores-headcount"
+          pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
+          csv={{
+            headers: ["Competência", ...areasPresentes],
+            linhas: dadosHeadcount.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
+          }}
+        >
+          <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
+          <AreaBarChart dados={dadosHeadcount} areasPresentes={areasPresentes} />
+
+          {totaisAtivosPorMes.length > 0 && (
+            <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
+              <table className="w-full table-fixed border-collapse font-mono text-[10px]">
+                <colgroup>
+                  <col className="w-24" />
+                  {totaisAtivosPorMes.map((d) => (
+                    <col key={d.competencia} />
+                  ))}
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-1.5 text-left text-text-3">—</th>
+                    {totaisAtivosPorMes.map((d) => (
+                      <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
+                        {d.competencia}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="px-2 py-1.5 font-bold text-foreground">Total ativos</td>
+                    {totaisAtivosPorMes.map((d) => (
+                      <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-foreground">
+                        {d.total}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ExportCard>
+      ),
+    },
+    {
+      id: "absenteismo-pct",
+      grupo: "Ausências",
+      label: "Absenteísmo (%)",
+      descricao: "dias de ausência ÷ (ativos × dias úteis do mês) × 100, por motivo — meta 1,5%",
+      render: () => (
+        <ExportCard
+          titulo="Absenteísmo (%) — meta 1,5%"
+          descricao="barras = dias de ausência por motivo; linha = % (dias de ausência ÷ (ativos × dias úteis do mês) × 100) — dia útil aqui conta sábado, só desconta domingo e feriado nacional"
+          arquivo="indicadores-absenteismo-percentual"
+          csv={{
+            headers: ["Competência", "Dias de ausência", "Absenteísmo %", ...MOTIVOS_ABSENTEISMO],
+            linhas: dadosAbsenteismoPct.map((d) => [
+              d.competencia,
+              d.Dias,
+              d.Absenteísmo,
+              ...MOTIVOS_ABSENTEISMO.map((m) => d[m] ?? 0),
+            ]),
+          }}
+        >
+          <Legenda
+            itens={[
+              ...MOTIVOS_ABSENTEISMO.map((motivo, i) => ({ cor: CORES_MOTIVO[i % CORES_MOTIVO.length], label: motivo })),
+              { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
+              { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
+            ]}
+          />
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={dadosAbsenteismoPct} margin={{ left: 8, right: 8, top: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+              <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+              <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
+              <YAxis
+                yAxisId="pct"
+                orientation="right"
+                tick={{ fontSize: 10, fill: "#7590a8" }}
+                stroke="#2a3038"
+                width={48}
+                tickFormatter={(v) => `${v}%`}
+                domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
+              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)} />
+              {MOTIVOS_ABSENTEISMO.map((motivo, i) => (
+                <Bar key={motivo} yAxisId="dias" dataKey={motivo} stackId="motivo" fill={CORES_MOTIVO[i % CORES_MOTIVO.length]} maxBarSize={36} />
+              ))}
+              <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
+              <ReferenceLine
+                yAxisId="pct"
+                y={META_ABSENTEISMO}
+                stroke={COR_META}
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+
+          {dadosAbsenteismoPct.length > 0 && (
+            <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
+              <table className="w-full table-fixed border-collapse font-mono text-[10px]">
+                <colgroup>
+                  <col className="w-24" />
+                  {dadosAbsenteismoPct.map((d) => (
+                    <col key={d.competencia} />
+                  ))}
+                  <col />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-1.5 text-left text-text-3">—</th>
+                    {dadosAbsenteismoPct.map((d) => (
+                      <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
+                        {d.competencia}
+                      </th>
+                    ))}
+                    <th className="px-2 py-1.5 text-right font-bold text-foreground">Média</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MOTIVOS_ABSENTEISMO.map((motivo) => (
+                    <tr key={motivo} className="border-b border-border/50">
+                      <td className="px-2 py-1.5 text-text-2">{motivo}</td>
+                      {dadosAbsenteismoPct.map((d) => (
+                        <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                          {d[motivo] ?? 0}
+                        </td>
+                      ))}
+                      <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                        {media(dadosAbsenteismoPct.map((d) => Number(d[motivo]) || 0)).toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-b border-border/50">
+                    <td className="px-2 py-1.5 font-bold text-foreground">Total dias</td>
+                    {dadosAbsenteismoPct.map((d) => (
+                      <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-foreground">
+                        {d.Dias}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                      {media(dadosAbsenteismoPct.map((d) => d.Dias)).toFixed(1)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-2 py-1.5 font-bold text-warning">Absenteísmo</td>
+                    {dadosAbsenteismoPct.map((d) => (
+                      <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-warning">
+                        {d.Absenteísmo.toFixed(2)}%
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right font-bold text-warning">
+                      {media(dadosAbsenteismoPct.map((d) => d.Absenteísmo)).toFixed(2)}%
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ExportCard>
+      ),
+    },
+    {
+      id: "absenteismo-area",
+      grupo: "Ausências",
+      label: "Absenteísmo por área",
+      descricao: "dias de ausência por área (relatório de Faltas) + % geral da empresa",
+      render: () => (
+        <ExportCard
+          titulo="Absenteísmo (dias) por área"
+          descricao="dias de ausência por área (relatório de Faltas, todos os motivos); linha = % Absenteísmo geral da empresa, com meta de 1,5%"
+          arquivo="indicadores-absenteismo"
+          csv={{
+            headers: ["Competência", ...areasPresentes, "Absenteísmo %"],
+            linhas: dadosAbsenteismoAreaComPct.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0), d.Absenteísmo]),
+          }}
+        >
+          <Legenda
+            itens={[
+              ...areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" })),
+              { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
+              { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
+            ]}
+          />
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={dadosAbsenteismoAreaComPct} margin={{ left: 8, right: 8, top: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+              <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+              <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
+              <YAxis
+                yAxisId="pct"
+                orientation="right"
+                tick={{ fontSize: 10, fill: "#7590a8" }}
+                stroke="#2a3038"
+                width={48}
+                tickFormatter={(v) => `${v}%`}
+                domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
+              />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)} />
+              {areasPresentes.map((areaLabel) => {
+                const valor = SETORES_INDICADOR.find((s) => s.label === areaLabel)?.valor ?? areaLabel;
+                return <Bar key={areaLabel} yAxisId="dias" dataKey={areaLabel} fill={COR_SETOR[valor] ?? "#8fa0b0"} maxBarSize={28} radius={[3, 3, 0, 0]} />;
+              })}
+              <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
+              <ReferenceLine
+                yAxisId="pct"
+                y={META_ABSENTEISMO}
+                stroke={COR_META}
+                strokeWidth={2}
+                strokeDasharray="4 3"
+                label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </ExportCard>
+      ),
+    },
+    {
+      id: "custo-mensal",
+      grupo: "Custo",
+      label: "Custo Mensal do Empregador",
+      descricao: "folha + FGTS + INSS Patronal + RAT + Terceiros + benefícios, por rubrica",
+      render: () => (
+        <ExportCard
+          titulo="Custo Mensal do Empregador — por rubrica"
+          descricao="tudo que custa manter a equipe no mês: folha bruta (+ folha suplementar) + FGTS + INSS Patronal + RAT + Terceiros + benefícios"
+          arquivo="indicadores-custo-mensal"
+          csv={{
+            headers: ["Competência", ...RUBRICAS_CUSTO, "Total"],
+            linhas: dadosCustoMensal.map((d) => [d.competencia, ...RUBRICAS_CUSTO.map((r) => d[r] ?? 0), d.Total]),
+          }}
+        >
+          <Legenda itens={RUBRICAS_CUSTO.map((r, i) => ({ cor: CORES_RUBRICA[i % CORES_RUBRICA.length], label: r }))} />
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={dadosCustoMensal} margin={{ left: 8, right: 8, top: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
+              <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
+              <YAxis tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={56} tickFormatter={fmtMoeda} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => fmtMoeda(Number(v))} />
+              {RUBRICAS_CUSTO.map((rubrica, i) => (
+                <Bar key={rubrica} dataKey={rubrica} stackId="custo" fill={CORES_RUBRICA[i % CORES_RUBRICA.length]} maxBarSize={36} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+
+          {dadosCustoMensal.length > 0 && (
+            <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
+              <table className="w-full table-fixed border-collapse font-mono text-[10px]">
+                <colgroup>
+                  <col className="w-24" />
+                  {dadosCustoMensal.map((d) => (
+                    <col key={d.competencia} />
+                  ))}
+                  <col />
+                </colgroup>
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-1.5 text-left text-text-3">—</th>
+                    {dadosCustoMensal.map((d) => (
+                      <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
+                        {d.competencia}
+                      </th>
+                    ))}
+                    <th className="px-2 py-1.5 text-right font-bold text-foreground">Média</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {RUBRICAS_CUSTO.map((rubrica) => (
+                    <tr key={rubrica} className="border-b border-border/50">
+                      <td className="px-2 py-1.5 text-text-2">{rubrica}</td>
+                      {dadosCustoMensal.map((d) => (
+                        <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
+                          {fmtMoeda(Number(d[rubrica]) || 0)}
+                        </td>
+                      ))}
+                      <td className="px-2 py-1.5 text-right font-bold text-foreground">
+                        {fmtMoeda(media(dadosCustoMensal.map((d) => Number(d[rubrica]) || 0)))}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="px-2 py-1.5 font-bold text-warning">Total</td>
+                    {dadosCustoMensal.map((d) => (
+                      <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-warning">
+                        {fmtMoeda(d.Total)}
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5 text-right font-bold text-warning">
+                      {fmtMoeda(media(dadosCustoMensal.map((d) => d.Total)))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ExportCard>
+      ),
+    },
+    {
+      id: "custo-area",
+      grupo: "Custo",
+      label: "Custo total por área",
+      descricao: "folha bruta + FGTS + INSS Patronal + RAT + Terceiros + benefícios, por área",
+      render: () => (
+        <ExportCard
+          titulo="Custo total do empregador por área"
+          descricao="folha bruta + FGTS + INSS Patronal + RAT + Terceiros + benefícios (cesta, VR, vale-gás)"
+          arquivo="indicadores-custo-total"
+          csv={{
+            headers: ["Competência", ...areasPresentes],
+            linhas: dadosCusto.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
+          }}
+        >
+          <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
+          <AreaBarChart dados={dadosCusto} areasPresentes={areasPresentes} formatter={fmtMoeda} />
+        </ExportCard>
+      ),
+    },
+    {
+      id: "beneficios",
+      grupo: "Custo",
+      label: "Benefícios por área",
+      descricao: "cesta básica + vale-gás + vale-alimentação + café da manhã + refeitório + pró-saúde",
+      render: () => (
+        <ExportCard
+          titulo="Custo de benefícios por área"
+          descricao="cesta básica + vale-gás + vale-alimentação + café da manhã + refeitório + pró-saúde"
+          arquivo="indicadores-beneficios"
+          csv={{
+            headers: ["Competência", ...areasPresentes],
+            linhas: dadosBeneficios.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
+          }}
+        >
+          <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
+          <AreaBarChart dados={dadosBeneficios} areasPresentes={areasPresentes} formatter={fmtMoeda} />
+        </ExportCard>
+      ),
+    },
+    {
+      id: "encargos",
+      grupo: "Encargos",
+      label: "Encargos por área",
+      descricao: "INSS retido + FGTS + IRRF + INSS Patronal + RAT + Terceiros",
+      render: () => (
+        <ExportCard
+          titulo="Encargos por área"
+          descricao="INSS retido + FGTS + IRRF + INSS patronal + Acidente de Trabalho (RAT) + Terceiros (IRRF do mês = férias da competência + normal do mês anterior)"
+          arquivo="indicadores-encargos"
+          csv={{
+            headers: ["Competência", ...areasPresentes],
+            linhas: dadosEncargos.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
+          }}
+        >
+          <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
+          <AreaBarChart dados={dadosEncargos} areasPresentes={areasPresentes} formatter={fmtMoeda} />
+        </ExportCard>
+      ),
+    },
+    {
+      id: "cat",
+      grupo: "Segurança do Trabalho",
+      label: "Acidentes de Trabalho (CAT)",
+      descricao: "acidentes de trabalho (CAT) — típico x trajeto, por área",
+      render: () => <AcidentesPainel empresas={empresasCat} />,
+    },
+  ];
+
+  const grupos = [...new Set(secoes.map((s) => s.grupo))];
+  const secaoAtiva = secoes.find((s) => s.id === indicadorAtivo) ?? secoes[0];
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end gap-4">
@@ -450,556 +994,201 @@ export function IndicadoresPainel({ empresas }: { empresas: OpcaoEmpresa[] }) {
 
       {!carregando && dados.length > 0 && (
         <div className="flex flex-col gap-4">
-          <ExportCard
-            titulo="Turnover — admissões x desligamentos"
-            descricao={`(Admitidos + Desligados) / 2 / Total de colaboradores × 100 — meta ${META_TURNOVER.toLocaleString("pt-BR")}%`}
-            arquivo="indicadores-turnover"
-            csv={{
-              headers: ["Competência", "Admitidos", "Desligados", "Total Colab.", "Turnover %"],
-              linhas: dadosTurnover.map((d) => [
-                d.competencia,
-                d.Admitidos,
-                d.Desligados,
-                d["Total Colab."],
-                d.Turnover,
-              ]),
-            }}
-          >
-            <Legenda
-              itens={[
-                { cor: COR_ADMITIDOS, label: "Admitidos" },
-                { cor: COR_DESLIGADOS, label: "Desligados" },
-                { cor: COR_TURNOVER, label: "Turnover %" },
-                { cor: COR_META, label: `Meta ${META_TURNOVER.toLocaleString("pt-BR")}%` },
-              ]}
-            />
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={dadosTurnover} margin={{ left: 8, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
-                <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-                <YAxis yAxisId="qtd" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
-                <YAxis
-                  yAxisId="pct"
-                  orientation="right"
-                  tick={{ fontSize: 10, fill: "#7590a8" }}
-                  stroke="#2a3038"
-                  width={48}
-                  tickFormatter={(v) => `${v}%`}
-                  domain={[0, (max: number) => Math.max(max, META_TURNOVER * 1.2)]}
-                />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, nome) => (nome === "Turnover" ? `${Number(v).toFixed(2)}%` : v)} />
-                <Bar yAxisId="qtd" dataKey="Admitidos" fill={COR_ADMITIDOS} maxBarSize={28} radius={[3, 3, 0, 0]} />
-                <Bar yAxisId="qtd" dataKey="Desligados" fill={COR_DESLIGADOS} maxBarSize={28} radius={[3, 3, 0, 0]} />
-                <Line yAxisId="pct" type="monotone" dataKey="Turnover" stroke={COR_TURNOVER} strokeWidth={2} dot={{ r: 3 }} />
-                <ReferenceLine
-                  yAxisId="pct"
-                  y={META_TURNOVER}
-                  stroke={COR_META}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                  label={{ value: `Meta ${META_TURNOVER.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+          <div className="flex flex-col gap-4 lg:flex-row">
+            <nav className="flex shrink-0 flex-col gap-4 lg:w-56">
+              {grupos.map((grupo) => (
+                <div key={grupo}>
+                  <p className="mb-1.5 px-2 font-mono text-[10px] font-bold tracking-[.1em] text-text-3 uppercase">{grupo}</p>
+                  <div className="flex flex-col gap-0.5">
+                    {secoes
+                      .filter((s) => s.grupo === grupo)
+                      .map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setIndicadorAtivo(s.id)}
+                          className={`rounded px-2 py-1.5 text-left font-mono text-[11px] tracking-[.02em] transition-colors ${
+                            s.id === secaoAtiva.id
+                              ? "bg-accent-glow font-bold text-primary"
+                              : "text-text-2 hover:bg-white/[.04]"
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </nav>
 
-            <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
-              <table className="w-full table-fixed border-collapse font-mono text-[10px]">
-                <colgroup>
-                  <col className="w-20" />
-                  {dadosTurnover.map((d) => (
-                    <col key={d.competencia} />
-                  ))}
-                  <col />
-                </colgroup>
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-2 py-1.5 text-left text-text-3">—</th>
-                    {dadosTurnover.map((d) => (
-                      <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
-                        {d.competencia}
-                      </th>
-                    ))}
-                    <th className="px-2 py-1.5 text-right font-bold text-foreground">Média</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-border/50">
-                    <td className="px-2 py-1.5 text-text-2">Admitidos</td>
-                    {dadosTurnover.map((d) => (
-                      <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
-                        {d.Admitidos}
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5 text-right font-bold text-foreground">
-                      {media(dadosTurnover.map((d) => d.Admitidos)).toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="px-2 py-1.5 text-text-2">Desligados</td>
-                    {dadosTurnover.map((d) => (
-                      <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
-                        {d.Desligados}
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5 text-right font-bold text-foreground">
-                      {media(dadosTurnover.map((d) => d.Desligados)).toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr className="border-b border-border/50">
-                    <td className="px-2 py-1.5 text-text-2">Total Colab.</td>
-                    {dadosTurnover.map((d) => (
-                      <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
-                        {d["Total Colab."]}
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5 text-right font-bold text-foreground">
-                      {media(dadosTurnover.map((d) => d["Total Colab."])).toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-2 py-1.5 font-bold text-warning">Turnover</td>
-                    {dadosTurnover.map((d) => (
-                      <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-warning">
-                        {d.Turnover.toFixed(2)}%
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5 text-right font-bold text-warning">
-                      {media(dadosTurnover.map((d) => d.Turnover)).toFixed(2)}%
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="min-w-0 flex-1">
+              <p className="mb-3 font-mono text-[10px] text-text-3">{secaoAtiva.descricao}</p>
+              {secaoAtiva.render()}
             </div>
-          </ExportCard>
-
-          <ExportCard
-            titulo="Headcount (ativos) por área"
-            descricao="colaboradores ativos ao fim de cada competência"
-            arquivo="indicadores-headcount"
-            pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
-            csv={{
-              headers: ["Competência", ...areasPresentes],
-              linhas: dadosHeadcount.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
-            }}
-          >
-            <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
-            <AreaBarChart dados={dadosHeadcount} areasPresentes={areasPresentes} />
-
-            {totaisAtivosPorMes.length > 0 && (
-              <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
-                <table className="w-full table-fixed border-collapse font-mono text-[10px]">
-                  <colgroup>
-                    <col className="w-24" />
-                    {totaisAtivosPorMes.map((d) => (
-                      <col key={d.competencia} />
-                    ))}
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="px-2 py-1.5 text-left text-text-3">—</th>
-                      {totaisAtivosPorMes.map((d) => (
-                        <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
-                          {d.competencia}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="px-2 py-1.5 font-bold text-foreground">Total ativos</td>
-                      {totaisAtivosPorMes.map((d) => (
-                        <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-foreground">
-                          {d.total}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </ExportCard>
-
-          <ExportCard
-            titulo="Absenteísmo (%) — meta 1,5%"
-            descricao="barras = dias de ausência por motivo; linha = % (dias de ausência ÷ (ativos × dias úteis do mês) × 100) — dia útil aqui conta sábado, só desconta domingo e feriado nacional"
-            arquivo="indicadores-absenteismo-percentual"
-            csv={{
-              headers: ["Competência", "Dias de ausência", "Absenteísmo %", ...MOTIVOS_ABSENTEISMO],
-              linhas: dadosAbsenteismoPct.map((d) => [
-                d.competencia,
-                d.Dias,
-                d.Absenteísmo,
-                ...MOTIVOS_ABSENTEISMO.map((m) => d[m] ?? 0),
-              ]),
-            }}
-          >
-            <Legenda
-              itens={[
-                ...MOTIVOS_ABSENTEISMO.map((motivo, i) => ({ cor: CORES_MOTIVO[i % CORES_MOTIVO.length], label: motivo })),
-                { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
-                { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
-              ]}
-            />
-            <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={dadosAbsenteismoPct} margin={{ left: 8, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
-                <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-                <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
-                <YAxis
-                  yAxisId="pct"
-                  orientation="right"
-                  tick={{ fontSize: 10, fill: "#7590a8" }}
-                  stroke="#2a3038"
-                  width={48}
-                  tickFormatter={(v) => `${v}%`}
-                  domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
-                />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)}
-                />
-                {MOTIVOS_ABSENTEISMO.map((motivo, i) => (
-                  <Bar
-                    key={motivo}
-                    yAxisId="dias"
-                    dataKey={motivo}
-                    stackId="motivo"
-                    fill={CORES_MOTIVO[i % CORES_MOTIVO.length]}
-                    maxBarSize={36}
-                  />
-                ))}
-                <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
-                <ReferenceLine
-                  yAxisId="pct"
-                  y={META_ABSENTEISMO}
-                  stroke={COR_META}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                  label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-
-            {dadosAbsenteismoPct.length > 0 && (
-              <div data-slot="table-container" className="mt-3 overflow-x-auto pr-14 pl-10">
-                <table className="w-full table-fixed border-collapse font-mono text-[10px]">
-                  <colgroup>
-                    <col className="w-24" />
-                    {dadosAbsenteismoPct.map((d) => (
-                      <col key={d.competencia} />
-                    ))}
-                    <col />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="px-2 py-1.5 text-left text-text-3">—</th>
-                      {dadosAbsenteismoPct.map((d) => (
-                        <th key={d.competencia} className="px-2 py-1.5 text-right text-text-3">
-                          {d.competencia}
-                        </th>
-                      ))}
-                      <th className="px-2 py-1.5 text-right font-bold text-foreground">Média</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MOTIVOS_ABSENTEISMO.map((motivo) => (
-                      <tr key={motivo} className="border-b border-border/50">
-                        <td className="px-2 py-1.5 text-text-2">{motivo}</td>
-                        {dadosAbsenteismoPct.map((d) => (
-                          <td key={d.competencia} className="px-2 py-1.5 text-right text-text-2">
-                            {d[motivo] ?? 0}
-                          </td>
-                        ))}
-                        <td className="px-2 py-1.5 text-right font-bold text-foreground">
-                          {media(dadosAbsenteismoPct.map((d) => Number(d[motivo]) || 0)).toFixed(1)}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="border-b border-border/50">
-                      <td className="px-2 py-1.5 font-bold text-foreground">Total dias</td>
-                      {dadosAbsenteismoPct.map((d) => (
-                        <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-foreground">
-                          {d.Dias}
-                        </td>
-                      ))}
-                      <td className="px-2 py-1.5 text-right font-bold text-foreground">
-                        {media(dadosAbsenteismoPct.map((d) => d.Dias)).toFixed(1)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-2 py-1.5 font-bold text-warning">Absenteísmo</td>
-                      {dadosAbsenteismoPct.map((d) => (
-                        <td key={d.competencia} className="px-2 py-1.5 text-right font-bold text-warning">
-                          {d.Absenteísmo.toFixed(2)}%
-                        </td>
-                      ))}
-                      <td className="px-2 py-1.5 text-right font-bold text-warning">
-                        {media(dadosAbsenteismoPct.map((d) => d.Absenteísmo)).toFixed(2)}%
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </ExportCard>
-
-          <ExportCard
-            titulo="Absenteísmo (dias) por área"
-            descricao="dias de ausência por área (relatório de Faltas, todos os motivos); linha = % Absenteísmo geral da empresa, com meta de 1,5%"
-            arquivo="indicadores-absenteismo"
-            csv={{
-              headers: ["Competência", ...areasPresentes, "Absenteísmo %"],
-              linhas: dadosAbsenteismoAreaComPct.map((d) => [
-                d.competencia,
-                ...areasPresentes.map((a) => d[a] ?? 0),
-                d.Absenteísmo,
-              ]),
-            }}
-          >
-            <Legenda
-              itens={[
-                ...areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" })),
-                { cor: COR_ABSENTEISMO, label: "Absenteísmo %" },
-                { cor: COR_META, label: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%` },
-              ]}
-            />
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={dadosAbsenteismoAreaComPct} margin={{ left: 8, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2a3038" vertical={false} />
-                <XAxis dataKey="competencia" tick={{ fontSize: 10, fill: "#8fa0b0" }} stroke="#2a3038" />
-                <YAxis yAxisId="dias" tick={{ fontSize: 10, fill: "#7590a8" }} stroke="#2a3038" width={40} />
-                <YAxis
-                  yAxisId="pct"
-                  orientation="right"
-                  tick={{ fontSize: 10, fill: "#7590a8" }}
-                  stroke="#2a3038"
-                  width={48}
-                  tickFormatter={(v) => `${v}%`}
-                  domain={[0, (max: number) => Math.max(max, META_ABSENTEISMO * 1.2)]}
-                />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(v, nome) => (nome === "Absenteísmo" ? `${Number(v).toFixed(2)}%` : v)}
-                />
-                {areasPresentes.map((areaLabel) => {
-                  const valor = SETORES_INDICADOR.find((s) => s.label === areaLabel)?.valor ?? areaLabel;
-                  return (
-                    <Bar
-                      key={areaLabel}
-                      yAxisId="dias"
-                      dataKey={areaLabel}
-                      fill={COR_SETOR[valor] ?? "#8fa0b0"}
-                      maxBarSize={28}
-                      radius={[3, 3, 0, 0]}
-                    />
-                  );
-                })}
-                <Line yAxisId="pct" type="monotone" dataKey="Absenteísmo" stroke={COR_ABSENTEISMO} strokeWidth={2} dot={{ r: 3 }} />
-                <ReferenceLine
-                  yAxisId="pct"
-                  y={META_ABSENTEISMO}
-                  stroke={COR_META}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                  label={{ value: `Meta ${META_ABSENTEISMO.toLocaleString("pt-BR")}%`, position: "insideTopRight", fill: COR_META, fontSize: 10 }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </ExportCard>
-
-          <ExportCard
-            titulo="Custo total do empregador por área"
-            descricao="folha bruta + FGTS + benefícios (cesta, VR, vale-gás)"
-            arquivo="indicadores-custo-total"
-            csv={{
-              headers: ["Competência", ...areasPresentes],
-              linhas: dadosCusto.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
-            }}
-          >
-            <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
-            <AreaBarChart dados={dadosCusto} areasPresentes={areasPresentes} formatter={fmtMoeda} />
-          </ExportCard>
-
-          <ExportCard
-            titulo="Custo de benefícios por área"
-            descricao="cesta básica + vale-gás + vale-alimentação + café da manhã + refeitório + pró-saúde"
-            arquivo="indicadores-beneficios"
-            csv={{
-              headers: ["Competência", ...areasPresentes],
-              linhas: dadosBeneficios.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
-            }}
-          >
-            <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
-            <AreaBarChart dados={dadosBeneficios} areasPresentes={areasPresentes} formatter={fmtMoeda} />
-          </ExportCard>
-
-          <ExportCard
-            titulo="Encargos por área"
-            descricao="INSS retido + FGTS + IRRF + INSS patronal + Acidente de Trabalho (RAT) + Terceiros (IRRF do mês = férias da competência + normal do mês anterior)"
-            arquivo="indicadores-encargos"
-            csv={{
-              headers: ["Competência", ...areasPresentes],
-              linhas: dadosEncargos.map((d) => [d.competencia, ...areasPresentes.map((a) => d[a] ?? 0)]),
-            }}
-          >
-            <Legenda itens={areasPresentes.map((a) => ({ label: a, cor: COR_SETOR[SETORES_INDICADOR.find((s) => s.label === a)?.valor ?? a] ?? "#8fa0b0" }))} />
-            <AreaBarChart dados={dadosEncargos} areasPresentes={areasPresentes} formatter={fmtMoeda} />
-          </ExportCard>
+          </div>
 
           {podeOperar && (
-          <div className="rounded-lg border border-border bg-surface p-4">
-            <p className="mb-1 font-mono text-[13px] font-bold text-foreground">Lançamento total (por empresa)</p>
-            <p className="mb-3 font-mono text-[10px] text-text-3">
-              escolha o lançamento e o mês, informe o valor total pago pela empresa — o rateio por área (ativos da área ÷
-              total de ativos × valor total) é automático e aparece na coluna correspondente da tabela abaixo
-            </p>
-            {empresaId === TODOS ? (
-              <p className="font-mono text-[11px] text-warning">Selecione uma empresa específica no filtro do topo para editar.</p>
-            ) : (
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="flex flex-col gap-2">
-                  <Label>Lançamento</Label>
-                  <Select value={campoRateioSelecionado} onValueChange={(v) => setCampoRateioSelecionado(v as CampoRateio)}>
-                    <SelectTrigger className="w-48">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RATEIO_CAMPOS.map((campo) => (
-                        <SelectItem key={campo} value={campo}>
-                          {CAMPO_LABEL[campo]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Competência</Label>
-                  <Select value={competenciaRateio ?? undefined} onValueChange={(v) => setCompetenciaRateioSelecionada(v as string)}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {competenciasTabela.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {nomeCompetencia(c)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>Valor total (R$)</Label>
-                  <Input
-                    value={valorRateio}
-                    disabled={carregandoRateio || salvandoRateio}
-                    onChange={(e) => setValorRateio(e.target.value)}
-                    className="w-36"
-                  />
-                </div>
-                <Button onClick={handleSalvarRateio} disabled={carregandoRateio || salvandoRateio || !competenciaRateio}>
-                  {salvandoRateio ? "Salvando..." : "Salvar"}
-                </Button>
-              </div>
-            )}
-          </div>
-          )}
+            <div className="flex flex-col gap-4">
+              <Button variant="secondary" onClick={() => setMostrarDadosBrutos((v) => !v)} className="self-start">
+                {mostrarDadosBrutos ? "Ocultar dados brutos / lançamentos" : "Dados brutos / lançamentos"}
+              </Button>
 
-          <ExportCard
-            titulo={podeOperar ? "Tabela detalhada — editável" : "Tabela detalhada"}
-            descricao={podeOperar ? "clique num valor pra corrigir; grava assim que sai do campo" : "valores por área e competência"}
-            arquivo="indicadores-detalhado"
-            pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
-            csv={{ headers: csvHeaders, linhas: csvLinhas }}
-            csvLista={{ headers: csvListaHeaders, linhas: csvListaLinhas }}
-          >
-            <div className="mb-3 flex flex-col gap-2">
-              <Label>Competência</Label>
-              <Select value={competenciaTabela} onValueChange={(v) => setCompetenciaTabela(v as string)}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={TODOS}>Todas</SelectItem>
-                  {competenciasTabela.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {nomeCompetencia(c)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Table containerClassName="max-h-[70vh] overflow-y-auto">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead>Área</TableHead>
-                  <TableHead>Competência</TableHead>
-                  {CAMPOS_TABELA.map((c) => (
-                    <TableHead key={c}>{CAMPO_LABEL[c]}</TableHead>
-                  ))}
-                  <TableHead>IRRF do mês (R$)</TableHead>
-                  <TableHead>% Encargos</TableHead>
-                  <TableHead>Rotatividade %</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {dadosTabela.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell>{l.empresaNome}</TableCell>
-                    <TableCell className="font-medium whitespace-nowrap text-foreground">{labelSetor(l.setor)}</TableCell>
-                    <TableCell>{nomeCompetencia(l.competencia)}</TableCell>
-                    {CAMPOS_TABELA.map((c) =>
-                      RATEIO_CAMPOS.includes(c as CampoRateio) ? (
-                        <TableCell
-                          key={c}
-                          className="text-text-2"
-                          title={`Rateado do total da empresa (R$ ${l.totaisRateio[c as CampoRateio].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}) — edite o total acima, não esta célula`}
-                        >
-                          {l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                      ) : !podeOperar ? (
-                        <TableCell key={c}>{l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</TableCell>
-                      ) : (
-                        <TableCell key={c}>
+              {mostrarDadosBrutos && (
+                <>
+                  <div className="rounded-lg border border-border bg-surface p-4">
+                    <p className="mb-1 font-mono text-[13px] font-bold text-foreground">Lançamento total (por empresa)</p>
+                    <p className="mb-3 font-mono text-[10px] text-text-3">
+                      escolha o lançamento e o mês, informe o valor total pago pela empresa — o rateio por área (ativos da área ÷
+                      total de ativos × valor total) é automático e aparece na coluna correspondente da tabela abaixo
+                    </p>
+                    {empresaId === TODOS ? (
+                      <p className="font-mono text-[11px] text-warning">Selecione uma empresa específica no filtro do topo para editar.</p>
+                    ) : (
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="flex flex-col gap-2">
+                          <Label>Lançamento</Label>
+                          <Select value={campoRateioSelecionado} onValueChange={(v) => setCampoRateioSelecionado(v as CampoRateio)}>
+                            <SelectTrigger className="w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {RATEIO_CAMPOS.map((campo) => (
+                                <SelectItem key={campo} value={campo}>
+                                  {CAMPO_LABEL[campo]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label>Competência</Label>
+                          <Select value={competenciaRateio ?? undefined} onValueChange={(v) => setCompetenciaRateioSelecionada(v as string)}>
+                            <SelectTrigger className="w-40">
+                              <SelectValue placeholder="Selecione" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {competenciasTabela.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {nomeCompetencia(c)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <Label>Valor total (R$)</Label>
                           <Input
-                            defaultValue={l[c]}
-                            disabled={salvandoId === l.id}
-                            className="w-24"
-                            onBlur={(e) => {
-                              if (Number(e.target.value) !== l[c]) handleEditarCampo(l.id, c, e.target.value);
-                            }}
+                            value={valorRateio}
+                            disabled={carregandoRateio || salvandoRateio}
+                            onChange={(e) => setValorRateio(e.target.value)}
+                            className="w-36"
                           />
-                        </TableCell>
-                      )
+                        </div>
+                        <Button onClick={handleSalvarRateio} disabled={carregandoRateio || salvandoRateio || !competenciaRateio}>
+                          {salvandoRateio ? "Salvando..." : "Salvar"}
+                        </Button>
+                      </div>
                     )}
-                    <TableCell title="IRRF férias desta competência + IRRF normal da competência anterior">
-                      {l.irrf.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </TableCell>
-                    <TableCell>{l.percentualEncargos.toFixed(1)}%</TableCell>
-                    <TableCell>{l.taxaRotatividade.toFixed(1)}%</TableCell>
-                  </TableRow>
-                ))}
-                {dadosTabela.length > 0 && (
-                  <TableRow>
-                    <TableCell className="font-bold text-foreground">Total</TableCell>
-                    <TableCell />
-                    <TableCell />
-                    {CAMPOS_TABELA.map((c) => (
-                      <TableCell key={c} className="font-bold text-foreground">
-                        {dadosTabela.reduce((soma, l) => soma + l[c], 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                      </TableCell>
-                    ))}
-                    <TableCell className="font-bold text-foreground">
-                      {dadosTabela.reduce((soma, l) => soma + l.irrf, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </TableCell>
-                    <TableCell>—</TableCell>
-                    <TableCell>—</TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </ExportCard>
+                  </div>
+
+                  <ExportCard
+                    titulo="Tabela detalhada — editável"
+                    descricao="clique num valor pra corrigir; grava assim que sai do campo"
+                    arquivo="indicadores-detalhado"
+                    pdfHref={`/admin/indicadores/resumo-pdf?${queryString}`}
+                    csv={{ headers: csvHeaders, linhas: csvLinhas }}
+                    csvLista={{ headers: csvListaHeaders, linhas: csvListaLinhas }}
+                  >
+                    <div className="mb-3 flex flex-col gap-2">
+                      <Label>Competência</Label>
+                      <Select value={competenciaTabela} onValueChange={(v) => setCompetenciaTabela(v as string)}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="Todas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={TODOS}>Todas</SelectItem>
+                          {competenciasTabela.map((c) => (
+                            <SelectItem key={c} value={c}>
+                              {nomeCompetencia(c)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Table containerClassName="max-h-[70vh] overflow-y-auto">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Empresa</TableHead>
+                          <TableHead>Área</TableHead>
+                          <TableHead>Competência</TableHead>
+                          {CAMPOS_TABELA.map((c) => (
+                            <TableHead key={c}>{CAMPO_LABEL[c]}</TableHead>
+                          ))}
+                          <TableHead>IRRF do mês (R$)</TableHead>
+                          <TableHead>% Encargos</TableHead>
+                          <TableHead>Rotatividade %</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dadosTabela.map((l) => (
+                          <TableRow key={l.id}>
+                            <TableCell>{l.empresaNome}</TableCell>
+                            <TableCell className="font-medium whitespace-nowrap text-foreground">{labelSetor(l.setor)}</TableCell>
+                            <TableCell>{nomeCompetencia(l.competencia)}</TableCell>
+                            {CAMPOS_TABELA.map((c) =>
+                              RATEIO_CAMPOS.includes(c as CampoRateio) ? (
+                                <TableCell
+                                  key={c}
+                                  className="text-text-2"
+                                  title={`Rateado do total da empresa (R$ ${l.totaisRateio[c as CampoRateio].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}) — edite o total acima, não esta célula`}
+                                >
+                                  {l[c].toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                </TableCell>
+                              ) : (
+                                <TableCell key={c}>
+                                  <Input
+                                    defaultValue={l[c]}
+                                    disabled={salvandoId === l.id}
+                                    className="w-24"
+                                    onBlur={(e) => {
+                                      if (Number(e.target.value) !== l[c]) handleEditarCampo(l.id, c, e.target.value);
+                                    }}
+                                  />
+                                </TableCell>
+                              )
+                            )}
+                            <TableCell title="IRRF férias desta competência + IRRF normal da competência anterior">
+                              {l.irrf.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell>{l.percentualEncargos.toFixed(1)}%</TableCell>
+                            <TableCell>{l.taxaRotatividade.toFixed(1)}%</TableCell>
+                          </TableRow>
+                        ))}
+                        {dadosTabela.length > 0 && (
+                          <TableRow>
+                            <TableCell className="font-bold text-foreground">Total</TableCell>
+                            <TableCell />
+                            <TableCell />
+                            {CAMPOS_TABELA.map((c) => (
+                              <TableCell key={c} className="font-bold text-foreground">
+                                {dadosTabela.reduce((soma, l) => soma + l[c], 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                              </TableCell>
+                            ))}
+                            <TableCell className="font-bold text-foreground">
+                              {dadosTabela.reduce((soma, l) => soma + l.irrf, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell>—</TableCell>
+                            <TableCell>—</TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </ExportCard>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

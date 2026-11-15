@@ -77,6 +77,7 @@ const regrasSchema = z.object({
   vaValorFixo: z.number().nonnegative().nullable(),
   vaValoresPorCargo: z.array(z.object({ cargo: z.string().trim().min(1).max(100), valor: z.number().nonnegative() })).max(50),
   vaDiaMantemDesligado: z.number().int().min(1).max(32),
+  cestaDiaMantemDesligado: z.number().int().min(1).max(31).nullable(),
   cidades: z
     .array(
       z.object({
@@ -113,6 +114,7 @@ export async function salvarRegrasEmpresa(id: string, input: RegrasEmpresaInput)
       vaValorFixo: r.vaRegra === "fixo" ? r.vaValorFixo : null,
       vaValoresPorCargo: r.vaRegra === "fixo" && r.vaValoresPorCargo.length > 0 ? JSON.stringify(r.vaValoresPorCargo) : null,
       vaDiaMantemDesligado: r.vaDiaMantemDesligado,
+      cestaDiaMantemDesligado: r.cestaDiaMantemDesligado,
       cidades: r.cidades.length > 0 ? JSON.stringify(r.cidades) : null,
       bancoHorasModo: r.bancoHorasModo,
       feriasCalendario: r.feriasCalendario,

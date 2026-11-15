@@ -16,7 +16,7 @@ export function competenciaPadrao(): { mes: string; ano: string } {
 // A partir de que dia do mês SEGUINTE ao da competência ela é considerada fechada pra
 // reprocessamento (folha/benefícios já pagos até lá) — evita reprocessar sem querer um mês que
 // já foi fechado e enviado.
-const DIA_LIMITE_REPROCESSAMENTO = 8;
+const DIA_LIMITE_REPROCESSAMENTO = 15;
 
 export function competenciaEstaFechada(competencia: { ano: number; mes: number }, agora: Date = new Date()): boolean {
   let mesSeguinte = competencia.mes + 1;

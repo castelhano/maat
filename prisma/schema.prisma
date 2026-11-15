@@ -167,6 +167,9 @@ model Empresa {
   // Desligado no mês mantém o VA (proporcional) se o desligamento for a partir deste dia; antes
   // disso perde. Regra original: 25. LOGTRANS: 31 (quem sai até o dia 30 perde).
   vaDiaMantemDesligado      Int     @default(25)
+  // Cesta básica de quem é desligado no mês da competência: null = perde (regra original); um dia
+  // (ex.: 28 na LOGTRANS) = quem sai a partir desse dia ainda recebe a cesta física do mês.
+  cestaDiaMantemDesligado   Int?
   // JSON: [{ "codigo": "0001", "nome": "Cuiabá", "valorValeGas": 117 }] — cidade de cada
   // funcionário pelo 2º bloco da Divisão da folha (ex.: 0011.0099.0075.0001 → "0099").
   cidades                   String?
